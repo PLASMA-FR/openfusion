@@ -1,111 +1,142 @@
-# FreeCAD Contribution Process (FCP)
+# Contributing to OpenFusion
 
-FreeCAD's contribution process is inspired by the Collective Code Construction Contract which itself is an evolution of the github.com Fork and Pull Model.
+OpenFusion is an incremental, compatibility-conscious evolution of FreeCAD.
+Contributions should improve real CAD workflows while protecting geometry
+correctness, user data, licensing obligations, and the ability to review
+upstream changes.
 
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED",  "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
+The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** in
+this document are used as described by RFC 2119.
 
+## Before starting
 
-## 0. Status
+1. Read [ARCHITECTURE.md](ARCHITECTURE.md), [ROADMAP.md](ROADMAP.md),
+   [TESTING.md](TESTING.md), and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+2. Search existing issues and pull requests before opening a duplicate.
+3. For substantial behavior, persistence, dependency, or architecture changes,
+   open an issue or design discussion first.
+4. Identify whether the problem is an OpenFusion regression, an inherited
+   FreeCAD issue, an external dependency issue, a platform issue, or an
+   intentionally unsupported capability.
+5. Report suspected vulnerabilities through the private process in
+   [SECURITY.md](SECURITY.md), not a public issue.
 
-FreeCAD is in a transition period. The following are to be regarded as GUIDELINES for contribution submission and acceptance. For historical reasons, the actual process MAY diverge from this process during the transition.  Such deviations SHOULD be noted and discussed whenever possible.
+Help requests and upstream FreeCAD questions are best directed to the
+[FreeCAD community resources](https://www.freecad.org/community.php). OpenFusion
+issues should contain enough information to reproduce a problem without
+requiring readers to consult a separate conversation.
 
-## 1. Goals
+## Contribution principles
 
-The FreeCAD Contribution Process is expressed here with the following specific goals in mind:
+- Submit one focused, reviewable change per pull request.
+- Prefer reuse of stable FreeCAD functionality and small migration seams over
+  duplicated geometry, document, selection, command, or persistence state.
+- Do not add a visible production command unless it works. Experimental
+  behavior must be labeled and must fail safely.
+- Preserve FCStd and Python/addon compatibility unless an approved migration
+  explicitly documents the break and its recovery path.
+- User-visible model changes MUST participate correctly in transactions,
+  recompute, undo/redo, save, close, and reopen.
+- Do not substitute screenshots, mock data, disabled tests, or skipped release
+  gates for working behavior.
+- Do not add telemetry or network communication without an approved design,
+  informed opt-in, data minimization, and security review.
+- Avoid unrelated formatting or mechanical churn, especially in inherited
+  upstream files that may receive future FreeCAD updates.
 
-1. To provide transparency and fairness in the contribution process.
-2. To allow contributions to be included as quickly as possible.
-3. To preserve and improve the code quality while encouraging appropriate experimentation and risk-taking.
-4. To minimize dependence on individual Contributors by encouraging a large pool of active Contributors.
-5. To be inclusive of many viewpoints and to harness a diverse set of skills.
-6. To provide an encouraging environment where Contributors learn and improve their skills.
-7. To protect the free and open nature of the FreeCAD project.
+Changes that also make sense in FreeCAD should be structured so they can be
+proposed upstream when practical. Preserve upstream authorship when carrying or
+adapting a patch.
 
-## 2. Fundamentals
+## Development setup
 
-1. FreeCAD uses the git distributed revision control system.
-2. Source code for the main application and related subprojects is hosted on github.com in the FreeCAD organization.
-3. Problems are discrete, well-defined limitations or bugs.
-4. FreeCAD uses GitHub's issue-tracking system to track problems and contributions. For help requests and general discussions, use the project forum.
-5. Contributions are sets of code changes that resolve a single problem.
-6. FreeCAD uses the Pull Request workflow for evaluating and accepting contributions.
+Initialize all submodules, then use the locked dependency environment or a
+documented native toolchain:
 
-## 3. Roles
-1. "User": A member of the wider FreeCAD community who uses the software.
-2. "Contributor": A person who submits a contribution that resolves a previously identified problem. Contributors do not have commit access to the repository unless they are also Maintainers. Everyone, without distinction or discrimination, SHALL have an equal right to become a Contributor.
-3. "Maintainer": A person who merges contributions. Maintainers may or may not be Contributors. Their role is to enforce the process. Maintainers have commit access to the repository.
-4. "Administrator": Administrators have additional authority to maintain the list of designated Maintainers.
+```bash
+git submodule update --init --recursive
+pixi install --locked
+pixi run configure-debug
+pixi run build-debug
+pixi run test-debug
+```
 
-## 4. Licensing, Ownership, and Credit
-1. FreeCAD is distributed under the Lesser General Public License, version 2, or superior (LGPL2+).  Additional details can be found in the LICENSE file.
-2. All contributions to FreeCAD MUST use a compatible license.
-3. All contributions are owned by their authors unless assigned to another.
-4. FreeCAD does not have a mandatory copyright assignment policy.
-5. A Contributor who wishes to be identified in the Credits section of the application "About" dialog is responsible for identifying themselves. They should modify the Contributors file and submit a PR with a single commit for this modification only. The contributors file is found at https://github.com/FreeCAD/FreeCAD/blob/main/src/Doc/CONTRIBUTORS
-6. A contributor who does not wish to assume the copyright of their contribution MAY choose to assign it to the [FreeCAD project association](https://fpa.freecad.org) by mentioning **Copyright (c) 2022 The FreeCAD project association <fpa@freecad.org>** in the file's license code block.
+See [BUILDING.md](BUILDING.md) for supported compiler baselines and native
+platform instructions. Never mix incompatible dependency environments in one
+build directory.
 
-## 5. Contribution Requirements
+## Tests and evidence
 
-1. Contributions are submitted in the form of Pull Requests (PR).
-2. Maintainers and Contributors MUST have a GitHub account and SHOULD use their real names or a well-known alias.
-3. If the GitHub username differs from the username on the FreeCAD Forum, effort SHOULD be taken to avoid confusion.
-4. A PR SHOULD be a minimal and accurate answer to exactly one identified and agreed-on problem.
-5. A PR SHOULD refrain from adding additional dependencies to the FreeCAD project unless no other option is available.
-6. Code submissions MUST adhere to the code style guidelines of the project if these are defined.
-7. If a PR contains multiple commits, each commit MUST compile cleanly when merged with all previous commits of the same PR. Each commit SHOULD add value to the history of the project. Checkpoint commits SHOULD be squashed.
-8. A PR SHALL NOT include non-trivial code from other projects unless the Contributor is the original author of that code.
-9. A PR MUST compile cleanly and pass project self-tests on all target platforms.
-10. Changes that break python API used by extensions SHALL be avoided. If it is not possible to avoid breaking changes, the amount of them MUST be minimized and PR MUST clearly describe all breaking changes with clear description on how to replace no longer working solution with newer one. Contributor SHOULD search for addons that will be broken and list them in the PR.
-11. Each commit message in a PR MUST succinctly explain what the commit achieves. The commit message SHALL follow the suggestions in the `git commit --help` documentation, section DISCUSSION.
-12. The PR Title MUST succinctly explain what the PR achieves. The Body MAY be as detailed as needed. If a PR changes the user interface (UI), the body of the text MUST include a presentation of these UI changes, preferably with screenshots of the previous and revised state.
-13. If a PR contains the work of another author (for example, if it is cherry-picked from a fork by someone other than the PR-submitter):
-    1. the PR description MUST contain proper attribution as the first line, for example: "This is work of XYZ cherry-picked from <link>";
-    2. all commits MUST have proper authorship, i.e. be authored by the original author and committed by the author of the PR;
-    3. if changes to cherry-picked commits are necessary they SHOULD be done as follow-up commits. If it is not possible to do so, then the modified commits MUST contain a `Co-Authored-By` trailer in their commit message.
-14. A “Valid PR” is one which satisfies the above requirements.
+Every pull request MUST describe the exact commands run and their results.
+Select evidence based on risk:
 
-## 6. Process
+- C++ and Python unit tests for changed logic;
+- regression tests for every significant bug fix;
+- document load/save, recompute, and undo/redo tests for modeling changes;
+- relevant GUI and keyboard/focus tests for interface changes;
+- representative import/export round trips for format changes;
+- before/after measurements for performance-sensitive changes; and
+- clean packaged-artifact installation and launch tests for packaging changes.
 
-1. Change on the project follows the pattern of accurately identifying problems and applying minimal, accurate solutions to these problems.
-2. To request changes, a User logs an issue on the project GitHub issue tracker.
-3. The User or Contributor SHOULD write the issue by describing the problem they face or observe. Links to the forum or other resources are permitted but the issue SHOULD be complete and accurate and SHOULD NOT require the reader to visit the forum or any other platform to understand what is being described.
-4. Issue authors SHOULD strive to describe the minimum acceptable condition.
-5. Issue authors SHOULD focus on User tasks and avoid comparisons to other software solutions.
-6. The User or Contributor SHOULD seek consensus on the accuracy of their observation and the value of solving the problem.
-7. To submit a solution to a problem, a Contributor SHALL create a pull request back to the project.
-8. Contributors and Maintainers SHALL NOT commit changes directly to the target branch.
-9. To discuss a proposed solution, Users MAY comment on the Pull Request in GitHub. Forum conversations regarding the solution SHOULD be discouraged and conversation redirected to the Pull Request or the related issue.
-10. To accept or reject a Pull Request, a Maintainer SHALL use GitHub's interface.
-11. Maintainers SHOULD NOT merge their own PRs except:
-    1. in exceptional cases, such as non-responsiveness from other Maintainers for an extended period.
-    2. If the Maintainer is also the primary developer of the workbench or subsystem.
+Run formatting and lint checks applicable to changed files, inspect the final
+diff, and remove debug output and generated artifacts before committing. A
+passing compile alone is not sufficient evidence. If a required test cannot be
+run, state that limitation prominently; do not report it as passed.
 
-12. Maintainers SHALL merge valid PRs from other Contributors rapidly.
-13. Maintainers MAY, at their discretion merge PRs that have not met all criteria to be considered valid to:
-    1. end fruitless discussions
-    2. capture toxic contributions in the historical record
-    3. engage with the Contributor on improving their contribution quality.
-14. Maintainers SHALL NOT make value judgments on correct contributions.
-15. If a PR requires significant further work before merging, the PR SHOULD be moved to draft status.
-16. If a PR is complete, but should not be merged yet (for example, because it depends on another in-process PR), the "On hold" label SHOULD be applied.
-17. Any Contributor who has value judgments on a PR SHOULD express these via their own PR.
-18. The User who created an issue SHOULD close the issue after checking the PR is successful.
-19. Maintainers SHOULD close issues that are left open without action or update for an unreasonable period.
+## Pull requests and commits
 
-## 7. Branches and Releases
+- Work on a focused branch and open a pull request against `main`.
+- Keep `main` buildable; do not push feature work directly to it.
+- Each commit SHOULD compile with its preceding commits and explain one
+  coherent change.
+- Use concise conventional subjects where useful, for example
+  `fix(document): reject unsafe external entities` or
+  `feat(ui): add contextual command search`.
+- Include screenshots or recordings for visible UI changes, but pair them with
+  functional test evidence.
+- Call out persistence, undo/redo, dependency, platform, performance, security,
+  accessibility, localization, and addon-compatibility effects.
+- Link the issue being resolved and update `CHANGELOG.md`, `ROADMAP.md`,
+  `docs/GAP_ANALYSIS.md`, or `KNOWN_ISSUES.md` when the change affects them.
 
-1. The project SHALL have one branch (“main”) that always holds the latest in-progress version and SHOULD always build.
-2. The project SHALL NOT use topic branches for any reason. Personal forks MAY use topic branches.
-3. To make a stable release a Maintainer SHALL tag the repository. Stable releases SHALL always be released from the repository main branch.
+Maintainers may request that broad work be split into smaller pull requests.
+Release and security gates are not waived merely because a bug exists in the
+upstream baseline.
 
-## 8. Project Administration
+## Licensing, provenance, and original assets
 
-1. Project Administrators are those individuals who are members of the FreeCAD Github organization and have the role of 'owner'.  They have the task of administering the organization including adding and removing individuals from various teams.
-2. Project Administrator is a technical role necessitated by the GitHub platform. Except for the specific exceptions listed below, the Project Administrators do not make the decision about individual team members. Rather, they carry out the collective wishes of the Maintainers team. Project Administrators will be selected from the Maintainers team by the Maintainers themselves.
-3. To ensure continuity there SHALL be at least four Project Administrators at all times.
-4. The project Administrators will manage the set of project Maintainers.  They SHALL maintain a sufficiently large pool of Maintainers to ensure their succession and permit timely review of contributions. If the pool of Maintainers is insufficient, the Project Administrators will request that the Maintainers select additional individuals to add.
-5. Contributors who have a history of successful PRs and have demonstrated continued professionalism should be invited to be Maintainers.
-6. Administrators SHOULD remove Maintainers who are inactive for an extended period, or who repeatedly fail to apply this process accurately.
-7. The list of Maintainers SHALL be publicly accessible and reflective of current activity on the project.
-8. Administrators SHALL act expediently to protect the FreeCAD infrastructure and resources.
-9. Administrators SHOULD block or ban “bad actors” who cause stress, animosity, or confusion to others in the project. This SHOULD be done after public discussion, with a chance for all parties to speak. A bad actor is someone who repeatedly ignores the rules and culture of the project, who is hostile or offensive, who impedes the productive exchange of information, and who is unable to self-correct their behavior when asked to do so by others.
+This repository contains code and assets under multiple licenses. The root
+[LICENSE](LICENSE), file headers, module metadata, and third-party notices all
+apply. Contributors retain copyright in their work unless they separately
+assign it; OpenFusion currently requires no copyright assignment.
+
+Contributions MUST:
+
+- use a license compatible with the file and repository context;
+- preserve existing copyright, attribution, and license headers;
+- identify the source, author, license, and modifications for third-party
+  material;
+- avoid adding a dependency or asset until its redistribution and binary
+  packaging terms have been reviewed; and
+- be the contributor's original work or material they are authorized to
+  contribute under compatible terms.
+
+Do not submit proprietary CAD application source, extracted resources, icons,
+logos, binaries, artwork, confidential information, or material obtained by
+circumventing technical protections. Publicly observable workflow patterns may
+inform interoperability and usability work, but OpenFusion implementation and
+assets must be original.
+
+## Conduct
+
+Be precise, constructive, and respectful. Technical disagreement is expected;
+personal attacks, harassment, discrimination, and attempts to obscure safety
+or licensing concerns are not acceptable. Maintainers may moderate discussions
+or contributions that prevent productive, inclusive collaboration.
+
+## Upstream credit
+
+OpenFusion exists because of the work of FreeCAD's contributors and ecosystem.
+Do not remove their credits or imply that inherited work was authored by
+OpenFusion contributors. Relevant FreeCAD contributor records remain under
+`src/Doc/` and in the repository history.

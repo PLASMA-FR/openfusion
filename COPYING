@@ -1,0 +1,34 @@
+OpenFusion licensing overview
+=============================
+
+OpenFusion is a modified derivative of FreeCAD. The authoritative license
+text for the principal FreeCAD-derived source in this repository is the GNU
+Lesser General Public License version 2.1 in the root LICENSE file. Many
+source files identify the applicable grant as LGPL-2.1-or-later.
+
+This file is a guide, not a replacement for LICENSE or for the copyright,
+SPDX, exception, attribution, and license notices attached to individual
+files and components. Some files, assets, submodules, libraries, command-line
+programs, fonts, examples, and packaging dependencies use other licenses.
+Those terms continue to apply to their respective material.
+
+Before distributing a source or binary build, distributors must:
+
+1. preserve all applicable copyright and license notices;
+2. provide the complete corresponding source and build/install scripts
+   required by the applicable copyleft licenses;
+3. preserve users' ability to modify or replace covered libraries and relink
+   where the applicable LGPL terms require it;
+4. include the exact third-party notices and license texts for the contents of
+   the particular artifact being distributed; and
+5. avoid imposing additional terms that conflict with LGPL, GPL, or other
+   applicable licenses.
+
+The current third-party notice set is intentionally marked incomplete and is
+not release sign-off. See THIRD_PARTY_NOTICES.md, LICENSES/README.md, and
+docs/legal/RELEASE_COMPLIANCE_AUDIT.md.
+
+FreeCAD attribution and historical copyright notices must be retained.
+OpenFusion is an independent modified work and must not imply endorsement by
+the FreeCAD Project Association, Autodesk, or any other upstream or third
+party.
