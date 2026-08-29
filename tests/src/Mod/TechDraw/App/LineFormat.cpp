@@ -22,6 +22,19 @@ TechDraw::LineFormat makeLineFormat()
 
 }  // namespace
 
+TEST(TestLineFormat, explicitLineNumberConstructorPreservesValues)
+{
+    constexpr int lineNumber = 17;
+    const Base::Color color(0.1F, 0.2F, 0.3F, 0.4F);
+    const TechDraw::LineFormat format(Qt::DashDotLine, 0.75, color, false, lineNumber);
+
+    EXPECT_EQ(format.getStyle(), Qt::DashDotLine);
+    EXPECT_DOUBLE_EQ(format.getWidth(), 0.75);
+    EXPECT_EQ(format.getColor(), color);
+    EXPECT_FALSE(format.getVisible());
+    EXPECT_EQ(format.getLineNumber(), lineNumber);
+}
+
 TEST(TestLineFormat, setQColorKeepsOpaqueColorsOpaque)
 {
     auto format = makeLineFormat();
