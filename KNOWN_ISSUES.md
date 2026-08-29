@@ -42,6 +42,9 @@ until its build and workflow evidence is recorded.
   this dependency-change gate.
 - The untrusted-input, plugin/Python, external-process, archive, temporary-file,
   and CI supply-chain security reviews are incomplete.
+- Incremental FCStd XML defenses reject external resolution and DOCTYPE, but
+  archive entry, expansion, ratio, CRC, duplicate-name, and XML-complexity
+  limits remain a release blocker tracked in issue #24.
 
 ## Product gaps
 
