@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: 💬 START HERE -- FreeCAD Forum
-    url: https://forum.freecad.org/
-    about: You are encouraged to discuss the problem you are seeing on the FreeCAD Forums before opening an issue on GitHub
+  - name: Report a security vulnerability privately
+    url: https://github.com/PLASMA-FR/openfusion/security/advisories/new
+    about: Read SECURITY.md and use a private advisory instead of a public issue.
