@@ -17,9 +17,9 @@ or a substitute for jurisdiction-specific trademark or license advice.
    root `LICENSE` contains GNU LGPL 2.1, while `src/Doc/LICENSE.html`,
    `package/WindowsInstaller/License.rtf`, and embedded About-dialog text carry
    the older GNU Library GPL version 2 text.
-2. `LICENSES/` and `THIRD_PARTY_NOTICES.md` are only scaffolds, `NOTICE.md` is
-   absent, and `src/Doc/ThirdPartyLibraries.html.cmake` covers only a subset of
-   tracked and packaged components. The repository does not yet contain the
+2. `LICENSES/`, `THIRD_PARTY_NOTICES.md`, and `NOTICE.md` are only preliminary
+   scaffolds, and `src/Doc/ThirdPartyLibraries.html.cmake` covers only a subset
+   of tracked and packaged components. The repository does not yet contain the
    exact artifact-specific license and attribution closure.
 3. Thirty-two material-pattern files installed by the application say
    `License: "All rights reserved"`; no downstream redistribution grant has
@@ -41,6 +41,16 @@ or a substitute for jurisdiction-specific trademark or license advice.
 9. Release download pinning, workflow permissions, compiler hardening,
    mandatory signing/notarization, SBOM generation, and vulnerability gates
    are not yet release-grade.
+10. The inherited GUI icon library has no exact per-file license manifest: 123
+    of 282 SVG files and all 58 PNG files contain no meaningful embedded
+    license marker. This is not proof that those files are unlicensed, but it
+    prevents artifact-level sign-off until provenance and required notices are
+    established.
+11. The inherited Windows installer can copy a prebuilt, unsigned 2019
+    `FCStdThumbnail.dll` into a system directory and register FreeCAD's shell
+    extension CLSID. A derivative release must omit it until it is rebuilt from
+    reviewed source with independent identity, coexistence, parser, uninstall,
+    and signing validation.
 
 ## Principal license and notice state
 
@@ -157,24 +167,27 @@ Immediately after `setCreateEntityReferenceNodes(false)` in
 
 ```cpp
 parser->setDisableDefaultEntityResolution(true);
-parser->setLoadExternalDTD(false);
 ```
 
-This proposed change is not part of this documentation-only scaffold. A later
-refactor should centralize secure Xerces parser construction and attach a
-deny-all resolver so parser policies cannot drift.
+Keep the existing `XercesDOMParser::Val_Auto` validation mode until a document
+compatibility audit supports changing it. Xerces ignores
+`setLoadExternalDTD(false)` in `Val_Auto`, so that flag must not be presented as
+an effective control. With no application entity resolver installed,
+`setDisableDefaultEntityResolution(true)` is the effective fail-closed control.
+A later refactor should centralize reviewed Xerces parser construction so
+parser policies cannot drift.
 
 ### Required regression tests
 
-1. Extend `tests/src/App/ProjectFile.cpp` with a temporary FCStd whose
-   `Document.xml` references a temporary external DTD defining a sentinel
-   entity used in document metadata.
-2. Run it before hardening. If the sentinel reaches `getMetadata().comment`,
-   record confirmed exploitability; otherwise retain the patch as an explicit
-   invariant.
-3. After hardening, assert that the sentinel is never returned.
-4. Add a loopback HTTP DTD fixture and assert that it receives zero
-   connections.
+1. Generate a benign temporary FCStd control archive and prove that it loads
+   and exposes its expected metadata, preventing malformed-fixture false
+   positives.
+2. Generate a second finalized FCStd whose `Document.xml` references a
+   temporary external DTD defining a sentinel entity used in metadata.
+3. Run that test before hardening to classify the observed behavior, then
+   require fail-closed rejection after hardening.
+4. As follow-up defense-in-depth, add a loopback HTTP DTD fixture and assert
+   that it receives zero connections.
 5. Keep the existing valid `ProjectTest.FCStd` load and metadata tests green.
 6. Run the tests on Linux, Windows, and macOS, with ASan/UBSan where available.
 7. Separately add XML entity-expansion and ZIP entry/count/size/ratio limits,
