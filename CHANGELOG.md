@@ -32,6 +32,8 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 ### Security
 
 - Defined private vulnerability reporting and pre-release security gates.
+- Blocked default external-entity resolution in FCStd project metadata parsing
+  and added generated-archive regression coverage.
 
 ### Known limitations
 

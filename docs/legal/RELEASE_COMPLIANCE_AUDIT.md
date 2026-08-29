@@ -35,9 +35,10 @@ or a substitute for jurisdiction-specific trademark or license advice.
    also references nonexistent `package/disable_git_info.patch`.
 7. The `OpenFusion` name has not received a professional trademark clearance
    decision, and product-facing FreeCAD branding remains in the tree.
-8. A Xerces parser used for FCStd metadata lacks the explicit external-entity
-   protections used by other parsers. This is a potential, unconfirmed
-   security inconsistency; it has not been demonstrated as exploitable.
+8. The separate Xerces parser used for FCStd project metadata lacked the
+   explicit default external-entity control used by the main restore parser.
+   Focused hardening and a generated regression are implemented but await
+   cross-platform execution; pre-hardening exploitability remains unconfirmed.
 9. Release download pinning, workflow permissions, compiler hardening,
    mandatory signing/notarization, SBOM generation, and vulnerability gates
    are not yet release-grade.
@@ -131,17 +132,17 @@ src/Mod/Material/Resources/Materials/Patterns/Pattern Files/woodgrain.FCMat
 src/Mod/Material/Resources/Materials/Patterns/Pattern Files/zinc.FCMat
 ```
 
-## FCStd metadata parser inconsistency
+## FCStd project metadata parser hardening
 
 ### Confirmed facts
 
-- `src/App/ProjectFile.cpp:228-266` implements
+- `src/App/ProjectFile.cpp:228-267` implements
   `ProjectFile::loadDocument()`.
 - It reads `Document.xml` from an FCStd ZIP at lines 234-240 and parses it at
-  lines 248-250.
-- Its `XercesDOMParser` configuration at lines 241-246 does not explicitly
-  disable default external entity resolution or external DTD loading.
-- The main XML reader does set those controls at
+  lines 249-251.
+- Its `XercesDOMParser` configuration now calls
+  `setDisableDefaultEntityResolution(true)` before parsing.
+- The main FCStd restore reader already sets external-entity controls at
   `src/Base/Reader.cpp:77-78`.
 - Parameter parsing also installs an entity blocker at
   `src/Base/Parameter.cpp:1902-1910`.
@@ -149,7 +150,7 @@ src/Mod/Material/Resources/Materials/Patterns/Pattern Files/zinc.FCMat
   thumbnail processing in `src/Mod/Start/App/DisplayedFilesModel.cpp:48-68`
   and recovery validation in `src/Gui/DocumentRecovery.cpp:566-581`.
 
-### What is not established
+### Security classification and remaining evidence
 
 No proof-of-concept test has shown that the Xerces version and build used by a
 shipping OpenFusion package fetches or expands an external URI through this
@@ -157,13 +158,13 @@ path. No file disclosure or outbound connection has been observed. Therefore:
 
 - classify this as a **potential, unconfirmed XXE/security-hardening gap**;
 - do not label it a confirmed vulnerability or assign/reuse a CVE; and
-- run a pre-patch regression fixture to determine whether current builds are
-  exploitable.
+- retain the finding as unconfirmed unless a pre-hardening regression run
+  demonstrates file, URI, or network access.
 
-### Minimal proposed hardening
+### Implemented hardening
 
-Immediately after `setCreateEntityReferenceNodes(false)` in
-`src/App/ProjectFile.cpp`, set:
+Immediately after `setCreateEntityReferenceNodes(false)`,
+`src/App/ProjectFile.cpp` now sets:
 
 ```cpp
 parser->setDisableDefaultEntityResolution(true);
@@ -174,24 +175,26 @@ compatibility audit supports changing it. Xerces ignores
 `setLoadExternalDTD(false)` in `Val_Auto`, so that flag must not be presented as
 an effective control. With no application entity resolver installed,
 `setDisableDefaultEntityResolution(true)` is the effective fail-closed control.
-A later refactor should centralize reviewed Xerces parser construction so
-parser policies cannot drift.
+A generated archive regression in `tests/src/App/ProjectFile.cpp` proves a
+benign control archive loads, then requires rejection of an otherwise valid
+archive whose `Document.xml` references a local external DTD and sentinel
+entity. A later refactor should centralize reviewed Xerces parser construction
+so parser policies cannot drift.
 
-### Required regression tests
+### Regression status and follow-ups
 
-1. Generate a benign temporary FCStd control archive and prove that it loads
-   and exposes its expected metadata, preventing malformed-fixture false
-   positives.
-2. Generate a second finalized FCStd whose `Document.xml` references a
-   temporary external DTD defining a sentinel entity used in metadata.
-3. Run that test before hardening to classify the observed behavior, then
-   require fail-closed rejection after hardening.
-4. As follow-up defense-in-depth, add a loopback HTTP DTD fixture and assert
-   that it receives zero connections.
-5. Keep the existing valid `ProjectTest.FCStd` load and metadata tests green.
-6. Run the tests on Linux, Windows, and macOS, with ASan/UBSan where available.
-7. Separately add XML entity-expansion and ZIP entry/count/size/ratio limits,
-   then test billion-laughs and ZIP-bomb inputs.
+1. [x] Generate a benign temporary FCStd control archive and assert its
+   expected metadata, preventing malformed-fixture false positives.
+2. [x] Generate a finalized FCStd whose `Document.xml` references a temporary
+   external DTD defining a sentinel entity used in metadata, then require
+   fail-closed rejection.
+3. [ ] Run the fixture before hardening to classify observed behavior.
+4. [ ] Execute the focused and full App suites on Linux, Windows, and macOS,
+   with ASan/UBSan where available.
+5. [ ] Add a loopback HTTP DTD fixture and assert zero connections.
+6. [ ] Add direct and nested external-entity and internal-expansion coverage.
+7. [ ] Add XML entity-expansion and ZIP entry/count/size/ratio limits, then
+   test billion-laughs and ZIP-bomb inputs.
 
 ## Artifact-specific compliance requirements
 
@@ -250,7 +253,8 @@ clear non-affiliation statement.
 - [ ] The 32-file material quarantine and all other ambiguous terms are
       resolved.
 - [ ] Name and branding clearance is documented.
-- [ ] The FCStd parser inconsistency has been tested and hardened.
+- [ ] The FCStd project metadata hardening passes focused and full
+      cross-platform regression tests.
 - [ ] Archive/XML resource limits and malformed-file tests pass.
 - [ ] Release downloads and GitHub Actions are digest-pinned and verified.
 - [ ] Build jobs are least-privilege; release publication is isolated.
