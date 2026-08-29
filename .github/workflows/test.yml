@@ -89,6 +89,13 @@ jobs:
           grep -Eq '^BUILD_GUI:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_IMPORT:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_MATERIAL:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_DRAFT:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_FEM:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_MEASURE:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_MESH:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_MESH_PART:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_SPREADSHEET:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_SURFACE:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_ASSEMBLY:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_CAM:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_PART:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
@@ -127,7 +134,10 @@ jobs:
           from pathlib import Path
 
           report = json.loads(Path("logs/ctest-discovery.json").read_text(encoding="utf-8"))
-          count = len(report.get("tests", []))
+          tests = report.get("tests")
+          if not isinstance(tests, list):
+              raise SystemExit("CTest JSON did not contain a tests array")
+          count = len(tests)
           Path("logs/ctest-count.txt").write_text(f"{count}\n", encoding="utf-8")
           print(f"Discovered {count} CTest tests")
           if count == 0:
@@ -167,6 +177,42 @@ jobs:
             --system-cfg "$profile_dir/config-system.cfg" \
             --dump-config \
             2>&1 | tee logs/freecadcmd-config.log
+          pixi run build/release/bin/FreeCADCmd \
+            --safe-mode \
+            --user-cfg "$profile_dir/inventory-user.cfg" \
+            --system-cfg "$profile_dir/inventory-system.cfg" \
+            --log-file "$profile_dir/freecad-cli-inventory.log" \
+            -t \
+            2>&1 | tee logs/freecadcmd-test-inventory.log
+          pixi run python - <<'PY'
+          from pathlib import Path
+
+          output = Path("logs/freecadcmd-test-inventory.log").read_text(
+              encoding="utf-8", errors="replace"
+          )
+          required = {
+              "Document",
+              "MeshTestsApp",
+              "TestAssemblyWorkbench",
+              "TestCAMApp",
+              "TestFemApp",
+              "TestMaterialsApp",
+              "TestPartApp",
+              "TestPartDesignApp",
+              "TestSketcherApp",
+              "TestSpreadsheet",
+              "TestSurfaceApp",
+              "TestTechDrawApp",
+              "UnicodeTests",
+          }
+          registered = {line.strip() for line in output.splitlines()}
+          missing = sorted(required - registered)
+          if missing:
+              raise SystemExit(f"Required CLI test units were not registered: {missing}")
+          Path("logs/freecadcmd-required-units.txt").write_text(
+              "\n".join(sorted(required)) + "\n", encoding="utf-8"
+          )
+          PY
           pixi run build/release/bin/FreeCADCmd \
             --safe-mode \
             --user-cfg "$profile_dir/user.cfg" \
@@ -225,8 +271,10 @@ jobs:
               "Menu",
               "TestAssemblyWorkbench",
               "TestCAMGui",
+              "TestDraftGui",
               "TestImportGui",
               "TestMaterialsGui",
+              "TestPartGui",
               "TestPartDesignGui",
               "TestSketcherGui",
               "TestTechDrawGui",
@@ -298,7 +346,7 @@ jobs:
         timeout-minutes: 10
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          name: baseline-linux-release-${{ github.run_id }}
+          name: baseline-linux-release-${{ github.run_id }}-${{ github.run_attempt }}
           path: logs/
           if-no-files-found: error
           retention-days: 30

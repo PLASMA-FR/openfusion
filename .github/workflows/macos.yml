@@ -134,6 +134,13 @@ jobs:
           grep -Eq '^BUILD_GUI:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_IMPORT:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_MATERIAL:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_DRAFT:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_FEM:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_MEASURE:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_MESH:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_MESH_PART:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_SPREADSHEET:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_SURFACE:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_PART:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_PART_DESIGN:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_SKETCHER:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
@@ -200,7 +207,10 @@ jobs:
           from pathlib import Path
 
           report = json.loads(Path("logs/ctest-discovery.json").read_text(encoding="utf-8"))
-          count = len(report.get("tests", []))
+          tests = report.get("tests")
+          if not isinstance(tests, list):
+              raise SystemExit("CTest JSON did not contain a tests array")
+          count = len(tests)
           Path("logs/ctest-count.txt").write_text(f"{count}\n", encoding="utf-8")
           print(f"Discovered {count} CTest tests")
           if count == 0:
@@ -244,6 +254,44 @@ jobs:
             --system-cfg "$profile_dir/system.cfg" \
             --dump-config \
             2>&1 | tee logs/freecadcmd-config.log
+          inventory_profile="$RUNNER_TEMP/openfusion-cli-inventory-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$inventory_profile"
+          pixi run "$binary" \
+            --safe-mode \
+            --user-cfg "$inventory_profile/user.cfg" \
+            --system-cfg "$inventory_profile/system.cfg" \
+            --log-file "$inventory_profile/freecad-cli-inventory.log" \
+            -t \
+            2>&1 | tee logs/freecadcmd-test-inventory.log
+          if [[ ! -s "$inventory_profile/freecad-cli-inventory.log" ]]; then
+            echo "FreeCADCmd inventory did not produce a nonempty application log." >&2
+            exit 1
+          fi
+          cp "$inventory_profile/freecad-cli-inventory.log" \
+            logs/freecadcmd-inventory-application.log
+          required_units=(
+            Document
+            MeshTestsApp
+            TestAssemblyWorkbench
+            TestCAMApp
+            TestFemApp
+            TestMaterialsApp
+            TestPartApp
+            TestPartDesignApp
+            TestSketcherApp
+            TestSpreadsheet
+            TestSurfaceApp
+            TestTechDrawApp
+            UnicodeTests
+          )
+          : > logs/freecadcmd-required-units.txt
+          for unit in "${required_units[@]}"; do
+            if ! grep -Fqx "$unit" logs/freecadcmd-test-inventory.log; then
+              echo "Required CLI test unit was not registered: $unit" >&2
+              exit 1
+            fi
+            printf '%s\n' "$unit" >> logs/freecadcmd-required-units.txt
+          done
           set +e
           pixi run "$binary" \
             --safe-mode \
@@ -328,8 +376,10 @@ jobs:
             Menu
             TestAssemblyWorkbench
             TestCAMGui
+            TestDraftGui
             TestImportGui
             TestMaterialsGui
+            TestPartGui
             TestPartDesignGui
             TestSketcherGui
             TestTechDrawGui

@@ -116,7 +116,7 @@ jobs:
           pixi run configure-release 2>&1 | Tee-Object -FilePath logs/configure.log
           if ($LASTEXITCODE -ne 0) { throw "Release configuration failed." }
 
-          $cache = Get-Content -Raw build/release/CMakeCache.txt
+          $cache = (Get-Content -Raw build/release/CMakeCache.txt).Replace("`r`n", "`n")
           $required = @(
             '^CMAKE_BUILD_TYPE:STRING=Release$',
             '^ENABLE_DEVELOPER_TESTS:BOOL=(ON|TRUE)$',
@@ -124,6 +124,13 @@ jobs:
             '^BUILD_GUI:BOOL=(ON|TRUE)$',
             '^BUILD_IMPORT:BOOL=(ON|TRUE)$',
             '^BUILD_MATERIAL:BOOL=(ON|TRUE)$',
+            '^BUILD_DRAFT:BOOL=(ON|TRUE)$',
+            '^BUILD_FEM:BOOL=(ON|TRUE)$',
+            '^BUILD_MEASURE:BOOL=(ON|TRUE)$',
+            '^BUILD_MESH:BOOL=(ON|TRUE)$',
+            '^BUILD_MESH_PART:BOOL=(ON|TRUE)$',
+            '^BUILD_SPREADSHEET:BOOL=(ON|TRUE)$',
+            '^BUILD_SURFACE:BOOL=(ON|TRUE)$',
             '^BUILD_PART:BOOL=(ON|TRUE)$',
             '^BUILD_PART_DESIGN:BOOL=(ON|TRUE)$',
             '^BUILD_SKETCHER:BOOL=(ON|TRUE)$',
@@ -199,7 +206,7 @@ jobs:
             throw "CMake C++ compiler diagnostics were not generated."
           }
           $compilerFile = $compilerFiles[0]
-          $compilerText = Get-Content -Raw $compilerFile.FullName
+          $compilerText = (Get-Content -Raw $compilerFile.FullName).Replace("`r`n", "`n")
           foreach ($pattern in @(
             '^set\(CMAKE_CXX_COMPILER ".+"\)$',
             '^set\(CMAKE_CXX_COMPILER_ID ".+"\)$',
@@ -230,6 +237,9 @@ jobs:
           $discovery | Set-Content -Encoding utf8 logs/ctest-discovery.json
 
           $report = Get-Content -Raw logs/ctest-discovery.json | ConvertFrom-Json
+          if ($report.tests -isnot [System.Array]) {
+            throw "CTest JSON did not contain a tests array."
+          }
           $count = @($report.tests).Count
           "$count" | Set-Content -Encoding ascii logs/ctest-count.txt
           Write-Host "Discovered $count CTest tests"
@@ -280,6 +290,50 @@ jobs:
             2>&1 |
             Tee-Object -FilePath logs/freecadcmd-config.log
           if ($LASTEXITCODE -ne 0) { throw "FreeCADCmd configuration probe failed." }
+
+          $inventoryProfile = Join-Path $env:RUNNER_TEMP "openfusion-cli-inventory-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Force $inventoryProfile | Out-Null
+          $inventoryLog = Join-Path $inventoryProfile "freecad-cli-inventory.log"
+          pixi run $binary `
+            --safe-mode `
+            --user-cfg (Join-Path $inventoryProfile "user.cfg") `
+            --system-cfg (Join-Path $inventoryProfile "system.cfg") `
+            --log-file $inventoryLog `
+            -t `
+            2>&1 | Tee-Object -FilePath logs/freecadcmd-test-inventory.log
+          if ($LASTEXITCODE -ne 0) { throw "FreeCADCmd test inventory failed." }
+          if (
+            -not (Test-Path -LiteralPath $inventoryLog -PathType Leaf) -or
+            (Get-Item -LiteralPath $inventoryLog).Length -eq 0
+          ) {
+            throw "FreeCADCmd inventory did not produce a nonempty application log."
+          }
+          Copy-Item -LiteralPath $inventoryLog logs/freecadcmd-inventory-application.log
+          $inventory = Get-Content -Raw logs/freecadcmd-test-inventory.log
+          $requiredUnits = @(
+            'Document',
+            'MeshTestsApp',
+            'TestAssemblyWorkbench',
+            'TestCAMApp',
+            'TestFemApp',
+            'TestMaterialsApp',
+            'TestPartApp',
+            'TestPartDesignApp',
+            'TestSketcherApp',
+            'TestSpreadsheet',
+            'TestSurfaceApp',
+            'TestTechDrawApp',
+            'UnicodeTests'
+          )
+          $missingUnits = @(
+            $requiredUnits | Where-Object {
+              $inventory -notmatch "(?m)^$([regex]::Escape($_))[ \t]*\r?$"
+            }
+          )
+          if ($missingUnits.Count -ne 0) {
+            throw "Required CLI test units were not registered: $($missingUnits -join ', ')"
+          }
+          $requiredUnits | Set-Content -Encoding ascii logs/freecadcmd-required-units.txt
 
           pixi run $binary `
             --safe-mode `
@@ -352,8 +406,10 @@ jobs:
             "Menu",
             "TestAssemblyWorkbench",
             "TestCAMGui",
+            "TestDraftGui",
             "TestImportGui",
             "TestMaterialsGui",
+            "TestPartGui",
             "TestPartDesignGui",
             "TestSketcherGui",
             "TestTechDrawGui",
