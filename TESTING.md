@@ -54,7 +54,28 @@ The release acceptance project must exercise, with real commands and persisted o
 11. export STEP and STL;
 12. reopen or independently validate the exports.
 
-The initial harness is tracked under `tests/openfusion/`. A missing or unsupported step is recorded as a release-blocking gap; it is never replaced with mock data.
+The first executable vertical slice is registered as
+`OpenFusion_Core_Acceptance` from `tests/acceptance/`. It creates two real
+Part Design bodies, fully constrained sketches, a pad, through hole, fillet,
+and linear pattern; saves/reopens FCStd; edits an early named dimension;
+verifies downstream recompute plus undo/redo; and exports and reimports
+spatially distinct solids through STEP and STL.
+
+Run it directly after a configured build:
+
+```bash
+ctest --test-dir build/release \
+  -R '^OpenFusion_Core_Acceptance$' \
+  --output-on-failure \
+  --no-tests=error
+```
+
+The generated FCStd, STEP, STL, application log, and isolated configuration
+remain under `build/release/Testing/OpenFusionAcceptance/` for diagnostics.
+Assembly relationships and TechDraw creation/export remain separate pending
+acceptance slices; the core test does not claim to cover them. A missing or
+unsupported release step is recorded as a release-blocking gap and is never
+replaced with mock data.
 
 ## Package smoke tests
 

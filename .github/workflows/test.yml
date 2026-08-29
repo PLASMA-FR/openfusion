@@ -138,6 +138,11 @@ jobs:
           if not isinstance(tests, list):
               raise SystemExit("CTest JSON did not contain a tests array")
           count = len(tests)
+          names = {
+              test.get("name") for test in tests if isinstance(test, dict)
+          }
+          if "OpenFusion_Core_Acceptance" not in names:
+              raise SystemExit("Core acceptance test was not registered with CTest")
           Path("logs/ctest-count.txt").write_text(f"{count}\n", encoding="utf-8")
           print(f"Discovered {count} CTest tests")
           if count == 0:
@@ -340,6 +345,8 @@ jobs:
           cp build/release/CMakeCache.txt logs/CMakeCache.txt 2>/dev/null || true
           cp build/release/CMakeFiles/CMakeConfigureLog.yaml logs/CMakeConfigureLog.yaml 2>/dev/null || true
           cp -R build/release/Testing/Temporary logs/ctest-temporary 2>/dev/null || true
+          cp -R build/release/Testing/OpenFusionAcceptance \
+            logs/openfusion-acceptance 2>/dev/null || true
 
       - name: Upload baseline logs
         if: always()

@@ -241,6 +241,10 @@ jobs:
             throw "CTest JSON did not contain a tests array."
           }
           $count = @($report.tests).Count
+          $testNames = @($report.tests | ForEach-Object { $_.name })
+          if ($testNames -notcontains "OpenFusion_Core_Acceptance") {
+            throw "Core acceptance test was not registered with CTest."
+          }
           "$count" | Set-Content -Encoding ascii logs/ctest-count.txt
           Write-Host "Discovered $count CTest tests"
           if ($count -eq 0) { throw "CTest discovered zero tests." }
@@ -489,6 +493,10 @@ jobs:
           }
           if (Test-Path build/release/Testing/Temporary) {
             Copy-Item -Recurse build/release/Testing/Temporary logs/ctest-temporary
+          }
+          if (Test-Path build/release/Testing/OpenFusionAcceptance) {
+            Copy-Item -Recurse build/release/Testing/OpenFusionAcceptance `
+              logs/openfusion-acceptance
           }
 
       - name: Upload Windows baseline logs
