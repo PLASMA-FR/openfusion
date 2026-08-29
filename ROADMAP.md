@@ -60,7 +60,7 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 ## M1 — Integrated Design workspace vertical slice
 
-**Status:** Not started
+**Status:** Source integration paths researched; implementation is gated on a passing baseline
 **Purpose:** Prove a real workspace presentation layer without replacing modeling logic or creating a mock interface.
 
 ### Scope
@@ -76,7 +76,9 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 - `Gui::Application::activateWorkbench()` and `signalActivateWorkbench`
 - `Gui::WorkbenchManager`
-- `Gui::CommandManager`, `CommandManager::signalChanged`, and `runCommandByName()`
+- `Gui::CommandManager`, `CommandManager::signalChanged`, `Command::testActive()`,
+  and the command-owned `Gui::Action`/`QAction`
+- `Gui::WorkbenchManipulator` immediately before real toolbar setup
 - `Gui::SelectionObserver` and `Gui::SelectionFilter`
 - `Gui::ComboView`, `Gui::TreeWidget`, and global selection synchronization
 - Part Design `TaskWatcherCommands` selection rules
@@ -85,12 +87,10 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 | Planned path | Responsibility |
 |---|---|
-| `src/Gui/Workspace/WorkspaceRegistry.h/.cpp` | `WorkspaceDescriptor`, `ContextActionRule`, and `WorkspaceRegistry`; stable workspace IDs, backing workbenches, rules, availability, and ordering. |
-| `src/Gui/Workspace/WorkspaceController.h/.cpp` | `WorkspaceController`; coalesced observation of workbench, document, view, selection, and edit-mode state without document mutation. |
-| `src/Gui/Workspace/WorkspaceAction.h/.cpp` | `WorkspaceActionGroup` and `WorkspaceComboBox`; activation and bidirectional synchronization with legacy workbenches. |
-| `src/Gui/Workspace/ContextActionWidget.h/.cpp` | Dynamic, deduplicated presentation of existing command-owned `QAction` objects. |
-| `src/Gui/CommandPalette.h/.cpp` | `CommandCatalogModel`, `CommandSearchProxyModel`, and `CommandPaletteDialog`. |
-| `src/Mod/PartDesign/Gui/OpenFusionWorkspace.h/.cpp` | Idempotent registration of the Design workspace and its real contextual commands. |
+| `src/Gui/Workspace.h/.cpp` | Curated descriptors, runtime availability, real activation commands, selector action/combo box, bidirectional synchronization, and the narrow workbench-toolbar manipulator. |
+| `src/Gui/CommandSearchModel.h/.cpp` | Copied command-ID/metadata snapshots and deterministic fuzzy ranking over actions exposed by the active menu and toolbars. |
+| `src/Gui/CommandPalette.h/.cpp` | Nonmodal keyboard-accessible launcher with focus restoration and execution through the real command-owned `QAction`. |
+| `src/Gui/WorkspaceContext.h/.cpp` | Later M1 sub-slice: coalesced document, view, selection, and edit-mode observation plus contextual action rules. |
 
 ### Initial workspace mappings
 
@@ -114,19 +114,28 @@ Sheet Metal and Rendering must not be advertised until compatible implementation
 - Single body: `PartDesign_NewSketch`, `Std_Properties`.
 - Empty selection: `PartDesign_Body`.
 
-Rules expose only registered commands. Disabled commands remain disabled. Group commands are not executable from the palette until child-action indices are modeled explicitly.
+Rules expose only registered commands and reuse their owned actions. Disabled
+commands remain disabled. Palette execution must restore the prior focus, call
+`Command::testActive()`, recheck the real action, and trigger that `QAction` so
+grouped and checkable semantics are preserved. It must not use
+`CommandManager::runCommandByName()`, which bypasses QAction-level gating.
 
 ### Safe implementation sequence
 
-1. Add the registry and headless tests.
-2. Add the controller with scoped signal connections and queued-state invalidation tests.
-3. Add the workspace selector while retaining `Std_Workbench` as a compatibility fallback.
-4. Add contextual rule evaluation and the dynamic action widget.
-5. Register and integration-test the Design rules after Part Design commands load.
-6. Add the lazy, revision-aware command catalog and fuzzy palette.
-7. Change only the visible `ComboView` title to Project; preserve `Std_ComboView` and object name `Model`.
-8. Complete keyboard, focus, HiDPI, save/reopen, and undo/redo acceptance checks.
-9. Enable the shell by default only in the OpenFusion-branded build after all M1 gates pass.
+1. Add the curated workspace catalog, activation commands, and tests.
+2. Replace only the existing toolbar selector item through
+   `WorkbenchManipulator`; retain `Std_Workbench` and the legacy menu.
+3. Prove UI, Python, addon, failure, and per-document-tab activation cannot
+   diverge from the actual active workbench.
+4. Add a copied-ID command search model over the current menu/toolbar surface;
+   never retain raw command or action pointers.
+5. Add the palette and its focus, enablement, grouped/checkable action, dynamic
+   command removal, localization, and HiDPI tests.
+6. Add contextual rule evaluation and the dynamic action widget.
+7. Register and integration-test the Design rules after Part Design commands load.
+8. Change only the visible `ComboView` title to Project; preserve `Std_ComboView` and object name `Model`.
+9. Complete keyboard, focus, HiDPI, save/reopen, and undo/redo acceptance checks.
+10. Enable the shell by default only after all M1 gates pass.
 
 ### Planned tests
 
@@ -141,7 +150,8 @@ Rules expose only registered commands. Disabled commands remain disabled. Group 
 - Workspace and legacy workbench state cannot diverge during UI, Python, or per-tab activation.
 - Selecting Design loads the real Part Design workbench and commands.
 - Face, edge, sketch, body, and empty selections produce the specified real command sets.
-- Context and palette activation use existing command paths and create no duplicate undo transaction.
+- Context and palette activation trigger the enabled command-owned action after
+  normal active-state checks and create no duplicate undo transaction.
 - Lazy command registration updates the palette without restart.
 - Escape closes the palette without changing a document and restores focus.
 - Tree and viewport selections produce the same context.
