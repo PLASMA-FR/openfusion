@@ -177,6 +177,15 @@ installer, signature, or notarization ticket has been produced.
 - saved documents reopen and representative STEP/STL exports are nonempty and
   parseable;
 - package logs contain no unhandled exception, crash, or missing-runtime error.
+- the final payload and source archive contain none of the 32 quarantined
+  material patterns and none of the denylisted upstream product-identity asset
+  hashes;
+- every shipped functional icon and raster asset maps to an audited license,
+  attribution, and source entry; missing embedded metadata is not treated as a
+  license;
+- the Windows shell thumbnail provider is absent until a source-built,
+  independently identified, signed, coexistence-safe implementation passes
+  parser and uninstall review.
 
 ### Linux-specific gates
 

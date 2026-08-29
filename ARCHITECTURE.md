@@ -85,12 +85,23 @@ application, MDI owner, or active-document concept.
   compatibility API, but it is not the launcher dispatch path because it does
   not preserve all QAction-level gating and grouped/checkable semantics.
 - `src/Gui/Action.{h,cpp}` bridges commands to `QAction`, including translated
-  labels, tooltips, icons, shortcuts, enabled state, and check state.
+  labels, tooltips, icons, shortcuts, enabled state, and check state. Python
+  command groups are a special case: each child action stores a
+  `CommandName`, but the owning group command remains the invocation proxy and
+  receives the stable child index.
 - `src/Gui/MenuManager.*`, `ToolBarManager.*`, `ToolBoxManager.*`, and
   `DockWindowManager.*` turn command identifiers into shell controls.
 - `src/Gui/Workbench.{h,cpp}`, `WorkbenchManager.*`, and `WorkbenchFactory.*`
   manage workbench creation and activation. Module `InitGui.py` files register
   Python workbenches and commands. First activation may lazily import a module.
+  `Gui::Application::workbenches()` enumerates installed, policy-visible Python
+  handlers; `WorkbenchManager::workbenches()` lists only already-created C++
+  instances and is not a workspace-availability API.
+- `Gui::MainWindow::workbenchActivated` is both a UI notification and a request
+  bridge used by the per-tab workbench feature. `Application::signalActivateWorkbench`
+  is emitted on the normal application path, but not when a handler activates
+  itself during initialization or when raw `WorkbenchPy.activate()` calls the
+  manager. Neither signal alone is an authoritative completion boundary.
 
 Command identifiers are already shared by menus, shortcuts, macros, Python
 automation, and addons. They are the correct dispatch boundary for OpenFusion
@@ -200,21 +211,25 @@ the compatibility period.
 
 ## Planned OpenFusion presentation layer
 
-The presentation layer will live under a dedicated GUI namespace and source
-directory, planned as `src/Gui/OpenFusion/`. It owns Qt presentation state and
-workflow composition only.
+The first presentation-layer slice remains in the existing `Gui` library and
+namespace, beside the workbench selector and command infrastructure it extends.
+This avoids a second GUI ownership layer and keeps the source lists consistent
+with the existing `Gui_Widgets_CPP`/`Gui_Widgets_HPP` organization. A dedicated
+directory can be introduced later when several independent components justify
+it. These classes own Qt presentation state and workflow composition only.
 
 | Planned component | Responsibility | Uses | Must not own |
 | --- | --- | --- | --- |
-| `OpenFusion::ShellController` | Install the top frame, workspace selector, contextual command surface, project dock, inspector dock, and timeline dock into `Gui::MainWindow`. | `Gui::Application`, `Gui::MainWindow`, dock and toolbar managers | Documents, MDI views, geometry, or a second event loop |
-| `OpenFusion::WorkspaceController` | Present Design, Surface, Assembly, Drawing, Manufacturing, Simulation, and Mesh as coherent workspaces; activate/load backing modules and publish a curated command set. | `Gui::WorkbenchManager`, `Gui::WorkbenchManipulator`, workbench definitions | Replacement command implementations or geometry logic |
-| `OpenFusion::CommandCatalog` | Copy stable IDs and translated metadata from commands exposed by the current menu/toolbar action surface; later add explicit providers for real settings pages and workspaces. | `getCommandByName()`, `signalChanged`, `Gui::Action`, menus and toolbars | Raw `Command*`/`QAction*`, hidden callback commands, or copied enabled state |
-| `OpenFusion::CommandSearchModel` | Fuzzy search, stable ranking, keyboard navigation, and safe execution through the command-owned action. | `CommandCatalog`, `Command::testActive()`, `Gui::Action` | Direct calls into operation task panels or an independent command dispatcher |
-| `OpenFusion::ContextModel` | Derive applicable commands from workspace, selection, active component/body, edit mode, and command active state. | `Gui::SelectionSingleton`, active App/Gui documents, `Command::isActive()` | A second selection or command-state system |
-| `OpenFusion::ProjectModel` | Expose document/component/body hierarchy, icons, visibility, rename, activation, valid DnD, filtering, and keyboard navigation. | `Gui::Document`, ViewProviders, `claimChildren()`, `Gui::SelectionSingleton` | Parallel object ownership or inferred link rewrites |
-| `OpenFusion::TimelineModel` | Present semantic Body feature order, dependency edges, recompute/error status, selection synchronization, and capability flags. | `PartDesign::Body`, `Part::BodyBase::Group` and `Tip`, `DocumentObject` dependencies, document signals | The undo stack as history, arbitrary feature order, or geometry |
-| `OpenFusion::TimelineMutationService` | Execute edit, delete, supported suppression, and validated rollback as named transactions and commands. | Command registry, `App::Document` transactions, Body APIs, `SuppressibleExtension` | Generic suppression/reorder behavior for unsupported object types |
-| `OpenFusion::InspectorModel` | Curated geometric, placement, appearance, constraints, metadata, and advanced property views. | Existing App properties and property editors | Shadow property values |
+| `Gui::ShellController` | Install the top frame, workspace selector, contextual command surface, project dock, inspector dock, and timeline dock into `Gui::MainWindow`. | `Gui::Application`, `Gui::MainWindow`, dock and toolbar managers | Documents, MDI views, geometry, or a second event loop |
+| `Gui::WorkspaceCatalog` | Provide fixed-order descriptors for Design, Surface, Assembly, Drawing, Manufacturing, Simulation, and Mesh, with availability derived from installed handlers. | `Gui::Application::workbenches()`, command registration | Created-workbench enumeration or synthetic capabilities |
+| `Gui::WorkspaceController` | Activate/load a descriptor's backing workbench and publish the workspace corresponding to the manager's completed active state. | `Gui::WorkbenchManager`, `Gui::WorkbenchManipulator`, workbench definitions | Replacement command implementations or geometry logic |
+| `Gui::CommandCatalog` | Copy stable IDs and translated metadata from commands exposed by the current menu/toolbar action surface; add explicit providers only for real settings pages, workspaces, and history. | `getCommandByName()`, `signalChanged`, `Gui::Action`, menus and toolbars | Raw `Command*`/`QAction*`, hidden callback commands, or copied enabled state |
+| `Gui::CommandSearchModel` | Fuzzy search, stable ranking, keyboard navigation, and safe execution through the command-owned action or validated group proxy. | `CommandCatalog`, `Command::testActive()`, `Gui::Action` | Direct calls into operation task panels or an independent command dispatcher |
+| `Gui::ContextModel` | Derive applicable commands from workspace, selection, active component/body, edit mode, and command active state. | `Gui::SelectionSingleton`, active App/Gui documents, `Command::isActive()` | A second selection or command-state system |
+| `Gui::ProjectModel` | Expose document/component/body hierarchy, icons, visibility, rename, activation, valid DnD, filtering, and keyboard navigation. | `Gui::Document`, ViewProviders, `claimChildren()`, `Gui::SelectionSingleton` | Parallel object ownership or inferred link rewrites |
+| `Gui::TimelineModel` | Present semantic Body feature order, dependency edges, recompute/error status, selection synchronization, and capability flags. | `PartDesign::Body`, `Part::BodyBase::Group` and `Tip`, `DocumentObject` dependencies, document signals | The undo stack as history, arbitrary feature order, or geometry |
+| `Gui::TimelineMutationService` | Execute edit, delete, supported suppression, and validated rollback as named transactions and commands. | Command registry, `App::Document` transactions, Body APIs, `SuppressibleExtension` | Generic suppression/reorder behavior for unsupported object types |
+| `Gui::InspectorModel` | Curated geometric, placement, appearance, constraints, metadata, and advanced property views. | Existing App properties and property editors | Shadow property values |
 
 ### Shell and workspace event flow
 
@@ -234,25 +249,46 @@ flowchart TD
 ```
 
 The controller layer subscribes to existing signals and publishes immutable
-view state. A UI action returns through `Gui::CommandManager` or a narrowly
-typed mutation service that opens one App transaction. The model then emits
-the normal document, ViewProvider, and selection signals that refresh every
-surface.
+view state. The first slice adds `WorkbenchManager::signalWorkbenchActivated`,
+emitted after `Workbench::activate()` has completed and emitted with an empty
+name if the active workbench is removed. All activation paths then converge on
+one manager-level completion signal. `MainWindow::workbenchActivated` remains
+the existing per-tab/request bridge; the legacy `Std_Workbench` menu command
+remains installed. A UI action returns through the existing command-owned
+action or a narrowly typed mutation service that opens one App transaction.
+The model then emits the normal document, ViewProvider, and selection signals
+that refresh every surface.
 
 ### Command search contract
 
 The first launcher indexes only real commands exposed by the current menu and
-workbench toolbar action surface. It resolves and stores copied command IDs and
+workbench toolbar action surface. It resolves and stores copied IDs and
 localized metadata, excludes test/internal callbacks, and never retains raw
-command or action pointers. Explicit workspace, settings, and recent-command
-providers are deferred until each has a real activation/invocation contract.
+command or action pointers. A direct entry stores its command ID. A grouped
+entry stores `{targetCommandId, ownerGroupCommandId, ownerChildIndex}` because
+triggering the target command independently changes Python-group semantics.
+Explicit workspace, settings, and recent-command providers are added only when
+each has a real activation, navigation, or persistence contract.
 
-The catalog rebuilds when `Gui::CommandManager::signalChanged` fires, after a
-workbench switch, and on language changes. Before showing results, it refreshes
-normal command active state. Before execution, it restores the user's prior
-focus, re-resolves the command ID, calls `Command::testActive()`, verifies the
-real action is enabled, and triggers the command-owned `QAction`. Disabled
-commands can be shown as unavailable, but cannot be invoked through a bypass.
+The catalog rebuilds when `Gui::CommandManager::signalChanged` fires and after
+the completed manager-level workbench signal because the visible action surface
+is reconstructed. It queues a rebuild after `QEvent::LanguageChange`, after
+`MainWindow` has retransferred translated command data. Before showing results,
+it refreshes normal command active state. Before direct execution, it restores
+the user's prior focus, re-resolves and initializes the command action, calls
+`Command::testActive()`, validates that the action's `Gui::Action` parent owns
+that command, verifies the real `QAction` is enabled, and triggers it. Before a
+grouped execution it also re-resolves the owner, validates the child index and
+its `CommandName`, and triggers that enabled child through the owner group.
+`QAction::data()` and `objectName()` are diagnostic metadata, not authority.
+Disabled commands can be shown as unavailable, but cannot be invoked through a
+bypass.
+
+The palette shortcut is a registered `Std_CommandSearch` command with
+`Qt::ApplicationShortcut`, not a parallel `QShortcut`. The existing
+`ShortcutManager` text-editor `ShortcutOverride` rule must gain a narrow,
+action-property allowlist so the configurable launcher shortcut works while a
+line edit has focus without enabling unrelated application shortcuts there.
 
 ### Timeline contract
 
@@ -282,21 +318,24 @@ durable feature timeline. They must never be displayed or serialized as one.
 
 1. Apply OpenFusion branding through the existing branding seam while keeping
    compatibility names and formats.
-2. Install `ShellController` into the existing `Gui::MainWindow` without
-   changing App or MDI ownership.
-3. Implement `CommandCatalog`, command search, and workspace definitions over
-   stable command IDs.
-4. Add `ContextModel` and a contextual toolbar driven by selection/edit state
+2. Add the manager-level completed-workbench signal and install the fixed-order
+   workspace catalog and `Std_Workspace` group without changing App or MDI
+   ownership.
+3. Replace only the `Workbench` toolbar's `Std_Workbench` leaf through
+   `WorkbenchManipulator`; preserve the legacy menu and per-tab bridge.
+4. Implement `CommandCatalog` and command search over stable direct and grouped
+   command identities, including the narrow `ShortcutManager` integration.
+5. Add `ContextModel` and a contextual toolbar driven by selection/edit state
    and command active state.
-5. Add read-only `ProjectModel` and `TimelineModel`; prove synchronization
+6. Add read-only `ProjectModel` and `TimelineModel`; prove synchronization
    against the legacy tree and viewport.
-6. Add controlled rename, visibility, activation, edit, suppression, and
+7. Add controlled rename, visibility, activation, edit, suppression, and
    rollback one operation at a time, with undo/redo and save/reopen tests.
-7. Replace primary legacy panels only after behavior parity tests pass; keep an
+8. Replace primary legacy panels only after behavior parity tests pass; keep an
    Advanced or compatibility path during migration.
-8. Modernize module task panels behind existing Sketcher, PartDesign,
+9. Modernize module task panels behind existing Sketcher, PartDesign,
    Assembly, TechDraw, CAM, and FEM operation contracts.
-9. Consider deeper kernel, renderer, or persistence changes only through a
+10. Consider deeper kernel, renderer, or persistence changes only through a
    separate ADR, compatibility plan, migration fixtures, and benchmarks.
 
 At every step the repository must still build, existing FCStd documents must
@@ -309,9 +348,13 @@ otherwise.
 Presentation-layer changes require more than widget tests. The minimum test
 set for the first slice is:
 
-- command catalog discovers C++ and lazily registered Python commands;
+- command catalog discovers C++, lazily registered Python, and grouped child
+  commands without retaining pointers across removal or retranslation;
+- UI, Python, handler-self-activation, raw `WorkbenchPy.activate()`, failure,
+  and per-tab paths converge on the real manager active workbench;
 - workspace changes preserve the active document, view, edit state, and
-  command enabled state;
+  command enabled state; fixed group child indices do not change when a
+  workspace becomes unavailable;
 - context actions track object and subelement selection without stale state;
 - project and timeline selection remain synchronized with the viewport;
 - timeline edit/suppression/rollback operations are each one undoable

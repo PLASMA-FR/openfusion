@@ -74,11 +74,16 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 ### Existing integration points
 
-- `Gui::Application::activateWorkbench()` and `signalActivateWorkbench`
-- `Gui::WorkbenchManager`
+- `Gui::Application::activateWorkbench()` for normal handler activation and
+  `Gui::Application::workbenches()` for installed, policy-visible handlers
+- `Gui::WorkbenchManager` as the active-instance authority; add one completed
+  activation/removal signal because existing application and main-window
+  signals do not cover every activation path
 - `Gui::CommandManager`, `CommandManager::signalChanged`, `Command::testActive()`,
   and the command-owned `Gui::Action`/`QAction`
 - `Gui::WorkbenchManipulator` immediately before real toolbar setup
+- `Gui::ShortcutManager` for the configurable application shortcut, including
+  a narrow opt-in exception to its line-edit `ShortcutOverride` rule
 - `Gui::SelectionObserver` and `Gui::SelectionFilter`
 - `Gui::ComboView`, `Gui::TreeWidget`, and global selection synchronization
 - Part Design `TaskWatcherCommands` selection rules
@@ -87,9 +92,11 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 | Planned path | Responsibility |
 |---|---|
-| `src/Gui/Workspace.h/.cpp` | Curated descriptors, runtime availability, real activation commands, selector action/combo box, bidirectional synchronization, and the narrow workbench-toolbar manipulator. |
-| `src/Gui/CommandSearchModel.h/.cpp` | Copied command-ID/metadata snapshots and deterministic fuzzy ranking over actions exposed by the active menu and toolbars. |
-| `src/Gui/CommandPalette.h/.cpp` | Nonmodal keyboard-accessible launcher with focus restoration and execution through the real command-owned `QAction`. |
+| `src/Gui/Workspace.h/.cpp` | Fixed-order descriptors, availability from `Application::workbenches()`, the `Std_Workspace` group, selector action/combo box, synchronization from the manager completion signal, and the narrow workbench-toolbar manipulator. |
+| `src/Gui/WorkbenchManager.h/.cpp` | Compatibility-neutral completed-activation/removal signal emitted after the manager's authoritative active pointer and toolbar/menu setup change. |
+| `src/Gui/CommandSearchModel.h/.cpp` | Copied command-ID/metadata snapshots and deterministic fuzzy ranking over actions exposed by the active menu and toolbars; group entries retain owner command and child index. |
+| `src/Gui/CommandPalette.h/.cpp` | Nonmodal keyboard-accessible launcher with focus restoration and execution through the validated real command-owned or owner-group `QAction`. |
+| `src/Gui/ShortcutManager.h/.cpp` | Narrow property-based opt-in that permits only the command-search application shortcut while line edits have focus. |
 | `src/Gui/WorkspaceContext.h/.cpp` | Later M1 sub-slice: coalesced document, view, selection, and edit-mode observation plus contextual action rules. |
 
 ### Initial workspace mappings
@@ -115,31 +122,43 @@ Sheet Metal and Rendering must not be advertised until compatible implementation
 - Empty selection: `PartDesign_Body`.
 
 Rules expose only registered commands and reuse their owned actions. Disabled
-commands remain disabled. Palette execution must restore the prior focus, call
-`Command::testActive()`, recheck the real action, and trigger that `QAction` so
-grouped and checkable semantics are preserved. It must not use
-`CommandManager::runCommandByName()`, which bypasses QAction-level gating.
+commands remain disabled. Direct palette execution must restore the prior
+focus, initialize and re-resolve the command action, call `Command::testActive()`,
+validate its owner, recheck the real action, and trigger that `QAction`. A group
+child must re-resolve and validate its owning group plus stable child index and
+trigger the child through that proxy. It must not use
+`CommandManager::runCommandByName()`, which bypasses QAction-level gating and
+cannot preserve grouped/checkable semantics.
 
 ### Safe implementation sequence
 
-1. Add the curated workspace catalog, activation commands, and tests.
-2. Replace only the existing toolbar selector item through
-   `WorkbenchManipulator`; retain `Std_Workbench` and the legacy menu.
-3. Prove UI, Python, addon, failure, and per-document-tab activation cannot
+1. Add `WorkbenchManager::signalWorkbenchActivated` and prove it covers normal,
+   handler-self, raw Python object, removal, and failed activation paths.
+2. Add the curated workspace catalog and a fixed-child-order `Std_Workspace`
+   group. Availability changes action visibility/enabled state and the combo's
+   displayed subset; it never deletes or reindexes group children.
+3. Replace only `root -> Workbench -> Std_Workbench` with `Std_Workspace`
+   through `WorkbenchManipulator`; `ToolBarItem::findItem()` is one-level, so
+   each level must be resolved explicitly. Retain `Std_Workbench` and the
+   legacy menu for compatibility and for `NoneWorkbench`, whose toolbar tree is
+   intentionally empty.
+4. Prove UI, Python, addon, failure, and per-document-tab activation cannot
    diverge from the actual active workbench.
-4. Add a copied-ID command search model over the current menu/toolbar surface;
-   never retain raw command or action pointers.
-5. Add the palette and its focus, enablement, grouped/checkable action, dynamic
-   command removal, localization, and HiDPI tests.
-6. Add contextual rule evaluation and the dynamic action widget.
-7. Register and integration-test the Design rules after Part Design commands load.
-8. Change only the visible `ComboView` title to Project; preserve `Std_ComboView` and object name `Model`.
-9. Complete keyboard, focus, HiDPI, save/reopen, and undo/redo acceptance checks.
-10. Enable the shell by default only after all M1 gates pass.
+5. Add a copied-ID command search model over the current menu/toolbar surface;
+   never retain raw command or action pointers. Model group children as owner
+   command plus child index, not as independent dispatch targets.
+6. Add the `Std_CommandSearch` palette and its focus, active-state, grouped and
+   checkable action, dynamic command removal, queued localization rebuild,
+   `ShortcutManager`, and HiDPI tests.
+7. Add contextual rule evaluation and the dynamic action widget.
+8. Register and integration-test the Design rules after Part Design commands load.
+9. Change only the visible `ComboView` title to Project; preserve `Std_ComboView` and object name `Model`.
+10. Complete keyboard, focus, HiDPI, save/reopen, and undo/redo acceptance checks.
+11. Enable the shell by default only after all M1 gates pass.
 
 ### Planned tests
 
-- `tests/src/Gui/WorkspaceRegistry.cpp`
+- `tests/src/Gui/Workspace.cpp`
 - `tests/src/Gui/ContextActions.cpp`
 - `tests/src/Gui/CommandPalette.cpp`
 - `tests/src/Gui/WorkspaceWidgets.cpp`
@@ -147,12 +166,19 @@ grouped and checkable semantics are preserved. It must not use
 
 ### Exit gate
 
-- Workspace and legacy workbench state cannot diverge during UI, Python, or per-tab activation.
+- Workspace and legacy workbench state cannot diverge during UI, Python,
+  handler-self, raw `WorkbenchPy`, removal, failed, or per-tab activation.
+- The selector uses stable workspace identities and group indices across
+  availability changes; `Std_Workbench` remains functional in the menu.
 - Selecting Design loads the real Part Design workbench and commands.
 - Face, edge, sketch, body, and empty selections produce the specified real command sets.
 - Context and palette activation trigger the enabled command-owned action after
   normal active-state checks and create no duplicate undo transaction.
 - Lazy command registration updates the palette without restart.
+- Removing a command or changing language/workbench cannot leave stale action
+  pointers, stale group indices, or untranslated search entries.
+- The configurable palette shortcut opens from the viewport and a line edit;
+  unrelated application shortcuts remain suppressed in line edits.
 - Escape closes the palette without changing a document and restores focus.
 - Tree and viewport selections produce the same context.
 - Body → sketch → pad → fillet → save → reopen → edit → undo/redo passes.
