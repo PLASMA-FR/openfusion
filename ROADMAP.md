@@ -15,6 +15,9 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 - Material-pattern quarantine: 32 restricted inherited assets are removed
   from source and build manifests with a CI reintroduction guard; original
   cleared presets and final artifact verification remain pending.
+- Windows thumbnail quarantine: the inherited prebuilt COM server and all
+  installer actions are removed under a CI guard; an independently reviewed
+  OpenFusion-identity provider is deferred.
 
 ## Status and priority vocabulary
 

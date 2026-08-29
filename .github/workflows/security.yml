@@ -45,6 +45,12 @@ jobs:
           -s tools/release/tests
           -p 'test_check_restricted_material_patterns.py'
 
+      - name: Verify Windows thumbnail provider quarantine
+        run: >-
+          python3 -m unittest discover
+          -s package/WindowsInstaller/tests
+          -p 'test_thumbnail_provider_quarantine.py'
+
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'

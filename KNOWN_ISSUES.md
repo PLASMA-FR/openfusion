@@ -34,10 +34,12 @@ until its build and workflow evidence is recorded.
   embedded license markers, and upstream identity art remains wired into the
   GUI and every platform package path. Exact provenance plus original,
   cleared replacement branding is a release blocker.
-- The inherited Windows installer contains a prebuilt unsigned thumbnail shell
-  extension using FreeCAD's CLSID and system-directory registration. It will
-  not ship unless rebuilt from reviewed source with independent identity,
-  coexistence, parser, signing, and uninstall validation.
+- The inherited prebuilt Windows thumbnail shell extension and its installer
+  registration have been removed. Explorer thumbnail support remains absent
+  until it can be rebuilt from reviewed source with independent identity,
+  coexistence, parser, signing, and uninstall validation; final installer
+  inspection is still required. Historical installs may retain the global
+  extension, and cleanup must verify ownership before touching it.
 - GitHub Dependency Review is intentionally fail-closed but cannot run until a
   repository owner enables the GitHub dependency graph. CodeQL does not replace
   this dependency-change gate.

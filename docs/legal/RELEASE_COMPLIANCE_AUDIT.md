@@ -47,11 +47,13 @@ or a substitute for jurisdiction-specific trademark or license advice.
     license marker. This is not proof that those files are unlicensed, but it
     prevents artifact-level sign-off until provenance and required notices are
     established.
-11. The inherited Windows installer can copy a prebuilt, unsigned 2019
-    `FCStdThumbnail.dll` into a system directory and register FreeCAD's shell
-    extension CLSID. A derivative release must omit it until it is rebuilt from
-    reviewed source with independent identity, coexistence, parser, uninstall,
-    and signing validation.
+11. The inherited prebuilt, unsigned 2019 `FCStdThumbnail.dll` and every
+    installer copy, registration, and uninstall action have been removed under
+    a static guard. Explorer thumbnail support remains absent; final installer
+    inspection and any future independent implementation still require
+    identity, coexistence, parser, uninstall, and signing validation.
+    Historical installs may retain the global DLL/CLSID; cleanup must verify
+    ownership and side-by-side installations before changing them.
 
 ## Principal license and notice state
 
