@@ -22,7 +22,7 @@ jobs:
   windows-release:
     name: Windows x64 Release (Conda compiler)
     runs-on: windows-2022
-    timeout-minutes: 300
+    timeout-minutes: 360
 
     defaults:
       run:
@@ -145,7 +145,7 @@ jobs:
           }
 
       - name: Build Release
-        timeout-minutes: 100
+        timeout-minutes: 240
         run: |
           $ErrorActionPreference = "Stop"
           pixi run build-release 2>&1 | Tee-Object -FilePath logs/build.log
@@ -241,6 +241,18 @@ jobs:
             throw "CTest JSON did not contain a tests array."
           }
           $count = @($report.tests).Count
+          $testNames = @($report.tests | ForEach-Object { $_.name })
+          $requiredAcceptance = @(
+            "OpenFusion_Assembly_Acceptance",
+            "OpenFusion_Core_Acceptance",
+            "OpenFusion_TechDraw_Acceptance"
+          )
+          $missingAcceptance = @(
+            $requiredAcceptance | Where-Object { $testNames -notcontains $_ }
+          )
+          if ($missingAcceptance.Count -ne 0) {
+            throw "Acceptance tests were not registered with CTest: $($missingAcceptance -join ', ')"
+          }
           "$count" | Set-Content -Encoding ascii logs/ctest-count.txt
           Write-Host "Discovered $count CTest tests"
           if ($count -eq 0) { throw "CTest discovered zero tests." }
@@ -257,6 +269,77 @@ jobs:
             --timeout 600 `
             2>&1 | Tee-Object -FilePath logs/ctest.log
           if ($LASTEXITCODE -ne 0) { throw "CTest baseline failed." }
+
+      - name: Validate TechDraw GUI SVG and PDF export
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = "Stop"
+          $outputDir = Join-Path $PWD "build/release/Testing/OpenFusionAcceptance"
+          $profileDir = Join-Path $env:RUNNER_TEMP `
+            "openfusion-techdraw-gui-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $applicationLog = Join-Path $outputDir "FreeCADGui-techdraw-export.log"
+          $stdoutLog = Join-Path $PWD "logs/techdraw-gui-export.log"
+          $binary = Join-Path $PWD "build/release/bin/FreeCAD.exe"
+          $fixture = Join-Path $outputDir "OpenFusionTechDrawAcceptance.FCStd"
+          New-Item -ItemType Directory -Force $outputDir, $profileDir | Out-Null
+          if (-not (Test-Path -LiteralPath $fixture -PathType Leaf)) {
+            throw "Missing TechDraw fixture: $fixture"
+          }
+
+          $env:OPENFUSION_ACCEPTANCE_OUTPUT_DIR = $outputDir
+          $env:QT_QPA_PLATFORM = "windows"
+          $arguments = @(
+            "--safe-mode",
+            "--user-cfg", (Join-Path $profileDir "user.cfg"),
+            "--system-cfg", (Join-Path $profileDir "system.cfg"),
+            "--log-file", $applicationLog,
+            "--python-path", (Join-Path $PWD "tests/acceptance"),
+            "--run-test", "OpenFusionTechDrawGuiExportAcceptance"
+          )
+          pixi run $binary @arguments 2>&1 | Tee-Object -FilePath $stdoutLog
+          if ($LASTEXITCODE -ne 0) {
+            throw "TechDraw GUI export acceptance failed with exit code $LASTEXITCODE."
+          }
+
+          $requiredFiles = @(
+            $applicationLog,
+            (Join-Path $outputDir "TechDrawGuiExport/OpenFusionTechDraw-full-page.svg"),
+            (Join-Path $outputDir "TechDrawGuiExport/OpenFusionTechDraw-full-page.pdf")
+          )
+          foreach ($path in $requiredFiles) {
+            if (
+              -not (Test-Path -LiteralPath $path -PathType Leaf) -or
+              (Get-Item -LiteralPath $path).Length -eq 0
+            ) {
+              throw "Missing or empty TechDraw GUI export artifact: $path"
+            }
+          }
+
+          $output = Get-Content -Raw $stdoutLog
+          $matches = [regex]::Matches(
+            $output,
+            '(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$'
+          )
+          if (
+            $matches.Count -eq 0 -or
+            [int]$matches[$matches.Count - 1].Groups[1].Value -ne 1
+          ) {
+            throw "Expected exactly one completed GUI export test."
+          }
+
+      - name: Upload TechDraw GUI export diagnostics
+        if: always()
+        timeout-minutes: 10
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: techdraw-gui-windows-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            logs/techdraw-gui-export.log
+            build/release/Testing/OpenFusionAcceptance/FreeCADGui-techdraw-export.log
+            build/release/Testing/OpenFusionAcceptance/TechDrawGuiExport/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
 
       - name: Run native FreeCADCmd baseline
         timeout-minutes: 30
@@ -489,6 +572,13 @@ jobs:
           }
           if (Test-Path build/release/Testing/Temporary) {
             Copy-Item -Recurse build/release/Testing/Temporary logs/ctest-temporary
+          }
+          if (
+            Test-Path -LiteralPath build/release/Testing/OpenFusionAcceptance `
+              -PathType Container
+          ) {
+            Copy-Item -LiteralPath build/release/Testing/OpenFusionAcceptance `
+              -Destination logs/openfusion-acceptance -Recurse -ErrorAction Stop
           }
 
       - name: Upload Windows baseline logs

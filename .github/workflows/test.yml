@@ -138,6 +138,17 @@ jobs:
           if not isinstance(tests, list):
               raise SystemExit("CTest JSON did not contain a tests array")
           count = len(tests)
+          names = {test.get("name") for test in tests if isinstance(test, dict)}
+          required_acceptance = {
+              "OpenFusion_Assembly_Acceptance",
+              "OpenFusion_Core_Acceptance",
+              "OpenFusion_TechDraw_Acceptance",
+          }
+          missing_acceptance = sorted(required_acceptance - names)
+          if missing_acceptance:
+              raise SystemExit(
+                  f"Acceptance tests were not registered with CTest: {missing_acceptance}"
+              )
           Path("logs/ctest-count.txt").write_text(f"{count}\n", encoding="utf-8")
           print(f"Discovered {count} CTest tests")
           if count == 0:
@@ -158,6 +169,76 @@ jobs:
             --parallel 2 \
             --timeout 600 \
             2>&1 | tee logs/ctest.log
+
+      - name: Validate TechDraw GUI SVG and PDF export
+        timeout-minutes: 10
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          QT_QPA_PLATFORM: xcb
+        run: |
+          set -euo pipefail
+          output_dir="$PWD/build/release/Testing/OpenFusionAcceptance"
+          profile_dir="$RUNNER_TEMP/openfusion-techdraw-gui-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          application_log="$output_dir/FreeCADGui-techdraw-export.log"
+          stdout_log="logs/techdraw-gui-export.log"
+          fixture="$output_dir/OpenFusionTechDrawAcceptance.FCStd"
+          mkdir -p "$output_dir" "$profile_dir"
+          test -s "$fixture"
+
+          set +e
+          OPENFUSION_ACCEPTANCE_OUTPUT_DIR="$output_dir" \
+            pixi run xvfb-run -a -s "-screen 0 1920x1080x24" \
+              "$PWD/build/release/bin/FreeCAD" \
+                --safe-mode \
+                --user-cfg "$profile_dir/user.cfg" \
+                --system-cfg "$profile_dir/system.cfg" \
+                --log-file "$application_log" \
+                --python-path "$PWD/tests/acceptance" \
+                --run-test OpenFusionTechDrawGuiExportAcceptance \
+              2>&1 | tee "$stdout_log"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          if (( pipeline_status[0] != 0 || pipeline_status[1] != 0 )); then
+            printf 'TechDraw GUI export failed: process=%d tee=%d\n' \
+              "${pipeline_status[0]}" "${pipeline_status[1]}" >&2
+            if (( pipeline_status[0] != 0 )); then
+              exit "${pipeline_status[0]}"
+            fi
+            exit "${pipeline_status[1]}"
+          fi
+
+          test -s "$application_log"
+          test -s "$output_dir/TechDrawGuiExport/OpenFusionTechDraw-full-page.svg"
+          test -s "$output_dir/TechDrawGuiExport/OpenFusionTechDraw-full-page.pdf"
+          pixi run python - <<'PY'
+          import re
+          from pathlib import Path
+
+          output = Path("logs/techdraw-gui-export.log").read_text(
+              encoding="utf-8", errors="replace"
+          )
+          counts = re.findall(
+              r"(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+"
+              r"[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$",
+              output,
+          )
+          if not counts or int(counts[-1]) != 1:
+              raise SystemExit("Expected exactly one completed GUI export test")
+          PY
+
+      - name: Upload TechDraw GUI export diagnostics
+        if: always()
+        timeout-minutes: 10
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: techdraw-gui-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            logs/techdraw-gui-export.log
+            build/release/Testing/OpenFusionAcceptance/FreeCADGui-techdraw-export.log
+            build/release/Testing/OpenFusionAcceptance/TechDrawGuiExport/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
 
       - name: Run FreeCADCmd test baseline
         timeout-minutes: 30
@@ -340,6 +421,10 @@ jobs:
           cp build/release/CMakeCache.txt logs/CMakeCache.txt 2>/dev/null || true
           cp build/release/CMakeFiles/CMakeConfigureLog.yaml logs/CMakeConfigureLog.yaml 2>/dev/null || true
           cp -R build/release/Testing/Temporary logs/ctest-temporary 2>/dev/null || true
+          if [[ -d build/release/Testing/OpenFusionAcceptance ]]; then
+            cp -R build/release/Testing/OpenFusionAcceptance \
+              logs/openfusion-acceptance
+          fi
 
       - name: Upload baseline logs
         if: always()
