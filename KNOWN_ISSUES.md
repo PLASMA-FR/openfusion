@@ -26,6 +26,21 @@ until its build and workflow evidence is recorded.
 - The dependency, bundled-asset, and third-party-license inventory is
   incomplete. No OpenFusion binary may be released until redistribution terms,
   notices, and shipped license texts are audited.
+- Thirty-two inherited material-pattern files stating `All rights reserved`
+  have been removed from source and CMake install manifests. A guard rejects
+  reintroduction, but final package inspection and an original, cleared
+  replacement preset library remain release work.
+- The inherited GUI asset set has 123 SVGs and all 58 PNGs without meaningful
+  embedded license markers, and upstream identity art remains wired into the
+  GUI and every platform package path. Exact provenance plus original,
+  cleared replacement branding is a release blocker.
+- The inherited Windows installer contains a prebuilt unsigned thumbnail shell
+  extension using FreeCAD's CLSID and system-directory registration. It will
+  not ship unless rebuilt from reviewed source with independent identity,
+  coexistence, parser, signing, and uninstall validation.
+- GitHub Dependency Review is intentionally fail-closed but cannot run until a
+  repository owner enables the GitHub dependency graph. CodeQL does not replace
+  this dependency-change gate.
 - The untrusted-input, plugin/Python, external-process, archive, temporary-file,
   and CI supply-chain security reviews are incomplete.
 
