@@ -58,6 +58,10 @@ jobs:
 
           git switch --detach "$UPSTREAM_COMMIT"
           git switch -C openfusion-import
+          # Repository Actions must be reviewed and introduced through the
+          # authenticated OpenFusion connector. The bootstrap token is scoped
+          # to contents only and intentionally cannot publish upstream CI.
+          git rm -r --ignore-unmatch .github/workflows
           git checkout "$bootstrap_commit" -- .github/workflows/bootstrap-openfusion.yml
 
           mkdir -p .openfusion
@@ -67,7 +71,7 @@ jobs:
             '  "upstream_repository": "https://github.com/FreeCAD/FreeCAD",' \
             '  "upstream_tag": "1.1.3",' \
             '  "upstream_commit": "145529fe741292ff0b3977a01195bf0247425794",' \
-            '  "import_strategy": "history-preserving fast-forward merge"' \
+            '  "import_strategy": "history-preserving fast-forward merge; upstream workflows excluded"' \
             '}' > .openfusion/upstream.json
 
           git config user.name "OpenFusion Automation"
