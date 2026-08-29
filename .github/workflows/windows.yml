@@ -242,8 +242,16 @@ jobs:
           }
           $count = @($report.tests).Count
           $testNames = @($report.tests | ForEach-Object { $_.name })
-          if ($testNames -notcontains "OpenFusion_Core_Acceptance") {
-            throw "Core acceptance test was not registered with CTest."
+          $requiredAcceptance = @(
+            "OpenFusion_Assembly_Acceptance",
+            "OpenFusion_Core_Acceptance",
+            "OpenFusion_TechDraw_Acceptance"
+          )
+          $missingAcceptance = @(
+            $requiredAcceptance | Where-Object { $testNames -notcontains $_ }
+          )
+          if ($missingAcceptance.Count -ne 0) {
+            throw "Acceptance tests were not registered with CTest: $($missingAcceptance -join ', ')"
           }
           "$count" | Set-Content -Encoding ascii logs/ctest-count.txt
           Write-Host "Discovered $count CTest tests"

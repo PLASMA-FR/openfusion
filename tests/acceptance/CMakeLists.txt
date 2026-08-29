@@ -19,7 +19,50 @@ add_test(
 set_tests_properties(OpenFusion_Core_Acceptance PROPERTIES
     ENVIRONMENT
         "OPENFUSION_ACCEPTANCE_OUTPUT_DIR=${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}"
+    FIXTURES_SETUP OpenFusionCoreModel
     LABELS "acceptance;core;serialization;interoperability"
     RUN_SERIAL TRUE
     TIMEOUT 300
 )
+
+if(BUILD_ASSEMBLY AND BUILD_GUI)
+    add_test(
+        NAME OpenFusion_Assembly_Acceptance
+        COMMAND $<TARGET_FILE:FreeCADMainCmd>
+            --safe-mode
+            --user-cfg "${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}/assembly-user.cfg"
+            --system-cfg "${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}/assembly-system.cfg"
+            --log-file "${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}/FreeCADCmd-assembly.log"
+            --python-path "${CMAKE_CURRENT_SOURCE_DIR}"
+            -t OpenFusionAssemblyAcceptance
+    )
+    set_tests_properties(OpenFusion_Assembly_Acceptance PROPERTIES
+        ENVIRONMENT
+            "OPENFUSION_ACCEPTANCE_OUTPUT_DIR=${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}"
+        FIXTURES_REQUIRED OpenFusionCoreModel
+        LABELS "acceptance;assembly;serialization"
+        RUN_SERIAL TRUE
+        TIMEOUT 300
+    )
+endif()
+
+if(BUILD_TECHDRAW)
+    add_test(
+        NAME OpenFusion_TechDraw_Acceptance
+        COMMAND $<TARGET_FILE:FreeCADMainCmd>
+            --safe-mode
+            --user-cfg "${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}/techdraw-user.cfg"
+            --system-cfg "${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}/techdraw-system.cfg"
+            --log-file "${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}/FreeCADCmd-techdraw.log"
+            --python-path "${CMAKE_CURRENT_SOURCE_DIR}"
+            -t OpenFusionTechDrawAcceptance
+    )
+    set_tests_properties(OpenFusion_TechDraw_Acceptance PROPERTIES
+        ENVIRONMENT
+            "OPENFUSION_ACCEPTANCE_OUTPUT_DIR=${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}"
+        FIXTURES_REQUIRED OpenFusionCoreModel
+        LABELS "acceptance;techdraw;serialization"
+        RUN_SERIAL TRUE
+        TIMEOUT 300
+    )
+endif()
