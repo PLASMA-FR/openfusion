@@ -17,6 +17,13 @@ feasible on hosted runners. OpenFusion adds final-package testing, Linux
 tar.zst/DEB/RPM outputs, consolidated checksums, SBOMs, provenance, narrower
 permissions, and an atomic publication gate.
 
+The repository now contains initial locked-Pixi source-build baselines for
+Linux, Windows x86-64, macOS arm64, and macOS x86-64, plus dependency review
+and no-build CodeQL analysis for GitHub Actions, C/C++, and Python. These
+workflows compile and exercise build-tree tests; they do not yet build or
+validate release packages, prove native AppleClang support, scan the resolved
+Pixi/Conda environment, or make code-scanning findings merge-blocking.
+
 ## Release invariants
 
 A release pipeline must satisfy all of these invariants:
@@ -38,8 +45,10 @@ A release pipeline must satisfy all of these invariants:
 
 ## Target workflow topology
 
-The file names below describe the intended separation of responsibility. They
-are not evidence that those workflow files have been implemented.
+The file names below describe the intended separation of responsibility.
+Individual workflow existence is not evidence that its full packaging or
+release responsibility has been implemented; the current scope is stated
+above and must be confirmed by completed run logs.
 
 | Workflow | Triggers | Responsibility | Default token access |
 | --- | --- | --- | --- |
@@ -48,8 +57,7 @@ are not evidence that those workflow files have been implemented.
 | `windows.yml` | Reusable call, manual development run | Build, optionally sign, install-test, and uninstall-test Windows package | `contents: read` |
 | `macos.yml` | Reusable call, manual development run | Build, optionally sign/notarize, mount-test Intel and Apple Silicon DMGs | `contents: read` |
 | `release.yml` | Protected SemVer tag, manual recovery dispatch | Coordinate platform workflows, attest, create draft, upload, publish | Per-job grants |
-| `codeql.yml` | Protected branches and schedule | C/C++ and Python code scanning | Read plus `security-events: write` only where needed |
-| `dependency-review.yml` | Pull requests | Reject newly introduced vulnerable dependencies | `contents: read` |
+| `security.yml` | Pull requests, merge groups, protected branches, schedule | Initial dependency review plus Actions, C/C++, and Python CodeQL analysis | Read plus `security-events: write` only where needed |
 
 The release dependency order is:
 
