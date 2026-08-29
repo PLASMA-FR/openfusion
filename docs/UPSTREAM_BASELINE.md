@@ -49,14 +49,38 @@ Results are updated only from completed logs. `Pending` is not a pass.
 | Gate | Environment | Status | Evidence |
 |---|---|---:|---|
 | Source hash verification | Local checkout | Passed | `git rev-parse HEAD` matched the full pinned commit before project files were added |
-| Configure | Ubuntu / Pixi | Pending | GitHub Actions baseline run not yet complete |
-| Compile | Ubuntu / Pixi | Pending | GitHub Actions baseline run not yet complete |
-| C++ tests | Ubuntu / Pixi | Pending | GitHub Actions baseline run not yet complete |
-| CLI Python tests | Ubuntu / Pixi | Pending | GitHub Actions baseline run not yet complete |
+| Configure | Ubuntu 24.04 / locked Pixi | Passed | Run `33260276705`, job `99120908676` |
+| Compile | Ubuntu 24.04 / locked Pixi | Passed | Release build completed in run `33260276705` |
+| C++ tests | Ubuntu 24.04 / locked Pixi | Failed | 1,424 discovered; two TechDraw tests segfaulted; run `33260276705` |
+| CLI Python tests | Ubuntu / Pixi | Not run | Correctly skipped after the fail-closed CTest gate |
 | GUI Python tests | Ubuntu / Xvfb | Pending | GitHub Actions baseline run not yet complete |
 | Windows build and CLI tests | Windows Server 2022 | Pending | GitHub Actions baseline run not yet complete |
 | macOS build and tests | GitHub-hosted macOS | Pending | GitHub Actions baseline run not yet complete |
 | Manual launch and interaction | Representative physical systems | Pending | Requires interactive display/hardware coverage |
+
+### First executed Linux baseline
+
+GitHub Actions run `33260276705` tested OpenFusion commit
+`62bf348bec8dd6c09bdf6c89aefd704390a34212` using the locked Pixi Release
+configuration. Configure, compilation, and CTest discovery succeeded. CTest
+discovered 1,424 entries and reported two failures after 52.03 seconds:
+
+- `TestLineFormat.setQColorKeepsOpaqueColorsOpaque` — segmentation fault
+- `TestLineFormat.setQColorPreservesAlphaValue` — segmentation fault
+
+The run also reported nine non-running entries: three skipped tests and six
+disabled tests. The failure artifact digest is
+`sha256:42de29fd75c571162562d5985773967a81dcc950f67fefcfc3f19fb5fae70c40`.
+The fail-closed workflow then skipped the CLI suite, so this run is not a
+passing baseline.
+
+Both failures used the four-argument `TechDraw::LineFormat` constructor. That
+constructor derives a line number through `LineGenerator::fromQtStyle()`,
+which reads application preferences even though `TechDraw_tests_run` uses
+plain `gtest_main` and has no initialized application singleton. The focused
+repair implements the already-declared five-argument constructor and supplies
+an explicit line number in these value-conversion tests. A successful full
+rerun is required before changing the C++ test gate to Passed.
 
 ## Baseline change rule
 

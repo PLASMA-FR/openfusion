@@ -12,8 +12,11 @@ until its build and workflow evidence is recorded.
 
 ## Foundation blockers
 
-- The untouched FreeCAD 1.1.3 configure, compile, unit, Python, GUI, and manual
-  launch baseline is still pending in the supported environments.
+- The first locked Linux baseline configured and compiled, then failed two of
+  1,424 discovered CTest entries because isolated TechDraw `LineFormat` tests
+  entered application preferences without an initialized application. A
+  focused fix is awaiting a complete rerun; CLI, GUI, and manual launch gates
+  remain unverified.
 - Repository submodules must be initialized recursively before a complete
   build; no submodule-free source package has been validated.
 - Current binaries and many user-facing identifiers still use FreeCAD names.
@@ -26,6 +29,20 @@ until its build and workflow evidence is recorded.
 - The dependency, bundled-asset, and third-party-license inventory is
   incomplete. No OpenFusion binary may be released until redistribution terms,
   notices, and shipped license texts are audited.
+- Thirty-two installed material-pattern files state `All rights reserved` and
+  are quarantined from every source and binary release until they are removed
+  or independently replaced under documented redistribution terms.
+- The inherited GUI asset set has 123 SVGs and all 58 PNGs without meaningful
+  embedded license markers, and upstream identity art remains wired into the
+  GUI and every platform package path. Exact provenance plus original,
+  cleared replacement branding is a release blocker.
+- The inherited Windows installer contains a prebuilt unsigned thumbnail shell
+  extension using FreeCAD's CLSID and system-directory registration. It will
+  not ship unless rebuilt from reviewed source with independent identity,
+  coexistence, parser, signing, and uninstall validation.
+- GitHub Dependency Review is intentionally fail-closed but cannot run until a
+  repository owner enables the GitHub dependency graph. CodeQL does not replace
+  this dependency-change gate.
 - The untrusted-input, plugin/Python, external-process, archive, temporary-file,
   and CI supply-chain security reviews are incomplete.
 

@@ -17,12 +17,23 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   provenance documentation.
 - Began the OpenFusion architecture, roadmap, gap analysis, build, testing,
   packaging, governance, security, and release-gate documentation.
+- Added fail-closed locked-Pixi source-build baselines for Linux x86-64,
+  Windows x86-64, macOS arm64, and macOS x86-64. The workflows inventory and
+  run CTest, CLI, and GUI tests without claiming package support.
+- Added initial dependency-review and CodeQL workflows for GitHub Actions,
+  C/C++, and Python with read-only checkout and immutable action pins.
 
 ### Changed
 
 - Established OpenFusion as the project identity for new project
   documentation. Executable names, persistent type identifiers, compatibility
   APIs, and much of the inherited UI remain unchanged pending tested migration.
+
+### Fixed
+
+- Implemented TechDraw's declared explicit-line-number `LineFormat`
+  constructor and isolated its QColor unit tests from the uninitialized
+  application preference singleton used by the legacy constructor.
 
 ### Security
 

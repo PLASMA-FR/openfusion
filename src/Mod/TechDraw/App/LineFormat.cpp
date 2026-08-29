@@ -69,6 +69,19 @@ void LineFormat::setCurrentLineFormat(LineFormat& newFormat)
 LineFormat::LineFormat(const int style,
                        const double weight,
                        const Base::Color& color,
+                       const bool visible,
+                       const int lineNumber) :
+    m_style(style),
+    m_weight(weight),
+    m_color(color),
+    m_visible(visible),
+    m_lineNumber(lineNumber)
+{
+}
+
+LineFormat::LineFormat(const int style,
+                       const double weight,
+                       const Base::Color& color,
                        const bool visible) :
     m_style(style),
     m_weight(weight),
@@ -109,5 +122,4 @@ int LineFormat::getDefEdgeStyle()
 {
     return Preferences::getPreferenceGroup("Decorations")->GetInt("CenterLineStyle", 2);   //dashed
 }
-
 
