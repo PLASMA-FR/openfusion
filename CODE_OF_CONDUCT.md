@@ -1,8 +1,8 @@
-# FreeCAD Project Code of Conduct
+# OpenFusion Code of Conduct
 
 ## Statement
 
-The FreeCAD Project community covers people from a wide variety of countries,
+The OpenFusion community covers people from a wide variety of countries,
 backgrounds and positions. This global diversity is a great strength of the
 project, but can also lead to communication issues, which may in turn cause
 unhappiness. To maximise happiness of the project community taken as a whole,
@@ -54,13 +54,22 @@ further defined and clarified by project maintainers.
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported by contacting any of the community admins or moderators at
-https://forum.freecad.org/memberlist.php?mode=team . All
-complaints will be reviewed and investigated and will result in a response that
-is deemed necessary and appropriate to the circumstances. The project team is
-obligated to maintain confidentiality with regard to the reporter of an incident.
-Further details of specific enforcement policies may be posted separately.
+For content hosted on GitHub, use GitHub's built-in reporting, blocking, and
+abuse-reporting controls when appropriate. A project moderation issue may be
+opened in this repository when doing so is safe, but sensitive personal
+information must not be posted in a public issue.
+
+OpenFusion has not yet published a separate confidential conduct-reporting
+address. Until one is established, reports that require confidentiality cannot
+be accepted through the public issue tracker; use GitHub's private abuse-reporting
+channel for conduct that violates GitHub's policies. Security vulnerabilities
+are handled separately: follow [SECURITY.md](SECURITY.md) and submit them through
+the repository's private GitHub Security Advisory process.
+
+Reports that the project can receive will be reviewed and investigated, and
+maintainers will respond as they consider necessary and appropriate. Maintainers
+must protect confidential information available to them and avoid unnecessary
+disclosure about reporters or affected participants.
 
 Project maintainers who do not follow or enforce the Code of Conduct in good
 faith may face temporary or permanent repercussions as determined by other
@@ -68,9 +77,12 @@ members of the project's leadership.
 
 ## Attribution
 
-This Code of Conduct is adapted from the [Contributor Covenant][homepage], version 1.4,
-available at https://www.contributor-covenant.org/version/1/4/code-of-conduct.html
-and the [libvirt Code of Conduct][libvirtcoc], available at https://libvirt.org/governance.html.
+OpenFusion inherited this policy from the FreeCAD Project Code of Conduct and
+adapted its project identity and reporting instructions. That policy is itself
+adapted from the [Contributor Covenant][homepage], version 1.4, available at
+https://www.contributor-covenant.org/version/1/4/code-of-conduct.html, and the
+[libvirt Code of Conduct][libvirtcoc], available at
+https://libvirt.org/governance.html.
 
 [homepage]: https://www.contributor-covenant.org
 [libvirtcoc]: https://libvirt.org/governance.html

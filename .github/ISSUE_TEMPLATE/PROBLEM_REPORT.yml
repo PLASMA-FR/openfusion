@@ -2,11 +2,17 @@ name: Report a Problem
 description: Have you found something that does not work well, is too hard to do or is missing altogether? Please create a Problem Report.
 labels: ["Status: Needs triage","Status: Needs confirmation"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Security vulnerabilities must not be reported in a public issue. Follow
+        [SECURITY.md](https://github.com/PLASMA-FR/openfusion/security/policy) and use a
+        [private security advisory](https://github.com/PLASMA-FR/openfusion/security/advisories/new).
   - type: checkboxes
     id: existing_issue
     attributes:
       label: Is there an existing issue for this?
-      description: Please [search](https://github.com/FreeCAD/FreeCAD/issues) to see if a similar issue already exists for the problem you encountered.
+      description: Please [search OpenFusion issues](https://github.com/PLASMA-FR/openfusion/issues) to see if a similar report already exists.
       options:
       - label: I have searched the existing issues
         required: true
@@ -22,7 +28,7 @@ body:
     id: full_version
     attributes:
       label: Full version info
-      description: Please use the About FreeCAD dialog to copy your full version information and paste it here. Try reproducing the issue by restarting FreeCAD in safe mode too.
+      description: Use Help > About > Copy to Clipboard and paste the full version information here. If practical, also try reproducing the issue after restarting in safe mode.
       render: shell
     validations:
       required: true
@@ -57,7 +63,7 @@ body:
       label: Anything else?
       description: |
         Links? References? Anything that will give us more context about the issue you are encountering!
-        If there is a discussion about the problem on the forum, provide link(s) here.
+        Include links to related OpenFusion issues, pull requests, or design discussions.
         You can upload or copy your macro here to speed up the diagnosis and debugging.
 
         Tip: You can attach images or log files by clicking this area to highlight it and then dragging files in. To attach a FCStd file, ZIP it first (GitHub won't recognize the extension otherwise).
@@ -67,7 +73,7 @@ body:
     id: terms
     attributes:
       label: Code of Conduct
-      description: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/FreeCAD/FreeCAD/blob/main/CODE_OF_CONDUCT.md)
+      description: By submitting this issue, you agree to follow the [OpenFusion Code of Conduct](https://github.com/PLASMA-FR/openfusion/blob/main/CODE_OF_CONDUCT.md).
       options:
         - label: I agree to follow this project's Code of Conduct
           required: true
