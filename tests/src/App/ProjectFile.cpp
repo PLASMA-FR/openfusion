@@ -167,6 +167,32 @@ TEST_F(ProjectFileTest, externalDtdIsRejected)
     EXPECT_FALSE(project.loadDocument());
 }
 
+TEST_F(ProjectFileTest, internalDoctypeIsRejected)
+{
+    QTemporaryDir temporaryDirectory;
+    ASSERT_TRUE(temporaryDirectory.isValid());
+
+    const QString projectArchive = temporaryDirectory.filePath("internal-doctype.FCStd");
+    std::ostringstream projectXml;
+    projectXml << "<?xml version='1.0' encoding='utf-8'?>\n"
+               << "<!DOCTYPE Document [\n"
+               << "  <!ENTITY metadata 'OPENFUSION_INTERNAL_ENTITY_SENTINEL'>\n"
+               << "]>\n"
+               << "<Document ProgramVersion=\"Test\">\n"
+               << "  <Properties Count=\"1\">\n"
+               << "    <Property name=\"Comment\" type=\"App::PropertyString\">\n"
+               << "      <String value=\"&metadata;\"/>\n"
+               << "    </Property>\n"
+               << "  </Properties>\n"
+               << "  <Objects Count=\"0\"/>\n"
+               << "  <ObjectData Count=\"0\"/>\n"
+               << "</Document>\n";
+    ASSERT_TRUE(writeProjectArchive(projectArchive, projectXml.str()));
+
+    App::ProjectFile project(projectArchive.toStdString());
+    EXPECT_FALSE(project.loadDocument());
+}
+
 TEST_F(ProjectFileTest, getObjects)
 {
     App::ProjectFile proj(fileName());
