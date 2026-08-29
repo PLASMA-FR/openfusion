@@ -23,6 +23,11 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 - Added initial dependency-review and CodeQL workflows for GitHub Actions,
   C/C++, and Python with read-only checkout and immutable action pins.
 
+### Removed
+
+- Removed 32 inherited material-pattern assets that lack downstream
+  redistribution permission and added a CI guard against reintroduction.
+
 ### Changed
 
 - Established OpenFusion as the project identity for new project

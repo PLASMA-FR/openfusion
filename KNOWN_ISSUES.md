@@ -26,9 +26,10 @@ until its build and workflow evidence is recorded.
 - The dependency, bundled-asset, and third-party-license inventory is
   incomplete. No OpenFusion binary may be released until redistribution terms,
   notices, and shipped license texts are audited.
-- Thirty-two installed material-pattern files state `All rights reserved` and
-  are quarantined from every source and binary release until they are removed
-  or independently replaced under documented redistribution terms.
+- Thirty-two inherited material-pattern files stating `All rights reserved`
+  have been removed from source and CMake install manifests. A guard rejects
+  reintroduction, but final package inspection and an original, cleared
+  replacement preset library remain release work.
 - The inherited GUI asset set has 123 SVGs and all 58 PNGs without meaningful
   embedded license markers, and upstream identity art remains wired into the
   GUI and every platform package path. Exact provenance plus original,

@@ -12,6 +12,9 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 - OpenFusion release artifacts: not produced.
 - Production readiness: **not achieved**.
 - Supported-platform claims: none until clean-machine package tests pass.
+- Material-pattern quarantine: 32 restricted inherited assets are removed
+  from source and build manifests with a CI reintroduction guard; original
+  cleared presets and final artifact verification remain pending.
 
 ## Status and priority vocabulary
 
