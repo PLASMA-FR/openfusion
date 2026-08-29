@@ -121,6 +121,16 @@ OpenFusion launcher. It must be deterministic where practical: sorted entries,
 numeric ownership, a fixed modification time derived from
 `SOURCE_DATE_EPOCH`, and fixed zstd options.
 
+The repository now contains a fail-closed staging and verification tool at
+`packaging/linux/create_deterministic_tarball.py`. It packages only an existing
+quiescent `DESTDIR` installation, validates x86-64 ELF identity, normalizes and
+manifests every payload entry, publishes the archive last as the commit marker,
+and verifies the bounded decompression and canonical payload before success.
+Its focused policy suite and a synthetic real-ELF smoke test pass; this does not
+yet establish that an installed OpenFusion runtime is complete or usable, so no
+tarball is currently claimed as a release artifact. See
+`packaging/linux/README.md` for the exact staging contract and commands.
+
 The final archive must be extracted into at least a normal temporary path and
 a path containing spaces. Tests must run the extracted copy without relying on
 the build directory or a system-wide installation.
