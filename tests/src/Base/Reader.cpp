@@ -65,7 +65,11 @@ public:
     {
         auto stringData = R"(<?xml version="1.0" encoding="UTF-8"?><document>)" + data
             + "</document>";
-        std::istringstream stream(stringData);
+        givenRawXMLStream(stringData);
+    }
+
+    void givenRawXMLStream(const std::string& stringData)
+    {
         std::ofstream fileStream(_tempFile.string());
         fileStream.write(stringData.data(), static_cast<std::streamsize>(stringData.length()));
         fileStream.close();
@@ -104,6 +108,20 @@ TEST_F(ReaderTest, beginCharStreamNormal)
 
     // Assert
     EXPECT_TRUE(result.good());
+}
+
+TEST_F(ReaderTest, doctypeIsRejected)
+{
+    ReaderXML xml;
+    xml.givenRawXMLStream(
+        R"(<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document [
+  <!ENTITY metadata "OPENFUSION_INTERNAL_ENTITY_SENTINEL">
+]>
+<document><data value="&metadata;"/></document>)"
+    );
+
+    EXPECT_FALSE(xml.Reader()->isValid());
 }
 
 TEST_F(ReaderTest, beginCharStreamOpenClose)

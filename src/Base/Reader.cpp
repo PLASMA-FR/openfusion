@@ -76,6 +76,7 @@ Base::XMLReader::XMLReader(const char* FileName, std::istream& str)
     parser->setErrorHandler(this);
     parser->setFeature(XMLUni::fgXercesDisableDefaultEntityResolution, true);
     parser->setFeature(XMLUni::fgXercesLoadExternalDTD, false);
+    parser->setFeature(XMLUni::fgXercesDisallowDoctype, true);
 
     try {
         StdInputSource file(str, _File.filePath().c_str());
