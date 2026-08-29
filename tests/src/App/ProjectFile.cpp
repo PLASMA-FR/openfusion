@@ -2,11 +2,49 @@
 
 #include <gtest/gtest.h>
 
+#include <sstream>
+#include <string>
+
+#include <QTemporaryDir>
+#include <QUrl>
+
 #include "InitApplication.h"
 #include <App/ProjectFile.h>
 #include <App/InventorObject.h>
+#include <Base/FileInfo.h>
 #include <Base/Stream.h>
 #include <Base/Type.h>
+#include <Base/Writer.h>
+
+namespace
+{
+bool writeProjectArchive(const QString& path, const std::string& documentXml)
+{
+    Base::ofstream archive(
+        Base::FileInfo(path.toStdString()),
+        std::ios::out | std::ios::binary | std::ios::trunc
+    );
+    if (!archive.is_open()) {
+        return false;
+    }
+
+    {
+        Base::ZipWriter writer(archive);
+        writer.putNextEntry("Document.xml");
+        writer.Stream() << documentXml;
+        if (!writer.Stream().good()) {
+            return false;
+        }
+    }
+
+    archive.flush();
+    if (!archive.good()) {
+        return false;
+    }
+    archive.close();
+    return !archive.fail();
+}
+}  // namespace
 
 // NOLINTBEGIN
 class ProjectFileTest: public ::testing::Test
@@ -50,6 +88,83 @@ TEST_F(ProjectFileTest, loadDocument)
 {
     App::ProjectFile proj(fileName());
     EXPECT_TRUE(proj.loadDocument());
+}
+
+TEST_F(ProjectFileTest, externalDtdIsRejected)
+{
+    constexpr auto sentinel = "OPENFUSION_EXTERNAL_DTD_SENTINEL";
+    constexpr auto controlValue = "OPENFUSION_PROJECTFILE_CONTROL";
+    QTemporaryDir temporaryDirectory;
+    ASSERT_TRUE(temporaryDirectory.isValid());
+
+    const QString controlArchive = temporaryDirectory.filePath("control.FCStd");
+    std::ostringstream controlXml;
+    controlXml << "<?xml version='1.0' encoding='utf-8'?>\n"
+               << "<Document ProgramVersion=\"Test\">\n"
+               << "  <Properties Count=\"1\">\n"
+               << "    <Property name=\"Comment\" type=\"App::PropertyString\">\n"
+               << "      <String value=\"" << controlValue << "\"/>\n"
+               << "    </Property>\n"
+               << "  </Properties>\n"
+               << "  <Objects Count=\"0\"/>\n"
+               << "  <ObjectData Count=\"0\"/>\n"
+               << "</Document>\n";
+    ASSERT_TRUE(writeProjectArchive(controlArchive, controlXml.str()));
+
+    App::ProjectFile controlProject(controlArchive.toStdString());
+    ASSERT_TRUE(controlProject.loadDocument());
+    EXPECT_EQ(controlProject.getMetadata().comment, controlValue);
+
+    const QString externalDtd = temporaryDirectory.filePath("external.dtd");
+    const QString projectArchive = temporaryDirectory.filePath("external-dtd.FCStd");
+
+    {
+        Base::ofstream dtd(
+            Base::FileInfo(externalDtd.toStdString()),
+            std::ios::out | std::ios::binary | std::ios::trunc
+        );
+        ASSERT_TRUE(dtd.is_open());
+        dtd << "<!ELEMENT Document (Properties, Objects, ObjectData)>\n"
+            << "<!ATTLIST Document ProgramVersion CDATA #IMPLIED>\n"
+            << "<!ELEMENT Properties (Property*)>\n"
+            << "<!ATTLIST Properties Count CDATA #IMPLIED>\n"
+            << "<!ELEMENT Property (String)>\n"
+            << "<!ATTLIST Property name CDATA #REQUIRED type CDATA #IMPLIED>\n"
+            << "<!ELEMENT String EMPTY>\n"
+            << "<!ATTLIST String value CDATA #IMPLIED>\n"
+            << "<!ELEMENT Objects EMPTY>\n"
+            << "<!ATTLIST Objects Count CDATA #IMPLIED>\n"
+            << "<!ELEMENT ObjectData EMPTY>\n"
+            << "<!ATTLIST ObjectData Count CDATA #IMPLIED>\n"
+            << "<!ENTITY externalMetadata \"" << sentinel << "\">\n";
+        dtd.flush();
+        ASSERT_TRUE(dtd.good());
+        dtd.close();
+        ASSERT_FALSE(dtd.fail());
+    }
+
+    const QUrl externalDtdUrl = QUrl::fromLocalFile(externalDtd);
+    ASSERT_TRUE(externalDtdUrl.isValid());
+    ASSERT_TRUE(externalDtdUrl.isLocalFile());
+    ASSERT_EQ(externalDtdUrl.toLocalFile(), externalDtd);
+
+    std::ostringstream externalDtdXml;
+    externalDtdXml << "<?xml version='1.0' encoding='utf-8'?>\n"
+                   << "<!DOCTYPE Document SYSTEM \""
+                   << externalDtdUrl.toEncoded().toStdString() << "\">\n"
+                   << "<Document ProgramVersion=\"Test\">\n"
+                   << "  <Properties Count=\"1\">\n"
+                   << "    <Property name=\"Comment\" type=\"App::PropertyString\">\n"
+                   << "      <String value=\"&externalMetadata;\"/>\n"
+                   << "    </Property>\n"
+                   << "  </Properties>\n"
+                   << "  <Objects Count=\"0\"/>\n"
+                   << "  <ObjectData Count=\"0\"/>\n"
+                   << "</Document>\n";
+    ASSERT_TRUE(writeProjectArchive(projectArchive, externalDtdXml.str()));
+
+    App::ProjectFile project(projectArchive.toStdString());
+    EXPECT_FALSE(project.loadDocument());
 }
 
 TEST_F(ProjectFileTest, getObjects)
