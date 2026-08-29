@@ -1,0 +1,7 @@
+{
+  "project": "OpenFusion",
+  "upstream_repository": "https://github.com/FreeCAD/FreeCAD",
+  "upstream_tag": "1.1.3",
+  "upstream_commit": "145529fe741292ff0b3977a01195bf0247425794",
+  "import_strategy": "history-preserving fast-forward merge; upstream workflows excluded"
+}
