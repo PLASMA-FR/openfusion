@@ -28,6 +28,17 @@ working tree:
 GoogleTest is a test dependency and should not be present in normal runtime
 packages. Its notice remains relevant to source and test distributions.
 
+## Direct CI and acceptance-test dependencies
+
+The locked build environment now names Pillow `12.0.0` and pypdfium2 `5.13.0`
+directly for rendered PDF acceptance testing on every configured platform.
+The current Conda lock metadata reports HPND for Pillow and Apache-2.0 for
+pypdfium2. These are test-environment dependencies, not evidence that either
+component belongs in an OpenFusion runtime package. If the PDFium binary or any
+related native content is distributed, its complete embedded notice set and
+transitive terms must be extracted from the exact artifact and preserved; the
+lockfile's one-line license field is not release sign-off.
+
 ## Existing in-tree notice sources
 
 The following files contain component-specific terms that must be preserved

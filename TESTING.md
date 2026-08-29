@@ -81,6 +81,13 @@ ctest --test-dir build/release \
   --no-tests=error
 ```
 
+The platform GUI workflows then open the persisted TechDraw fixture with the
+real desktop executable and export full-page SVG and PDF files. The validator
+parses SVG structure, rasterizes PDF through the locked PDFium binding, checks
+page size, metadata, contrast, and projected geometry, and repeats both export
+formats with a non-ASCII filename. A successful headless export alone does not
+satisfy this GUI gate.
+
 The generated FCStd, STEP, STL, TechDraw SVG, application logs, and isolated
 configuration remain under
 `build/release/Testing/OpenFusionAcceptance/` for diagnostics. The headless

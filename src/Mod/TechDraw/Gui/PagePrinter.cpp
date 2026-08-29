@@ -349,11 +349,8 @@ void PagePrinter::printPdf(ViewProviderPage* vpPage, const std::string& file)
         return;
     }
 
-    auto filespec = Base::Tools::escapeEncodeFilename(file);
-    filespec = DU::cleanFilespecBackslash(filespec);
-
     // set up the pdfwriter
-    QString outputFile = QString::fromStdString(filespec);
+    const QString outputFile = QString::fromUtf8(file.c_str());
     QPdfWriter pdfWriter(outputFile);
     pdfWriter.setPdfVersion(Gui::Dialog::DlgSettingsPDF::evaluatePDFVersion());
     QPageLayout pageLayout = pdfWriter.pageLayout();
@@ -401,9 +398,7 @@ void PagePrinter::saveSVG(ViewProviderPage* vpPage, const std::string& file)
         Base::Console().warning("PagePrinter - no file specified\n");
         return;
     }
-    auto filespec = Base::Tools::escapeEncodeFilename(file);
-    filespec = DU::cleanFilespecBackslash(file);
-    QString filename = QString::fromStdString(filespec);
+    const QString filename = QString::fromUtf8(file.c_str());
 
     auto ourScene = vpPage->getQGSPage();
     ourScene->setExportingSvg(true);
@@ -450,4 +445,3 @@ PaperAttributes::PaperAttributes() :
 {
     // set default values to A4 Landscape
 }
-

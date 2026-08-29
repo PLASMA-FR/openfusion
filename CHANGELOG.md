@@ -36,6 +36,8 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 - Implemented TechDraw's declared explicit-line-number `LineFormat`
   constructor and isolated its QColor unit tests from the uninitialized
   application preference singleton used by the legacy constructor.
+- Preserved exact UTF-8 output paths in TechDraw SVG and PDF export and added
+  rendered, semantic GUI acceptance coverage for both ASCII and Unicode paths.
 
 ### Security
 
