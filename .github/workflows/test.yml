@@ -4,6 +4,9 @@ name: OpenFusion baseline tests
 
 "on":
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -19,7 +22,7 @@ jobs:
   linux-release:
     name: Linux Release (locked Pixi baseline)
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 300
 
     defaults:
       run:
@@ -38,13 +41,18 @@ jobs:
           submodules: recursive
 
       - name: Verify submodule checkout
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           mkdir -p logs
+          if [[ "$RUNNER_ARCH" != "X64" || "$(uname -m)" != "x86_64" ]]; then
+            echo "Expected a native Linux x86_64 runner." >&2
+            exit 1
+          fi
           git submodule sync --recursive
           git submodule update --init --recursive
           git submodule status --recursive | tee logs/submodules.txt
-          if grep -Eq '^[+-U]' logs/submodules.txt; then
+          if grep -Eq '^[-+U]' logs/submodules.txt; then
             echo "A submodule is missing, conflicted, or not at its recorded commit." >&2
             exit 1
           fi
@@ -54,15 +62,24 @@ jobs:
         with:
           pixi-version: v0.59.0
           cache: false
+          run-install: false
 
       - name: Materialize locked build environment
+        timeout-minutes: 45
         run: |
           set -euo pipefail
           pixi --version | tee logs/pixi-version.txt
           sha256sum pixi.lock | tee logs/pixi-lock.sha256
+          pixi info 2>&1 | tee logs/pixi-info.log
+          actual_platform="$(awk '$1 == "Platform:" { print $2; exit }' logs/pixi-info.log)"
+          if [[ "$actual_platform" != "linux-64" ]]; then
+            echo "Expected Pixi platform linux-64, got '$actual_platform'." >&2
+            exit 1
+          fi
           pixi install --locked 2>&1 | tee logs/pixi-install.log
 
       - name: Configure Release build with tests
+        timeout-minutes: 25
         run: |
           set -euo pipefail
           pixi run configure-release 2>&1 | tee logs/configure.log
@@ -70,16 +87,38 @@ jobs:
           grep -Eq '^ENABLE_DEVELOPER_TESTS:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_TEST:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_GUI:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_IMPORT:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_MATERIAL:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_ASSEMBLY:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_CAM:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_PART:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_PART_DESIGN:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_SKETCHER:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
           grep -Eq '^BUILD_TECHDRAW:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
 
       - name: Build Release
+        timeout-minutes: 150
         run: |
           set -euo pipefail
           pixi run build-release 2>&1 | tee logs/build.log
+          file -L build/release/bin/FreeCADCmd | tee logs/freecadcmd-file.txt
+          grep -Eq 'ELF 64-bit.*x86-64' logs/freecadcmd-file.txt
+          compiler_file="$(
+            find build/release/CMakeFiles -name CMakeCXXCompiler.cmake -print -quit
+          )"
+          if [[ -z "$compiler_file" ]]; then
+            echo "CMake C++ compiler diagnostics were not generated." >&2
+            exit 1
+          fi
+          grep -Eq '^set\(CMAKE_CXX_COMPILER ".+"\)$' "$compiler_file"
+          grep -Eq '^set\(CMAKE_CXX_COMPILER_ID ".+"\)$' "$compiler_file"
+          grep -Eq '^set\(CMAKE_CXX_COMPILER_VERSION ".+"\)$' "$compiler_file"
+          cp "$compiler_file" logs/CMakeCXXCompiler.cmake
+          grep -E '^set\(CMAKE_CXX_COMPILER(_ID|_VERSION)? ' "$compiler_file" \
+            > logs/compiler-summary.txt
 
       - name: Discover CTest tests
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           pixi run ctest --test-dir build/release --show-only=json-v1 > logs/ctest-discovery.json
@@ -96,7 +135,7 @@ jobs:
           PY
 
       - name: Run CTest baseline
-        timeout-minutes: 30
+        timeout-minutes: 45
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           QT_QPA_PLATFORM: xcb
@@ -111,14 +150,22 @@ jobs:
             2>&1 | tee logs/ctest.log
 
       - name: Run FreeCADCmd test baseline
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: |
           set -euo pipefail
           profile_dir="$PWD/logs/freecadcmd-profile"
           mkdir -p "$profile_dir"
-          pixi run build/release/bin/FreeCADCmd --version --verbose \
+          pixi run build/release/bin/FreeCADCmd \
+            --safe-mode \
+            --user-cfg "$profile_dir/version-user.cfg" \
+            --system-cfg "$profile_dir/version-system.cfg" \
+            --version --verbose \
             2>&1 | tee logs/freecadcmd-version.log
-          pixi run build/release/bin/FreeCADCmd --dump-config \
+          pixi run build/release/bin/FreeCADCmd \
+            --safe-mode \
+            --user-cfg "$profile_dir/config-user.cfg" \
+            --system-cfg "$profile_dir/config-system.cfg" \
+            --dump-config \
             2>&1 | tee logs/freecadcmd-config.log
           pixi run build/release/bin/FreeCADCmd \
             --safe-mode \
@@ -132,33 +179,127 @@ jobs:
           from pathlib import Path
 
           output = Path("logs/freecadcmd-tests.log").read_text(encoding="utf-8", errors="replace")
-          counts = [int(value) for value in re.findall(r"Ran\s+(\d+)\s+tests?", output)]
-          count = sum(counts)
+          counts = re.findall(
+              r"(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+"
+              r"[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$",
+              output,
+          )
+          if not counts:
+              raise SystemExit("FreeCADCmd test runner summary was not found")
+          count = int(counts[-1])
           Path("logs/freecadcmd-test-count.txt").write_text(f"{count}\n", encoding="utf-8")
           print(f"FreeCADCmd reported {count} tests")
           if count == 0:
               raise SystemExit("FreeCADCmd reported zero tests")
           PY
 
+      - name: Run FreeCAD GUI test baseline
+        timeout-minutes: 60
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          QT_QPA_PLATFORM: xcb
+        run: |
+          set -euo pipefail
+          profile_dir="$PWD/logs/freecadgui-profile"
+          mkdir -p "$profile_dir"
+          pixi run xvfb-run -a -s "-screen 0 1920x1080x24" \
+            build/release/bin/FreeCAD \
+              --safe-mode \
+              --user-cfg "$profile_dir/inventory-user.cfg" \
+              --system-cfg "$profile_dir/inventory-system.cfg" \
+              --log-file "$profile_dir/freecad-gui-inventory.log" \
+              -t \
+            2>&1 | tee logs/freecadgui-test-inventory.log
+          if [[ ! -s "$profile_dir/freecad-gui-inventory.log" ]]; then
+            echo "FreeCAD GUI inventory did not produce a nonempty application log." >&2
+            exit 1
+          fi
+          pixi run python - <<'PY'
+          from pathlib import Path
+
+          output = Path("logs/freecadgui-test-inventory.log").read_text(
+              encoding="utf-8", errors="replace"
+          )
+          required = {
+              "GuiDocument",
+              "Menu",
+              "TestAssemblyWorkbench",
+              "TestCAMGui",
+              "TestImportGui",
+              "TestMaterialsGui",
+              "TestPartDesignGui",
+              "TestSketcherGui",
+              "TestTechDrawGui",
+              "Workbench",
+          }
+          registered = {line.strip() for line in output.splitlines()}
+          missing = sorted(required - registered)
+          if missing:
+              raise SystemExit(f"Required GUI test units were not registered: {missing}")
+          Path("logs/freecadgui-required-units.txt").write_text(
+              "\n".join(sorted(required)) + "\n", encoding="utf-8"
+          )
+          PY
+          pixi run xvfb-run -a -s "-screen 0 1920x1080x24" \
+            build/release/bin/FreeCAD \
+              --safe-mode \
+              --user-cfg "$profile_dir/user.cfg" \
+              --system-cfg "$profile_dir/system.cfg" \
+              --log-file "$profile_dir/freecad-gui.log" \
+              -t 0 \
+            2>&1 | tee logs/freecadgui-tests.log
+          if [[ ! -s "$profile_dir/freecad-gui.log" ]]; then
+            echo "FreeCAD GUI tests did not produce a nonempty application log." >&2
+            exit 1
+          fi
+          pixi run python - <<'PY'
+          import re
+          from pathlib import Path
+
+          output = Path("logs/freecadgui-tests.log").read_text(encoding="utf-8", errors="replace")
+          counts = re.findall(
+              r"(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+"
+              r"[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$",
+              output,
+          )
+          if not counts:
+              raise SystemExit("FreeCAD GUI test runner summary was not found")
+          count = int(counts[-1])
+          Path("logs/freecadgui-test-count.txt").write_text(f"{count}\n", encoding="utf-8")
+          print(f"FreeCAD GUI reported {count} tests")
+          if count == 0:
+              raise SystemExit("FreeCAD GUI reported zero tests")
+          PY
+
       - name: Record baseline metadata
         if: always()
+        timeout-minutes: 5
         run: |
+          mkdir -p logs
           {
             echo "commit=$(git rev-parse HEAD)"
             echo "runner_os=${RUNNER_OS}"
             echo "runner_arch=${RUNNER_ARCH}"
+            echo "uname_arch=$(uname -m)"
+            echo "image_os=${ImageOS:-unknown}"
+            echo "image_version=${ImageVersion:-unknown}"
             echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "workflow_attempt=${GITHUB_RUN_ATTEMPT}"
           } > logs/baseline-metadata.txt
+          pixi run cmake --version > logs/cmake-version.txt 2>&1 || true
+          pixi run ninja --version > logs/ninja-version.txt 2>&1 || true
+          file build/release/bin/FreeCADCmd > logs/freecadcmd-file.txt 2>&1 || true
           cp build/release/CMakeCache.txt logs/CMakeCache.txt 2>/dev/null || true
           cp build/release/CMakeFiles/CMakeConfigureLog.yaml logs/CMakeConfigureLog.yaml 2>/dev/null || true
           cp -R build/release/Testing/Temporary logs/ctest-temporary 2>/dev/null || true
 
       - name: Upload baseline logs
         if: always()
+        timeout-minutes: 10
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: baseline-linux-release-${{ github.run_id }}
           path: logs/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
           compression-level: 6

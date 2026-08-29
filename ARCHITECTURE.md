@@ -80,8 +80,10 @@ application, MDI owner, or active-document concept.
 - `src/Gui/Command.{h,cpp}` defines `Gui::CommandBase`, `Gui::Command`, Python
   command variants, and `Gui::CommandManager`.
 - `Gui::CommandManager::getAllCommands()`, `getModuleCommands()`,
-  `getGroupCommands()`, `getCommandByName()`, `runCommandByName()`,
-  `testActive()`, and `signalChanged` provide the command-registry seam.
+  `getGroupCommands()`, `getCommandByName()`, `testActive()`, and
+  `signalChanged` provide the command-registry seam. `runCommandByName()` is a
+  compatibility API, but it is not the launcher dispatch path because it does
+  not preserve all QAction-level gating and grouped/checkable semantics.
 - `src/Gui/Action.{h,cpp}` bridges commands to `QAction`, including translated
   labels, tooltips, icons, shortcuts, enabled state, and check state.
 - `src/Gui/MenuManager.*`, `ToolBarManager.*`, `ToolBoxManager.*`, and
@@ -205,9 +207,9 @@ workflow composition only.
 | Planned component | Responsibility | Uses | Must not own |
 | --- | --- | --- | --- |
 | `OpenFusion::ShellController` | Install the top frame, workspace selector, contextual command surface, project dock, inspector dock, and timeline dock into `Gui::MainWindow`. | `Gui::Application`, `Gui::MainWindow`, dock and toolbar managers | Documents, MDI views, geometry, or a second event loop |
-| `OpenFusion::WorkspaceController` | Present Design, Surface, Assembly, Drawing, Manufacturing, Simulation, Mesh, and Rendering as coherent workspaces; activate/load backing modules and publish a curated command set. | `Gui::WorkbenchManager`, `Gui::CommandManager`, workbench definitions | Replacement command implementations or geometry logic |
-| `OpenFusion::CommandCatalog` | Normalize command IDs and translated action metadata and add providers for real settings pages and workspaces. | `CommandManager::getAllCommands()`, `getCommandByName()`, `signalChanged`, `Gui::Action` | Copies of command enabled state or fake commands |
-| `OpenFusion::CommandSearchModel` | Fuzzy search, ranking, recent-command history, keyboard navigation, and execution through the catalog. | `CommandCatalog`, parameter storage | Direct calls into operation task panels |
+| `OpenFusion::WorkspaceController` | Present Design, Surface, Assembly, Drawing, Manufacturing, Simulation, and Mesh as coherent workspaces; activate/load backing modules and publish a curated command set. | `Gui::WorkbenchManager`, `Gui::WorkbenchManipulator`, workbench definitions | Replacement command implementations or geometry logic |
+| `OpenFusion::CommandCatalog` | Copy stable IDs and translated metadata from commands exposed by the current menu/toolbar action surface; later add explicit providers for real settings pages and workspaces. | `getCommandByName()`, `signalChanged`, `Gui::Action`, menus and toolbars | Raw `Command*`/`QAction*`, hidden callback commands, or copied enabled state |
+| `OpenFusion::CommandSearchModel` | Fuzzy search, stable ranking, keyboard navigation, and safe execution through the command-owned action. | `CommandCatalog`, `Command::testActive()`, `Gui::Action` | Direct calls into operation task panels or an independent command dispatcher |
 | `OpenFusion::ContextModel` | Derive applicable commands from workspace, selection, active component/body, edit mode, and command active state. | `Gui::SelectionSingleton`, active App/Gui documents, `Command::isActive()` | A second selection or command-state system |
 | `OpenFusion::ProjectModel` | Expose document/component/body hierarchy, icons, visibility, rename, activation, valid DnD, filtering, and keyboard navigation. | `Gui::Document`, ViewProviders, `claimChildren()`, `Gui::SelectionSingleton` | Parallel object ownership or inferred link rewrites |
 | `OpenFusion::TimelineModel` | Present semantic Body feature order, dependency edges, recompute/error status, selection synchronization, and capability flags. | `PartDesign::Body`, `Part::BodyBase::Group` and `Tip`, `DocumentObject` dependencies, document signals | The undo stack as history, arbitrary feature order, or geometry |
@@ -222,7 +224,7 @@ flowchart TD
     CONTEXT["ContextModel recomputes state"]
     COMMANDS["CommandCatalog resolves commands"]
     UI["Shell, project, inspector, timeline update"]
-    DISPATCH["CommandManager dispatches enabled command"]
+    DISPATCH["Enabled command-owned QAction triggers"]
 
     EVENT --> CONTEXT
     CONTEXT --> COMMANDS
@@ -239,18 +241,18 @@ surface.
 
 ### Command search contract
 
-The initial launcher indexes only executable or navigable entities:
+The first launcher indexes only real commands exposed by the current menu and
+workbench toolbar action surface. It resolves and stores copied command IDs and
+localized metadata, excludes test/internal callbacks, and never retains raw
+command or action pointers. Explicit workspace, settings, and recent-command
+providers are deferred until each has a real activation/invocation contract.
 
-1. Registered commands, indexed by stable ID, translated menu text, tooltip,
-   module, shortcut, and search aliases.
-2. Workspaces that `WorkspaceController` can actually activate.
-3. Settings destinations backed by a registered preference page.
-4. Recent commands that still exist in the registry.
-
-The catalog rebuilds when `Gui::CommandManager::signalChanged` fires because
-Python and module commands are registered lazily. Results must reflect the
-underlying `Command::isActive()`/QAction state. Disabled commands can be shown
-with a reason where one is available, but cannot be invoked through a bypass.
+The catalog rebuilds when `Gui::CommandManager::signalChanged` fires, after a
+workbench switch, and on language changes. Before showing results, it refreshes
+normal command active state. Before execution, it restores the user's prior
+focus, re-resolves the command ID, calls `Command::testActive()`, verifies the
+real action is enabled, and triggers the command-owned `QAction`. Disabled
+commands can be shown as unavailable, but cannot be invoked through a bypass.
 
 ### Timeline contract
 

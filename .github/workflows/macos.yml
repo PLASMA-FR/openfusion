@@ -1,0 +1,419 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+name: OpenFusion macOS locked-Pixi baseline
+
+"on":
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-baseline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-release:
+    name: macOS ${{ matrix.arch_name }} Release (Conda compiler)
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch_name: arm64
+            runner: macos-15
+            runner_arch: ARM64
+            uname_arch: arm64
+            pixi_platform: osx-arm64
+          - arch_name: x86_64
+            runner: macos-15-intel
+            runner_arch: X64
+            uname_arch: x86_64
+            pixi_platform: osx-64
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      LC_ALL: en_US.UTF-8
+      TZ: UTC
+
+    steps:
+      - name: Check out source and pinned submodules
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Verify runner architecture and exact submodule checkout
+        timeout-minutes: 15
+        env:
+          EXPECTED_RUNNER_ARCH: ${{ matrix.runner_arch }}
+          EXPECTED_UNAME_ARCH: ${{ matrix.uname_arch }}
+          EXPECTED_PIXI_PLATFORM: ${{ matrix.pixi_platform }}
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+
+          actual_uname="$(uname -m)"
+          if [[ "$RUNNER_ARCH" != "$EXPECTED_RUNNER_ARCH" ]]; then
+            echo "Expected runner architecture $EXPECTED_RUNNER_ARCH, got $RUNNER_ARCH." >&2
+            exit 1
+          fi
+          if [[ "$actual_uname" != "$EXPECTED_UNAME_ARCH" ]]; then
+            echo "Expected uname architecture $EXPECTED_UNAME_ARCH, got $actual_uname." >&2
+            exit 1
+          fi
+
+          git submodule sync --recursive 2>&1 | tee logs/submodule-sync.log
+          git submodule update --init --recursive 2>&1 | tee logs/submodule-update.log
+          git submodule status --recursive | tee logs/submodules.txt
+          if grep -Eq '^[-+U]' logs/submodules.txt; then
+            echo "A submodule is missing, conflicted, or not at its recorded commit." >&2
+            exit 1
+          fi
+
+          {
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "uname_arch=$actual_uname"
+            echo "expected_pixi_platform=$EXPECTED_PIXI_PLATFORM"
+            echo "image_os=${ImageOS:-unknown}"
+            echo "image_version=${ImageVersion:-unknown}"
+            uname -a
+            sw_vers
+          } > logs/runner.txt
+          xcodebuild -version > logs/xcode-version.txt 2>&1
+
+      - name: Install Pixi
+        uses: prefix-dev/setup-pixi@82d477f15f3a381dbcc8adc1206ce643fe110fb7 # v0.9.3
+        with:
+          pixi-version: v0.59.0
+          cache: false
+          run-install: false
+
+      - name: Materialize locked build environment
+        timeout-minutes: 45
+        env:
+          EXPECTED_PIXI_PLATFORM: ${{ matrix.pixi_platform }}
+        run: |
+          set -euo pipefail
+          pixi --version | tee logs/pixi-version.txt
+          shasum -a 256 pixi.lock | tee logs/pixi-lock.sha256
+          pixi info 2>&1 | tee logs/pixi-info.log
+          active_pixi_platform="$(
+            sed -nE \
+              's/^[[:space:]]*Platform:[[:space:]]*([^[:space:]]+)[[:space:]]*$/\1/p' \
+              logs/pixi-info.log
+          )"
+          if [[ "$active_pixi_platform" != "$EXPECTED_PIXI_PLATFORM" ]]; then
+            echo "Expected Pixi platform $EXPECTED_PIXI_PLATFORM, got $active_pixi_platform." >&2
+            exit 1
+          fi
+          printf '%s\n' "$active_pixi_platform" > logs/pixi-platform.txt
+          pixi install --locked 2>&1 | tee logs/pixi-install.log
+
+      - name: Configure Release build with tests
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          pixi run configure-release 2>&1 | tee logs/configure.log
+          grep -Eq '^CMAKE_BUILD_TYPE(:STRING)?=Release$' build/release/CMakeCache.txt
+          grep -Eq '^ENABLE_DEVELOPER_TESTS:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_TEST:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_GUI:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_IMPORT:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_MATERIAL:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_PART:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_PART_DESIGN:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_SKETCHER:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_ASSEMBLY:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_CAM:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_TECHDRAW:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+
+      - name: Build Release
+        timeout-minutes: 100
+        run: |
+          set -euo pipefail
+          pixi run build-release 2>&1 | tee logs/build.log
+
+      - name: Verify native outputs and record Conda compiler
+        timeout-minutes: 10
+        env:
+          EXPECTED_UNAME_ARCH: ${{ matrix.uname_arch }}
+        run: |
+          set -euo pipefail
+          : > logs/binary-architectures.txt
+          for relative_path in \
+            build/release/bin/FreeCADCmd \
+            build/release/bin/FreeCAD
+          do
+            binary="$PWD/$relative_path"
+            if [[ ! -x "$binary" ]]; then
+              echo "Expected native binary is missing or not executable: $binary" >&2
+              exit 1
+            fi
+            architectures="$(lipo -archs "$binary")"
+            printf '%s architectures=%s\n' "$relative_path" "$architectures" |
+              tee -a logs/binary-architectures.txt
+            if [[ "$architectures" != "$EXPECTED_UNAME_ARCH" ]]; then
+              echo "Expected $EXPECTED_UNAME_ARCH output, got $architectures for $binary." >&2
+              exit 1
+            fi
+          done
+
+          compiler_file="$(
+            find build/release/CMakeFiles -name CMakeCXXCompiler.cmake -print -quit
+          )"
+          if [[ -z "$compiler_file" ]]; then
+            echo "CMake C++ compiler diagnostics were not generated." >&2
+            exit 1
+          fi
+          grep -Eq '^set\(CMAKE_CXX_COMPILER ".+"\)$' "$compiler_file"
+          grep -Eq '^set\(CMAKE_CXX_COMPILER_ID ".+"\)$' "$compiler_file"
+          grep -Eq '^set\(CMAKE_CXX_COMPILER_VERSION ".+"\)$' "$compiler_file"
+          cp "$compiler_file" logs/CMakeCXXCompiler.cmake
+          grep -E '^set\(CMAKE_CXX_COMPILER(_ID|_VERSION)? ' "$compiler_file" |
+            tee logs/compiler-summary.txt
+
+          pixi run cmake --version 2>&1 | tee logs/cmake-version.txt
+          pixi run ninja --version 2>&1 | tee logs/ninja-version.txt
+
+      - name: Discover CTest tests
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          pixi run ctest --test-dir build/release --show-only=json-v1 \
+            > logs/ctest-discovery.json
+          pixi run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("logs/ctest-discovery.json").read_text(encoding="utf-8"))
+          count = len(report.get("tests", []))
+          Path("logs/ctest-count.txt").write_text(f"{count}\n", encoding="utf-8")
+          print(f"Discovered {count} CTest tests")
+          if count == 0:
+              raise SystemExit("CTest discovered zero tests")
+          PY
+
+      - name: Run CTest baseline
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          pixi run ctest \
+            --test-dir build/release \
+            --output-on-failure \
+            --no-tests=error \
+            --parallel 2 \
+            --timeout 600 \
+            2>&1 | tee logs/ctest.log
+
+      - name: Run native FreeCADCmd baseline
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          binary="$PWD/build/release/bin/FreeCADCmd"
+          if [[ ! -x "$binary" ]]; then
+            echo "Expected CLI binary is missing or not executable: $binary" >&2
+            exit 1
+          fi
+
+          profile_dir="$RUNNER_TEMP/openfusion-cli-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$profile_dir"
+
+          pixi run "$binary" \
+            --safe-mode \
+            --user-cfg "$profile_dir/user.cfg" \
+            --system-cfg "$profile_dir/system.cfg" \
+            --version --verbose \
+            2>&1 | tee logs/freecadcmd-version.log
+          pixi run "$binary" \
+            --safe-mode \
+            --user-cfg "$profile_dir/user.cfg" \
+            --system-cfg "$profile_dir/system.cfg" \
+            --dump-config \
+            2>&1 | tee logs/freecadcmd-config.log
+          set +e
+          pixi run "$binary" \
+            --safe-mode \
+            --user-cfg "$profile_dir/user.cfg" \
+            --system-cfg "$profile_dir/system.cfg" \
+            --log-file "$profile_dir/freecad-cli.log" \
+            -t 0 \
+            2>&1 | tee logs/freecadcmd-tests.log
+          test_exit_code="${PIPESTATUS[0]}"
+          set -e
+          if [[ ! -s "$profile_dir/freecad-cli.log" ]]; then
+            echo "FreeCADCmd did not produce a nonempty application log." >&2
+            exit 1
+          fi
+          cp "$profile_dir/freecad-cli.log" logs/freecadcmd-application.log
+          if [[ "$test_exit_code" -ne 0 ]]; then
+            echo "FreeCADCmd test baseline failed with exit code $test_exit_code." >&2
+            exit "$test_exit_code"
+          fi
+
+          pixi run python - <<'PY'
+          import re
+          from pathlib import Path
+
+          output = Path("logs/freecadcmd-tests.log").read_text(
+              encoding="utf-8", errors="replace"
+          )
+          summaries = re.findall(
+              r"(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+"
+              r"[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$",
+              output,
+          )
+          if not summaries:
+              raise SystemExit("FreeCADCmd emitted no anchored unittest summary")
+          count = int(summaries[-1])
+          Path("logs/freecadcmd-test-count.txt").write_text(f"{count}\n", encoding="utf-8")
+          print(f"FreeCADCmd final unittest summary reported {count} tests")
+          if count <= 0:
+              raise SystemExit("FreeCADCmd final unittest summary reported zero tests")
+          PY
+
+      - name: Inventory and run native FreeCAD GUI baseline
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          binary="$PWD/build/release/bin/FreeCAD"
+          if [[ ! -x "$binary" ]]; then
+            echo "Expected GUI binary is missing or not executable: $binary" >&2
+            exit 1
+          fi
+
+          inventory_profile="$RUNNER_TEMP/openfusion-gui-inventory-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$inventory_profile"
+          set +e
+          pixi run "$binary" \
+            --safe-mode \
+            --user-cfg "$inventory_profile/user.cfg" \
+            --system-cfg "$inventory_profile/system.cfg" \
+            --log-file "$inventory_profile/freecad-gui-inventory.log" \
+            -t \
+            2>&1 | tee logs/freecadgui-inventory.log
+          inventory_exit_code="${PIPESTATUS[0]}"
+          set -e
+          if [[ ! -s "$inventory_profile/freecad-gui-inventory.log" ]]; then
+            echo "FreeCAD GUI inventory did not produce a nonempty application log." >&2
+            exit 1
+          fi
+          cp "$inventory_profile/freecad-gui-inventory.log" \
+            logs/freecadgui-inventory-application.log
+          if [[ "$inventory_exit_code" -ne 0 ]]; then
+            echo "FreeCAD GUI inventory failed with exit code $inventory_exit_code." >&2
+            exit "$inventory_exit_code"
+          fi
+          if ! grep -Eq '^Registered test units:[[:space:]]*$' \
+            logs/freecadgui-inventory.log
+          then
+            echo "FreeCAD GUI inventory did not report registered test units." >&2
+            exit 1
+          fi
+          required_units=(
+            GuiDocument
+            Menu
+            TestAssemblyWorkbench
+            TestCAMGui
+            TestImportGui
+            TestMaterialsGui
+            TestPartDesignGui
+            TestSketcherGui
+            TestTechDrawGui
+            Workbench
+          )
+          : > logs/freecadgui-required-units.txt
+          for unit in "${required_units[@]}"; do
+            if ! grep -Fqx "$unit" logs/freecadgui-inventory.log; then
+              echo "Required GUI test unit was not registered: $unit" >&2
+              exit 1
+            fi
+            printf '%s\n' "$unit" >> logs/freecadgui-required-units.txt
+          done
+          profile_dir="$RUNNER_TEMP/openfusion-gui-tests-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$profile_dir"
+          set +e
+          pixi run "$binary" \
+            --safe-mode \
+            --user-cfg "$profile_dir/user.cfg" \
+            --system-cfg "$profile_dir/system.cfg" \
+            --log-file "$profile_dir/freecad-gui.log" \
+            -t 0 \
+            2>&1 | tee logs/freecadgui-tests.log
+          test_exit_code="${PIPESTATUS[0]}"
+          set -e
+          if [[ ! -s "$profile_dir/freecad-gui.log" ]]; then
+            echo "FreeCAD GUI tests did not produce a nonempty application log." >&2
+            exit 1
+          fi
+          cp "$profile_dir/freecad-gui.log" logs/freecadgui-application.log
+          if [[ "$test_exit_code" -ne 0 ]]; then
+            echo "FreeCAD GUI test baseline failed with exit code $test_exit_code." >&2
+            exit "$test_exit_code"
+          fi
+
+          pixi run python - <<'PY'
+          import re
+          from pathlib import Path
+
+          output = Path("logs/freecadgui-tests.log").read_text(
+              encoding="utf-8", errors="replace"
+          )
+          summaries = re.findall(
+              r"(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+"
+              r"[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$",
+              output,
+          )
+          if not summaries:
+              raise SystemExit("FreeCAD GUI emitted no anchored unittest summary")
+          count = int(summaries[-1])
+          Path("logs/freecadgui-test-count.txt").write_text(f"{count}\n", encoding="utf-8")
+          print(f"FreeCAD GUI final unittest summary reported {count} tests")
+          if count <= 0:
+              raise SystemExit("FreeCAD GUI final unittest summary reported zero tests")
+          PY
+
+      - name: Record baseline diagnostics
+        if: always()
+        timeout-minutes: 5
+        run: |
+          mkdir -p logs
+          {
+            echo "commit=$(git rev-parse HEAD 2>/dev/null || true)"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "uname_arch=$(uname -m)"
+            echo "expected_pixi_platform=${{ matrix.pixi_platform }}"
+            echo "image_os=${ImageOS:-unknown}"
+            echo "image_version=${ImageVersion:-unknown}"
+            echo "workflow_run=$GITHUB_RUN_ID"
+            echo "workflow_attempt=$GITHUB_RUN_ATTEMPT"
+          } > logs/baseline-metadata.txt
+          cp build/release/CMakeCache.txt logs/CMakeCache.txt 2>/dev/null || true
+          cp build/release/CMakeFiles/CMakeConfigureLog.yaml logs/CMakeConfigureLog.yaml \
+            2>/dev/null || true
+          cp -R build/release/Testing/Temporary logs/ctest-temporary 2>/dev/null || true
+
+      - name: Upload macOS baseline logs
+        if: always()
+        timeout-minutes: 10
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: baseline-macos-${{ matrix.arch_name }}-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: logs/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6

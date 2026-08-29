@@ -1,0 +1,447 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+name: OpenFusion Windows locked-Pixi baseline
+
+"on":
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-baseline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-release:
+    name: Windows x64 Release (Conda compiler)
+    runs-on: windows-2022
+    timeout-minutes: 300
+
+    defaults:
+      run:
+        shell: pwsh
+
+    env:
+      TZ: UTC
+
+    steps:
+      - name: Check out source and pinned submodules
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Verify runner and exact submodule checkout
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force logs | Out-Null
+
+          if ($env:RUNNER_ARCH -ne "X64") {
+            throw "Expected an X64 runner, got '$env:RUNNER_ARCH'."
+          }
+
+          git submodule sync --recursive 2>&1 | Tee-Object -FilePath logs/submodule-sync.log
+          if ($LASTEXITCODE -ne 0) { throw "git submodule sync failed." }
+
+          git submodule update --init --recursive 2>&1 | Tee-Object -FilePath logs/submodule-update.log
+          if ($LASTEXITCODE -ne 0) { throw "git submodule update failed." }
+
+          $status = @(git submodule status --recursive)
+          if ($LASTEXITCODE -ne 0) { throw "git submodule status failed." }
+          $status | Set-Content -Encoding utf8 logs/submodules.txt
+
+          $invalid = @($status | Where-Object { $_ -match '^[-+U]' })
+          if ($invalid.Count -ne 0) {
+            $invalid | ForEach-Object { Write-Error "Invalid submodule state: $_" }
+            throw "A submodule is missing, conflicted, or not at its recorded commit."
+          }
+
+          "runner_os=$env:RUNNER_OS" | Set-Content -Encoding utf8 logs/runner.txt
+          "runner_arch=$env:RUNNER_ARCH" | Add-Content -Encoding utf8 logs/runner.txt
+          "image_os=$env:ImageOS" | Add-Content -Encoding utf8 logs/runner.txt
+          "image_version=$env:ImageVersion" | Add-Content -Encoding utf8 logs/runner.txt
+          "os_version=$([Environment]::OSVersion.VersionString)" |
+            Add-Content -Encoding utf8 logs/runner.txt
+          $PSVersionTable | Out-String | Set-Content -Encoding utf8 logs/powershell.txt
+
+      - name: Install Pixi
+        uses: prefix-dev/setup-pixi@82d477f15f3a381dbcc8adc1206ce643fe110fb7 # v0.9.3
+        with:
+          pixi-version: v0.59.0
+          cache: false
+          run-install: false
+
+      - name: Materialize locked build environment
+        timeout-minutes: 45
+        env:
+          EXPECTED_PIXI_PLATFORM: win-64
+        run: |
+          $ErrorActionPreference = "Stop"
+          pixi --version 2>&1 | Tee-Object -FilePath logs/pixi-version.txt
+          if ($LASTEXITCODE -ne 0) { throw "pixi --version failed." }
+
+          Get-FileHash -Algorithm SHA256 pixi.lock |
+            Format-List | Out-File -Encoding utf8 logs/pixi-lock.sha256
+
+          pixi info 2>&1 | Tee-Object -FilePath logs/pixi-info.log
+          if ($LASTEXITCODE -ne 0) { throw "pixi info failed." }
+          $platformLines = @(
+            Select-String -Path logs/pixi-info.log -Pattern '^\s*Platform:\s*(\S+)\s*$'
+          )
+          if ($platformLines.Count -ne 1) {
+            throw "Expected exactly one active Platform field from pixi info."
+          }
+          $activePlatform = $platformLines[0].Matches[0].Groups[1].Value
+          if ($activePlatform -ne $env:EXPECTED_PIXI_PLATFORM) {
+            throw "Expected Pixi platform '$env:EXPECTED_PIXI_PLATFORM', got '$activePlatform'."
+          }
+          $activePlatform | Set-Content -Encoding ascii logs/pixi-platform.txt
+
+          pixi install --locked 2>&1 | Tee-Object -FilePath logs/pixi-install.log
+          if ($LASTEXITCODE -ne 0) { throw "pixi install --locked failed." }
+
+      - name: Configure Release build with tests
+        timeout-minutes: 25
+        run: |
+          $ErrorActionPreference = "Stop"
+          pixi run configure-release 2>&1 | Tee-Object -FilePath logs/configure.log
+          if ($LASTEXITCODE -ne 0) { throw "Release configuration failed." }
+
+          $cache = Get-Content -Raw build/release/CMakeCache.txt
+          $required = @(
+            '^CMAKE_BUILD_TYPE:STRING=Release$',
+            '^ENABLE_DEVELOPER_TESTS:BOOL=(ON|TRUE)$',
+            '^BUILD_TEST:BOOL=(ON|TRUE)$',
+            '^BUILD_GUI:BOOL=(ON|TRUE)$',
+            '^BUILD_IMPORT:BOOL=(ON|TRUE)$',
+            '^BUILD_MATERIAL:BOOL=(ON|TRUE)$',
+            '^BUILD_PART:BOOL=(ON|TRUE)$',
+            '^BUILD_PART_DESIGN:BOOL=(ON|TRUE)$',
+            '^BUILD_SKETCHER:BOOL=(ON|TRUE)$',
+            '^BUILD_ASSEMBLY:BOOL=(ON|TRUE)$',
+            '^BUILD_CAM:BOOL=(ON|TRUE)$',
+            '^BUILD_TECHDRAW:BOOL=(ON|TRUE)$'
+          )
+          foreach ($pattern in $required) {
+            if ($cache -notmatch "(?m)$pattern") {
+              throw "Required CMake cache entry did not match: $pattern"
+            }
+          }
+
+      - name: Build Release
+        timeout-minutes: 100
+        run: |
+          $ErrorActionPreference = "Stop"
+          pixi run build-release 2>&1 | Tee-Object -FilePath logs/build.log
+          if ($LASTEXITCODE -ne 0) { throw "Release build failed." }
+
+      - name: Verify native outputs and record Conda compiler
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          function Get-PeMachine([string]$Path) {
+            $stream = [System.IO.File]::OpenRead($Path)
+            $reader = $null
+            try {
+              $reader = [System.IO.BinaryReader]::new($stream)
+              if ($reader.ReadUInt16() -ne 0x5A4D) {
+                throw "Missing DOS header in '$Path'."
+              }
+              $stream.Position = 0x3C
+              $peOffset = $reader.ReadInt32()
+              if ($peOffset -lt 0 -or ($peOffset + 6) -gt $stream.Length) {
+                throw "Invalid PE header offset in '$Path'."
+              }
+              $stream.Position = $peOffset
+              if ($reader.ReadUInt32() -ne 0x00004550) {
+                throw "Missing PE signature in '$Path'."
+              }
+              return $reader.ReadUInt16()
+            }
+            finally {
+              if ($null -ne $reader) { $reader.Dispose() }
+              else { $stream.Dispose() }
+            }
+          }
+
+          $architecture = @()
+          foreach ($relativePath in @(
+            "build/release/bin/FreeCADCmd.exe",
+            "build/release/bin/FreeCAD.exe"
+          )) {
+            $binary = Join-Path $PWD $relativePath
+            if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+              throw "Expected native binary not found: $binary"
+            }
+            $machine = Get-PeMachine $binary
+            $machineHex = "0x{0:X4}" -f $machine
+            $architecture += "$relativePath machine=$machineHex"
+            if ($machine -ne 0x8664) {
+              throw "Expected x86-64 PE machine 0x8664 for '$binary', got $machineHex."
+            }
+          }
+          $architecture | Set-Content -Encoding ascii logs/binary-architectures.txt
+
+          $compilerFiles = @(
+            Get-ChildItem build/release/CMakeFiles -Recurse -Filter CMakeCXXCompiler.cmake
+          )
+          if ($compilerFiles.Count -eq 0) {
+            throw "CMake C++ compiler diagnostics were not generated."
+          }
+          $compilerFile = $compilerFiles[0]
+          $compilerText = Get-Content -Raw $compilerFile.FullName
+          foreach ($pattern in @(
+            '^set\(CMAKE_CXX_COMPILER ".+"\)$',
+            '^set\(CMAKE_CXX_COMPILER_ID ".+"\)$',
+            '^set\(CMAKE_CXX_COMPILER_VERSION ".+"\)$'
+          )) {
+            if ($compilerText -notmatch "(?m)$pattern") {
+              throw "Missing compiler diagnostic matching: $pattern"
+            }
+          }
+          Copy-Item -LiteralPath $compilerFile.FullName logs/CMakeCXXCompiler.cmake
+          $compilerSummary = @(
+            ($compilerText -split "`r?`n") |
+              Where-Object { $_ -match '^set\(CMAKE_CXX_COMPILER(_ID|_VERSION)? ' }
+          )
+          $compilerSummary | Set-Content -Encoding utf8 logs/compiler-summary.txt
+
+          pixi run cmake --version 2>&1 | Tee-Object -FilePath logs/cmake-version.txt
+          if ($LASTEXITCODE -ne 0) { throw "CMake version probe failed." }
+          pixi run ninja --version 2>&1 | Tee-Object -FilePath logs/ninja-version.txt
+          if ($LASTEXITCODE -ne 0) { throw "Ninja version probe failed." }
+
+      - name: Discover CTest tests
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = "Stop"
+          $discovery = @(pixi run ctest --test-dir build/release --show-only=json-v1)
+          if ($LASTEXITCODE -ne 0) { throw "CTest discovery failed." }
+          $discovery | Set-Content -Encoding utf8 logs/ctest-discovery.json
+
+          $report = Get-Content -Raw logs/ctest-discovery.json | ConvertFrom-Json
+          $count = @($report.tests).Count
+          "$count" | Set-Content -Encoding ascii logs/ctest-count.txt
+          Write-Host "Discovered $count CTest tests"
+          if ($count -eq 0) { throw "CTest discovered zero tests." }
+
+      - name: Run CTest baseline
+        timeout-minutes: 45
+        run: |
+          $ErrorActionPreference = "Stop"
+          pixi run ctest `
+            --test-dir build/release `
+            --output-on-failure `
+            --no-tests=error `
+            --parallel 2 `
+            --timeout 600 `
+            2>&1 | Tee-Object -FilePath logs/ctest.log
+          if ($LASTEXITCODE -ne 0) { throw "CTest baseline failed." }
+
+      - name: Run native FreeCADCmd baseline
+        timeout-minutes: 30
+        run: |
+          $ErrorActionPreference = "Stop"
+          $binary = Join-Path $PWD "build/release/bin/FreeCADCmd.exe"
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+            throw "Expected CLI binary not found: $binary"
+          }
+
+          $profile = Join-Path $env:RUNNER_TEMP "openfusion-cli-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Force $profile | Out-Null
+          $userCfg = Join-Path $profile "user.cfg"
+          $systemCfg = Join-Path $profile "system.cfg"
+          $applicationLog = Join-Path $profile "freecad-cli.log"
+
+          pixi run $binary `
+            --safe-mode `
+            --user-cfg $userCfg `
+            --system-cfg $systemCfg `
+            --version --verbose `
+            2>&1 |
+            Tee-Object -FilePath logs/freecadcmd-version.log
+          if ($LASTEXITCODE -ne 0) { throw "FreeCADCmd version probe failed." }
+
+          pixi run $binary `
+            --safe-mode `
+            --user-cfg $userCfg `
+            --system-cfg $systemCfg `
+            --dump-config `
+            2>&1 |
+            Tee-Object -FilePath logs/freecadcmd-config.log
+          if ($LASTEXITCODE -ne 0) { throw "FreeCADCmd configuration probe failed." }
+
+          pixi run $binary `
+            --safe-mode `
+            --user-cfg $userCfg `
+            --system-cfg $systemCfg `
+            --log-file $applicationLog `
+            -t 0 `
+            2>&1 | Tee-Object -FilePath logs/freecadcmd-tests.log
+          $testExitCode = $LASTEXITCODE
+          if (
+            -not (Test-Path -LiteralPath $applicationLog -PathType Leaf) -or
+            (Get-Item -LiteralPath $applicationLog).Length -eq 0
+          ) {
+            throw "FreeCADCmd did not produce a nonempty application log."
+          }
+          Copy-Item -LiteralPath $applicationLog logs/freecadcmd-application.log
+          if ($testExitCode -ne 0) { throw "FreeCADCmd test baseline failed." }
+
+          $output = Get-Content -Raw logs/freecadcmd-tests.log
+          $summaries = [regex]::Matches(
+            $output,
+            '(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$'
+          )
+          if ($summaries.Count -eq 0) {
+            throw "FreeCADCmd emitted no anchored unittest summary."
+          }
+          $count = [int]$summaries[$summaries.Count - 1].Groups[1].Value
+          "$count" | Set-Content -Encoding ascii logs/freecadcmd-test-count.txt
+          Write-Host "FreeCADCmd final unittest summary reported $count tests"
+          if ($count -le 0) { throw "FreeCADCmd final unittest summary reported zero tests." }
+
+      - name: Inventory and run native FreeCAD GUI baseline
+        timeout-minutes: 45
+        run: |
+          $ErrorActionPreference = "Stop"
+          $binary = Join-Path $PWD "build/release/bin/FreeCAD.exe"
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+            throw "Expected GUI binary not found: $binary"
+          }
+
+          $inventoryProfile = Join-Path $env:RUNNER_TEMP "openfusion-gui-inventory-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Force $inventoryProfile | Out-Null
+          $inventoryUserCfg = Join-Path $inventoryProfile "user.cfg"
+          $inventorySystemCfg = Join-Path $inventoryProfile "system.cfg"
+          $inventoryApplicationLog = Join-Path $inventoryProfile "freecad-gui-inventory.log"
+
+          pixi run $binary `
+            --safe-mode `
+            --user-cfg $inventoryUserCfg `
+            --system-cfg $inventorySystemCfg `
+            --log-file $inventoryApplicationLog `
+            -t `
+            2>&1 | Tee-Object -FilePath logs/freecadgui-inventory.log
+          $inventoryExitCode = $LASTEXITCODE
+          if (
+            -not (Test-Path -LiteralPath $inventoryApplicationLog -PathType Leaf) -or
+            (Get-Item -LiteralPath $inventoryApplicationLog).Length -eq 0
+          ) {
+            throw "FreeCAD GUI inventory did not produce a nonempty application log."
+          }
+          Copy-Item -LiteralPath $inventoryApplicationLog `
+            logs/freecadgui-inventory-application.log
+          if ($inventoryExitCode -ne 0) { throw "FreeCAD GUI test inventory failed." }
+          $inventory = Get-Content -Raw logs/freecadgui-inventory.log
+          if ($inventory -notmatch '(?m)^Registered test units:[ \t]*\r?$') {
+            throw "FreeCAD GUI inventory did not report registered test units."
+          }
+          $requiredUnits = @(
+            "GuiDocument",
+            "Menu",
+            "TestAssemblyWorkbench",
+            "TestCAMGui",
+            "TestImportGui",
+            "TestMaterialsGui",
+            "TestPartDesignGui",
+            "TestSketcherGui",
+            "TestTechDrawGui",
+            "Workbench"
+          )
+          $missingUnits = @(
+            $requiredUnits | Where-Object {
+              $inventory -notmatch "(?m)^$([regex]::Escape($_))[ \t]*\r?$"
+            }
+          )
+          if ($missingUnits.Count -ne 0) {
+            throw "Required GUI test units were not registered: $($missingUnits -join ', ')"
+          }
+          $requiredUnits | Sort-Object |
+            Set-Content -Encoding utf8 logs/freecadgui-required-units.txt
+
+          $profile = Join-Path $env:RUNNER_TEMP "openfusion-gui-tests-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Force $profile | Out-Null
+          $userCfg = Join-Path $profile "user.cfg"
+          $systemCfg = Join-Path $profile "system.cfg"
+          $applicationLog = Join-Path $profile "freecad-gui.log"
+
+          pixi run $binary `
+            --safe-mode `
+            --user-cfg $userCfg `
+            --system-cfg $systemCfg `
+            --log-file $applicationLog `
+            -t 0 `
+            2>&1 | Tee-Object -FilePath logs/freecadgui-tests.log
+          $testExitCode = $LASTEXITCODE
+          if (
+            -not (Test-Path -LiteralPath $applicationLog -PathType Leaf) -or
+            (Get-Item -LiteralPath $applicationLog).Length -eq 0
+          ) {
+            throw "FreeCAD GUI tests did not produce a nonempty application log."
+          }
+          Copy-Item -LiteralPath $applicationLog logs/freecadgui-application.log
+          if ($testExitCode -ne 0) { throw "FreeCAD GUI test baseline failed." }
+
+          $output = Get-Content -Raw logs/freecadgui-tests.log
+          $summaries = [regex]::Matches(
+            $output,
+            '(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$'
+          )
+          if ($summaries.Count -eq 0) {
+            throw "FreeCAD GUI emitted no anchored unittest summary."
+          }
+          $count = [int]$summaries[$summaries.Count - 1].Groups[1].Value
+          "$count" | Set-Content -Encoding ascii logs/freecadgui-test-count.txt
+          Write-Host "FreeCAD GUI final unittest summary reported $count tests"
+          if ($count -le 0) {
+            throw "FreeCAD GUI final unittest summary reported zero tests."
+          }
+
+      - name: Record baseline diagnostics
+        if: always()
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = "Continue"
+          New-Item -ItemType Directory -Force logs | Out-Null
+          @(
+            "commit=$(git rev-parse HEAD 2>$null)",
+            "runner_os=$env:RUNNER_OS",
+            "runner_arch=$env:RUNNER_ARCH",
+            "image_os=$env:ImageOS",
+            "image_version=$env:ImageVersion",
+            "os_version=$([Environment]::OSVersion.VersionString)",
+            "workflow_run=$env:GITHUB_RUN_ID",
+            "workflow_attempt=$env:GITHUB_RUN_ATTEMPT"
+          ) | Set-Content -Encoding utf8 logs/baseline-metadata.txt
+
+          if (Test-Path build/release/CMakeCache.txt) {
+            Copy-Item build/release/CMakeCache.txt logs/CMakeCache.txt
+          }
+          if (Test-Path build/release/CMakeFiles/CMakeConfigureLog.yaml) {
+            Copy-Item build/release/CMakeFiles/CMakeConfigureLog.yaml logs/CMakeConfigureLog.yaml
+          }
+          if (Test-Path build/release/Testing/Temporary) {
+            Copy-Item -Recurse build/release/Testing/Temporary logs/ctest-temporary
+          }
+
+      - name: Upload Windows baseline logs
+        if: always()
+        timeout-minutes: 10
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: baseline-windows-x64-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: logs/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
