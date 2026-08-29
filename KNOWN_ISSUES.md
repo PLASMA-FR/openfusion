@@ -12,8 +12,11 @@ until its build and workflow evidence is recorded.
 
 ## Foundation blockers
 
-- The untouched FreeCAD 1.1.3 configure, compile, unit, Python, GUI, and manual
-  launch baseline is still pending in the supported environments.
+- The first locked Linux baseline configured and compiled, then failed two of
+  1,424 discovered CTest entries because isolated TechDraw `LineFormat` tests
+  entered application preferences without an initialized application. A
+  focused fix is awaiting a complete rerun; CLI, GUI, and manual launch gates
+  remain unverified.
 - Repository submodules must be initialized recursively before a complete
   build; no submodule-free source package has been validated.
 - Current binaries and many user-facing identifiers still use FreeCAD names.

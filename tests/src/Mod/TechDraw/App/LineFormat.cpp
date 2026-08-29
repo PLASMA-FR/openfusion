@@ -10,7 +10,14 @@ namespace
 
 TechDraw::LineFormat makeLineFormat()
 {
-    return {Qt::SolidLine, 0.5, Base::Color(0.0F, 0.0F, 0.0F, 1.0F), true};
+    constexpr int solidLineNumber = 1;
+    return {
+        Qt::SolidLine,
+        0.5,
+        Base::Color(0.0F, 0.0F, 0.0F, 1.0F),
+        true,
+        solidLineNumber,
+    };
 }
 
 }  // namespace

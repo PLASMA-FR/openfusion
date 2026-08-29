@@ -29,6 +29,12 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   documentation. Executable names, persistent type identifiers, compatibility
   APIs, and much of the inherited UI remain unchanged pending tested migration.
 
+### Fixed
+
+- Implemented TechDraw's declared explicit-line-number `LineFormat`
+  constructor and isolated its QColor unit tests from the uninitialized
+  application preference singleton used by the legacy constructor.
+
 ### Security
 
 - Defined private vulnerability reporting and pre-release security gates.
