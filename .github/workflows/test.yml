@@ -1,0 +1,164 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+name: OpenFusion baseline tests
+
+"on":
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: baseline-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-release:
+    name: Linux Release (locked Pixi baseline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      LC_ALL: C.UTF-8
+      TZ: UTC
+
+    steps:
+      - name: Check out source and pinned submodules
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Verify submodule checkout
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          git submodule sync --recursive
+          git submodule update --init --recursive
+          git submodule status --recursive | tee logs/submodules.txt
+          if grep -Eq '^[+-U]' logs/submodules.txt; then
+            echo "A submodule is missing, conflicted, or not at its recorded commit." >&2
+            exit 1
+          fi
+
+      - name: Install Pixi
+        uses: prefix-dev/setup-pixi@82d477f15f3a381dbcc8adc1206ce643fe110fb7 # v0.9.3
+        with:
+          pixi-version: v0.59.0
+          cache: false
+
+      - name: Materialize locked build environment
+        run: |
+          set -euo pipefail
+          pixi --version | tee logs/pixi-version.txt
+          sha256sum pixi.lock | tee logs/pixi-lock.sha256
+          pixi install --locked 2>&1 | tee logs/pixi-install.log
+
+      - name: Configure Release build with tests
+        run: |
+          set -euo pipefail
+          pixi run configure-release 2>&1 | tee logs/configure.log
+          grep -Eq '^CMAKE_BUILD_TYPE(:STRING)?=Release$' build/release/CMakeCache.txt
+          grep -Eq '^ENABLE_DEVELOPER_TESTS:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_TEST:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_GUI:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_ASSEMBLY:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_CAM:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+          grep -Eq '^BUILD_TECHDRAW:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
+
+      - name: Build Release
+        run: |
+          set -euo pipefail
+          pixi run build-release 2>&1 | tee logs/build.log
+
+      - name: Discover CTest tests
+        run: |
+          set -euo pipefail
+          pixi run ctest --test-dir build/release --show-only=json-v1 > logs/ctest-discovery.json
+          pixi run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("logs/ctest-discovery.json").read_text(encoding="utf-8"))
+          count = len(report.get("tests", []))
+          Path("logs/ctest-count.txt").write_text(f"{count}\n", encoding="utf-8")
+          print(f"Discovered {count} CTest tests")
+          if count == 0:
+              raise SystemExit("CTest discovered zero tests")
+          PY
+
+      - name: Run CTest baseline
+        timeout-minutes: 30
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          QT_QPA_PLATFORM: xcb
+        run: |
+          set -euo pipefail
+          pixi run xvfb-run -a -s "-screen 0 1920x1080x24" ctest \
+            --test-dir build/release \
+            --output-on-failure \
+            --no-tests=error \
+            --parallel 2 \
+            --timeout 600 \
+            2>&1 | tee logs/ctest.log
+
+      - name: Run FreeCADCmd test baseline
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          profile_dir="$PWD/logs/freecadcmd-profile"
+          mkdir -p "$profile_dir"
+          pixi run build/release/bin/FreeCADCmd --version --verbose \
+            2>&1 | tee logs/freecadcmd-version.log
+          pixi run build/release/bin/FreeCADCmd --dump-config \
+            2>&1 | tee logs/freecadcmd-config.log
+          pixi run build/release/bin/FreeCADCmd \
+            --safe-mode \
+            --user-cfg "$profile_dir/user.cfg" \
+            --system-cfg "$profile_dir/system.cfg" \
+            --log-file "$profile_dir/freecad-cli.log" \
+            -t 0 \
+            2>&1 | tee logs/freecadcmd-tests.log
+          pixi run python - <<'PY'
+          import re
+          from pathlib import Path
+
+          output = Path("logs/freecadcmd-tests.log").read_text(encoding="utf-8", errors="replace")
+          counts = [int(value) for value in re.findall(r"Ran\s+(\d+)\s+tests?", output)]
+          count = sum(counts)
+          Path("logs/freecadcmd-test-count.txt").write_text(f"{count}\n", encoding="utf-8")
+          print(f"FreeCADCmd reported {count} tests")
+          if count == 0:
+              raise SystemExit("FreeCADCmd reported zero tests")
+          PY
+
+      - name: Record baseline metadata
+        if: always()
+        run: |
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "workflow_run=${GITHUB_RUN_ID}"
+          } > logs/baseline-metadata.txt
+          cp build/release/CMakeCache.txt logs/CMakeCache.txt 2>/dev/null || true
+          cp build/release/CMakeFiles/CMakeConfigureLog.yaml logs/CMakeConfigureLog.yaml 2>/dev/null || true
+          cp -R build/release/Testing/Temporary logs/ctest-temporary 2>/dev/null || true
+
+      - name: Upload baseline logs
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: baseline-linux-release-${{ github.run_id }}
+          path: logs/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
