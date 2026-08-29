@@ -211,11 +211,17 @@ jobs:
           if not isinstance(tests, list):
               raise SystemExit("CTest JSON did not contain a tests array")
           count = len(tests)
-          names = {
-              test.get("name") for test in tests if isinstance(test, dict)
+          names = {test.get("name") for test in tests if isinstance(test, dict)}
+          required_acceptance = {
+              "OpenFusion_Assembly_Acceptance",
+              "OpenFusion_Core_Acceptance",
+              "OpenFusion_TechDraw_Acceptance",
           }
-          if "OpenFusion_Core_Acceptance" not in names:
-              raise SystemExit("Core acceptance test was not registered with CTest")
+          missing_acceptance = sorted(required_acceptance - names)
+          if missing_acceptance:
+              raise SystemExit(
+                  f"Acceptance tests were not registered with CTest: {missing_acceptance}"
+              )
           Path("logs/ctest-count.txt").write_text(f"{count}\n", encoding="utf-8")
           print(f"Discovered {count} CTest tests")
           if count == 0:

@@ -25,6 +25,8 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 - Added a CTest-registered core acceptance workflow covering constrained
   sketches, Part Design features, early-history edits, undo/redo, FCStd
   persistence, and STEP/STL round trips.
+- Added fixture-backed Assembly fixed-joint solver and TechDraw parametric
+  drawing acceptance, including save/reopen and undo/redo verification.
 
 ### Changed
 

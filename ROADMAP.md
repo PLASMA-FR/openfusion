@@ -8,7 +8,7 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 - Foundation: FreeCAD 1.1.3 source is present and the `upstream` remote is configured read-only.
 - Active milestone: M0 — reproducible upstream baseline.
-- Core acceptance: source-reviewed parametric, persistence, undo/redo, STEP, and STL harness implemented; cross-platform execution evidence is pending.
+- Acceptance project: source-reviewed core parametric, Assembly solver, TechDraw, persistence, undo/redo, STEP, and STL slices implemented; cross-platform execution evidence is pending.
 - OpenFusion workspace shell: designed, not implemented.
 - OpenFusion release artifacts: not produced.
 - Production readiness: **not achieved**.
