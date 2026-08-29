@@ -22,6 +22,8 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   run CTest, CLI, and GUI tests without claiming package support.
 - Added initial dependency-review and CodeQL workflows for GitHub Actions,
   C/C++, and Python with read-only checkout and immutable action pins.
+- Added CTest-registered acceptance workflows for constrained Part Design,
+  Assembly, TechDraw, persistence, history editing, and STEP/STL round trips.
 
 ### Changed
 

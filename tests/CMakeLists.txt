@@ -140,6 +140,15 @@ if ( NOT FREECAD_USE_EXTERNAL_GTEST )
 endif()
 add_subdirectory(src)
 
+if(BUILD_TEST
+   AND BUILD_PART
+   AND BUILD_PART_DESIGN
+   AND BUILD_SKETCHER
+   AND BUILD_IMPORT
+   AND BUILD_MESH)
+    add_subdirectory(acceptance)
+endif()
+
 include(GoogleTest)
 set(CMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE PRE_TEST)
 
