@@ -1,0 +1,62 @@
+name: Regenerate PDF validator lock
+
+on:
+  push:
+    branches:
+      - automation/regenerate-pdf-validator-lock
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate-lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Install Pixi without materializing the stale lock
+        uses: prefix-dev/setup-pixi@82d477f15f3a381dbcc8adc1206ce643fe110fb7 # v0.9.3
+        with:
+          pixi-version: v0.59.0
+          cache: false
+          run-install: false
+
+      - name: Regenerate and validate the all-platform lock
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          pixi --version | tee logs/pixi-version.txt
+          pixi lock 2>&1 | tee logs/pixi-lock.log
+          git diff --exit-code -- pixi.toml
+          if git diff --quiet -- pixi.lock; then
+            echo "pixi.lock did not change after adding the PDF validator." >&2
+            exit 1
+          fi
+          python3 - <<'PY' | tee logs/pixi-platforms.txt
+          import tomllib
+          from pathlib import Path
+
+          manifest = tomllib.loads(Path("pixi.toml").read_text(encoding="utf-8"))
+          for platform in manifest["workspace"]["platforms"]:
+              print(platform)
+          PY
+          sha256sum pixi.lock | tee logs/pixi-lock.sha256
+
+      - name: Upload regenerated lock and diagnostics
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: regenerated-pixi-lock-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            pixi.lock
+            logs/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
