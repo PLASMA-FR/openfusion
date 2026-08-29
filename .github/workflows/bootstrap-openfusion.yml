@@ -72,7 +72,8 @@ jobs:
 
           git config user.name "OpenFusion Automation"
           git config user.email "openfusion-automation@users.noreply.github.com"
-          git add .github/workflows/bootstrap-openfusion.yml .openfusion/upstream.json
+          git add .github/workflows/bootstrap-openfusion.yml
+          git add -f .openfusion/upstream.json
           git commit -m "chore(upstream): establish FreeCAD 1.1.3 baseline"
 
           git merge --no-ff --allow-unrelated-histories --strategy=ours \
