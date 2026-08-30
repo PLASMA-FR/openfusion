@@ -25,8 +25,12 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 
 ### Removed
 
-- Removed 32 inherited material-pattern assets that lack downstream
-  redistribution permission and added a CI guard against reintroduction.
+- Removed and quarantined 32 inherited material-pattern assets for which
+  downstream redistribution permission has not been established, and added a
+  recursive source guard against path, blob, metadata, Git LFS pointer, and
+  recognized build/package-manifest reintroduction within checked root and
+  initialized-submodule Git indexes. Untracked files, Git LFS object storage,
+  source archives, and final package payload inspection remain pending.
 - Removed the inherited prebuilt Windows thumbnail COM server and all installer
   copy, registration, and uninstall actions pending an independently reviewed
   implementation with OpenFusion identity.

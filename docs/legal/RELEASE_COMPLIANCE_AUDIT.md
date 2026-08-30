@@ -22,9 +22,10 @@ or a substitute for jurisdiction-specific trademark or license advice.
    of tracked and packaged components. The repository does not yet contain the
    exact artifact-specific license and attribution closure.
 3. Thirty-two inherited material-pattern files stating
-   `License: "All rights reserved"` have been removed from source and CMake
-   install manifests under a reintroduction guard. Original cleared
-   replacements and final artifact verification are still required.
+   `License: "All rights reserved"` have been removed from the root Git index
+   and recognized build/package manifests under a recursive source-index
+   reintroduction guard. Original cleared replacements, source-archive
+   inspection, and final artifact verification are still required.
 4. Other terms remain incomplete or ambiguous, including the QtColorPicker
    Nokia exception, portions of the IDF asset set, a templated libarea notice,
    and SDK-derived 3Dconnexion material.
@@ -95,9 +96,13 @@ states `License: "All rights reserved"` at line 7. OpenFusion removes the files
 from source and removes their copy/install paths from
 `src/Mod/Material/CMakeLists.txt` rather than altering their metadata.
 
-`tools/release/check_restricted_material_patterns.py` fails if an exact path,
-a CMake reference, or a renamed pattern with the same restricted declaration
-returns. Final source archives and binary payloads still require independent
+`tools/release/check_restricted_material_patterns.py` checks original paths,
+Git OIDs and SHA-256/size identities, case-insensitive tracked FCMat metadata,
+recognized build/package-manifest references, and small Git LFS pointer blobs.
+It recursively checks initialized submodule indexes only after their checkout
+HEAD and index are verified against the recorded gitlink commit. This source
+guard does not inspect untracked worktree files, Git LFS object storage, source
+archives, staging trees, or binary payloads; all still require independent
 inspection. A future built-in preset library must use original assets with
 documented redistribution terms.
 
