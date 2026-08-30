@@ -9,7 +9,7 @@ class FileInfoTest: public ::testing::Test
 protected:
     FileInfoTest()
     {
-        tmp.setFile(Base::FileInfo::getTempPath() + "fctest");
+        tmp.setFile(Base::FileInfo::getTempFileName("fctest"));
         tmp.createDirectory();
 
         file.setFile(tmp.filePath() + "/test.txt");
@@ -28,6 +28,7 @@ protected:
     {
         EXPECT_TRUE(file.deleteFile());
         EXPECT_TRUE(dir.deleteDirectory());
+        EXPECT_TRUE(tmp.deleteDirectory());
     }
 
 protected:
