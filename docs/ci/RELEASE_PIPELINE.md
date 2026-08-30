@@ -18,11 +18,13 @@ tar.zst/DEB/RPM outputs, consolidated checksums, SBOMs, provenance, narrower
 permissions, and an atomic publication gate.
 
 The repository now contains initial locked-Pixi source-build baselines for
-Linux, Windows x86-64, macOS arm64, and macOS x86-64, plus dependency review
-and no-build CodeQL analysis for GitHub Actions, C/C++, and Python. These
-workflows compile and exercise build-tree tests; they do not yet build or
-validate release packages, prove native AppleClang support, scan the resolved
-Pixi/Conda environment, or make code-scanning findings merge-blocking.
+Linux, Windows x86-64, macOS arm64, and macOS x86-64, plus dependency review,
+a fail-closed Pixi lock schema/source-policy metadata audit, an all-platform source-lock SPDX
+inventory, and no-build CodeQL analysis for GitHub Actions, C/C++, and Python.
+The lock inventory is not a final runtime-package SBOM. These workflows compile
+and exercise build-tree tests; they do not yet build or validate release
+packages, prove native AppleClang support, scan the resolved Pixi/Conda
+environment, or make code-scanning findings merge-blocking.
 
 ## Release invariants
 
@@ -57,7 +59,26 @@ above and must be confirmed by completed run logs.
 | `windows.yml` | Reusable call, manual development run | Build, optionally sign, install-test, and uninstall-test Windows package | `contents: read` |
 | `macos.yml` | Reusable call, manual development run | Build, optionally sign/notarize, mount-test Intel and Apple Silicon DMGs | `contents: read` |
 | `release.yml` | Protected SemVer tag, manual recovery dispatch | Coordinate platform workflows, attest, create draft, upload, publish | Per-job grants |
-| `security.yml` | Pull requests, merge groups, protected branches, schedule | Initial dependency review plus Actions, C/C++, and Python CodeQL analysis | Read plus `security-events: write` only where needed |
+| `security.yml` | Pull requests, merge groups, protected branches, schedule | Pixi lock schema/source-policy metadata audit, dependency review, plus Actions, C/C++, and Python CodeQL analysis | Read plus `security-events: write` only where needed |
+
+GitHub Dependency Review requires the repository Dependency Graph. The job is
+intentionally allowed to fail closed when that external repository setting is
+disabled; neither CodeQL nor the Pixi lock audit is a substitute for the graph
+comparison. An administrator must enable **Settings → Security → Code security
+and analysis → Dependency graph** before Dependency Review can become green.
+Dependency Review runs for pull requests and merge-queue groups using explicit
+event base/head SHAs; push and scheduled security runs intentionally skip that
+comparison because those events do not define the required comparison pair.
+The independent lock audit validates canonical source URLs, package-record
+schema, environment references, unique asserted SHA-256 fields, and PyPI
+wheel/sdist filename identity using a repository-native strict parser, including
+platform association for Conda subdirectories and wheel tags. It does not
+download dependency archives or hash their bytes, so the digests remain lock
+metadata assertions disclosed in both the SPDX document and package entries. Its deterministic
+uploaded SPDX file describes the multi-platform build/development lock only and
+must never satisfy the per-package release SBOM gate. CI currently performs
+JSON syntax checking, not semantic SPDX schema validation; a hash-pinned SPDX
+validator remains required before release evidence can rely on that document.
 
 The release dependency order is:
 
