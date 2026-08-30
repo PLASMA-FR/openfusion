@@ -309,12 +309,55 @@ jobs:
             throw "CTest-native runtime manifest omitted the Material directory."
           }
 
+          $qtPluginManifest = Join-Path $PWD `
+            "build/release/tests/windows-native-test-qt-plugin-paths.txt"
+          if (-not (Test-Path -LiteralPath $qtPluginManifest -PathType Leaf)) {
+            throw "CTest-native Qt plugin manifest was not generated: $qtPluginManifest"
+          }
+          $qtPluginPaths = @(
+            Get-Content -LiteralPath $qtPluginManifest |
+              Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+              ForEach-Object {
+                [IO.Path]::GetFullPath($_).TrimEnd([char[]]@('\', '/'))
+              }
+          )
+          if ($qtPluginPaths.Count -ne 2) {
+            throw "CTest-native Qt plugin manifest must contain exactly two paths."
+          }
+          $qtPluginRoot = $qtPluginPaths[0]
+          $qtPlatformRoot = $qtPluginPaths[1]
+          $expectedPlatformRoot = [IO.Path]::GetFullPath(
+            (Join-Path $qtPluginRoot "platforms")
+          ).TrimEnd([char[]]@('\', '/'))
+          if (-not $qtPlatformRoot.Equals(
+              $expectedPlatformRoot,
+              [StringComparison]::OrdinalIgnoreCase
+          )) {
+            throw (
+              "Qt platform plugin path is not below the queried plugin root: " +
+              "$qtPlatformRoot"
+            )
+          }
+          foreach ($platformPlugin in @("qwindows*.dll", "qoffscreen*.dll")) {
+            $matches = @(
+              Get-ChildItem -LiteralPath $qtPlatformRoot -Filter $platformPlugin `
+                -File
+            )
+            if ($matches.Count -eq 0) {
+              throw "CTest-native Qt plugin path omitted $platformPlugin."
+            }
+          }
+
           Copy-Item -LiteralPath $manifest `
             logs/ctest-native-runtime-paths.txt
+          Copy-Item -LiteralPath $qtPluginManifest `
+            logs/ctest-native-qt-plugin-paths.txt
           @(
             "discovered_tests=$(@($report.tests).Count)",
             "material_tests=$($materialTests.Count)",
-            "runtime_directories=$($manifestPaths.Count)"
+            "runtime_directories=$($manifestPaths.Count)",
+            "qt_plugin_root=$qtPluginRoot",
+            "qt_platform_plugin_root=$qtPlatformRoot"
           ) | Set-Content -Encoding ascii `
             logs/ctest-native-runtime-summary.txt
 

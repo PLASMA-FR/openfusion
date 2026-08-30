@@ -18,6 +18,13 @@ if(BUILD_GUI)
         RUN_SERIAL TRUE
         TIMEOUT 330
     )
+    if(WIN32)
+        set_property(
+            TEST OpenFusion_GUI_SystemExit_Propagation
+            APPEND
+            PROPERTY ENVIRONMENT ${OPENFUSION_WINDOWS_QT_TEST_ENVIRONMENT}
+        )
+    endif()
 endif()
 
 add_test(

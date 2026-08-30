@@ -9,6 +9,11 @@ set(_openfusion_binary_directory "${_openfusion_build_directory}/bin")
 set(_openfusion_module_directory "${_openfusion_build_directory}/Mod")
 set(_openfusion_known_configurations "@CMAKE_CONFIGURATION_TYPES@")
 set(_openfusion_selected_configuration "")
+set(_openfusion_qt_plugin_directory "@OPENFUSION_QT_PLUGIN_DIRECTORY@")
+set(
+    _openfusion_qt_platform_plugin_directory
+    "@OPENFUSION_QT_PLATFORM_PLUGIN_DIRECTORY@"
+)
 
 if(DEFINED CTEST_CONFIGURATION_TYPE)
     set(_openfusion_selected_configuration "${CTEST_CONFIGURATION_TYPE}")
@@ -35,6 +40,43 @@ if(_openfusion_known_configurations)
         )
     endif()
 endif()
+
+if(NOT IS_DIRECTORY "${_openfusion_qt_plugin_directory}")
+    message(FATAL_ERROR
+        "Windows native test runtime is missing Qt's plugin directory: "
+        "${_openfusion_qt_plugin_directory}"
+    )
+endif()
+
+if(NOT IS_DIRECTORY "${_openfusion_qt_platform_plugin_directory}")
+    message(FATAL_ERROR
+        "Windows native test runtime is missing Qt's platform plugin directory: "
+        "${_openfusion_qt_platform_plugin_directory}"
+    )
+endif()
+
+foreach(_openfusion_qt_platform_plugin IN ITEMS windows offscreen)
+    file(GLOB _openfusion_qt_platform_plugin_files
+        LIST_DIRECTORIES FALSE
+        "${_openfusion_qt_platform_plugin_directory}/q${_openfusion_qt_platform_plugin}*.dll"
+    )
+    if(NOT _openfusion_qt_platform_plugin_files)
+        message(FATAL_ERROR
+            "Windows native test runtime cannot find the Qt "
+            "${_openfusion_qt_platform_plugin} platform plugin below: "
+            "${_openfusion_qt_platform_plugin_directory}"
+        )
+    endif()
+endforeach()
+
+file(REAL_PATH
+    "${_openfusion_qt_plugin_directory}"
+    _openfusion_resolved_qt_plugin_directory
+)
+file(REAL_PATH
+    "${_openfusion_qt_platform_plugin_directory}"
+    _openfusion_resolved_qt_platform_plugin_directory
+)
 
 if(NOT IS_DIRECTORY "${_openfusion_binary_directory}")
     message(FATAL_ERROR
@@ -211,6 +253,33 @@ foreach(_openfusion_runtime_directory IN LISTS _openfusion_runtime_directories)
         "${_openfusion_native_runtime_directory}"
     )
 endforeach()
+
+file(TO_NATIVE_PATH
+    "${_openfusion_resolved_qt_plugin_directory}"
+    _openfusion_native_qt_plugin_directory
+)
+file(TO_NATIVE_PATH
+    "${_openfusion_resolved_qt_platform_plugin_directory}"
+    _openfusion_native_qt_platform_plugin_directory
+)
+
+set(
+    _openfusion_qt_plugin_manifest
+    "${CMAKE_CURRENT_LIST_DIR}/windows-native-test-qt-plugin-paths.txt"
+)
+file(WRITE
+    "${_openfusion_qt_plugin_manifest}"
+    "${_openfusion_native_qt_plugin_directory}\n"
+    "${_openfusion_native_qt_platform_plugin_directory}\n"
+)
+
+# CTest, PRE_TEST GoogleTest discovery, and test subprocesses all inherit
+# these exact directories from the Qt installation used for this build.
+set(ENV{QT_PLUGIN_PATH} "${_openfusion_native_qt_plugin_directory}")
+set(
+    ENV{QT_QPA_PLATFORM_PLUGIN_PATH}
+    "${_openfusion_native_qt_platform_plugin_directory}"
+)
 
 set(
     _openfusion_runtime_manifest

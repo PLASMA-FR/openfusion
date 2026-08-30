@@ -21,6 +21,52 @@ INTERNAL_EXIT_CODE = 1
 INTERNAL_SUCCESS_EXIT_CODE = 0
 CHILD_MODE_ENV = "OPENFUSION_GUI_SYSTEM_EXIT_CHILD"
 STATE_DIR_ENV = "OPENFUSION_GUI_SYSTEM_EXIT_STATE_DIR"
+QT_PLUGIN_PATH_ENV = "QT_PLUGIN_PATH"
+QT_PLATFORM_PLUGIN_PATH_ENV = "QT_QPA_PLATFORM_PLUGIN_PATH"
+
+
+def _validate_windows_qt_plugin_environment() -> list[str]:
+    if os.name != "nt":
+        return []
+
+    failures: list[str] = []
+    configured_paths: dict[str, Path] = {}
+    for variable in (QT_PLUGIN_PATH_ENV, QT_PLATFORM_PLUGIN_PATH_ENV):
+        value = os.environ.get(variable, "")
+        if not value:
+            failures.append(f"lifecycle driver did not inherit {variable}")
+            continue
+        try:
+            configured_paths[variable] = Path(value).resolve(strict=True)
+        except OSError as error:
+            failures.append(f"{variable} does not name an existing path: {error}")
+
+    if len(configured_paths) != 2:
+        return failures
+
+    plugin_directory = configured_paths[QT_PLUGIN_PATH_ENV]
+    platform_directory = configured_paths[QT_PLATFORM_PLUGIN_PATH_ENV]
+    if platform_directory.parent != plugin_directory:
+        failures.append(
+            f"{QT_PLATFORM_PLUGIN_PATH_ENV} is not the platforms directory below "
+            f"{QT_PLUGIN_PATH_ENV}: {platform_directory}"
+        )
+
+    available_plugins = {
+        candidate.name.casefold()
+        for candidate in platform_directory.iterdir()
+        if candidate.is_file()
+    }
+    for platform in ("windows", "offscreen"):
+        prefix = f"q{platform}"
+        if not any(
+            name.startswith(prefix) and name.endswith(".dll")
+            for name in available_plugins
+        ):
+            failures.append(
+                f"Qt {platform} platform plugin is missing from {platform_directory}"
+            )
+    return failures
 
 
 def observe_gui_runtime(scenario: str) -> None:
@@ -232,6 +278,12 @@ def _run_driver() -> int:
     args = _parse_args()
     freecad = args.freecad.resolve()
     state_dir = args.state_dir.resolve()
+
+    environment_failures = _validate_windows_qt_plugin_environment()
+    if environment_failures:
+        for failure in environment_failures:
+            print(f"FAIL: {failure}", file=sys.stderr)
+        return 1
 
     if state_dir.exists():
         shutil.rmtree(state_dir)
