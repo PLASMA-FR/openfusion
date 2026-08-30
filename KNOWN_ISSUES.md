@@ -9,7 +9,7 @@
 | macOS | Both architectures pass build, 1,427/1,427 enabled CTests, TechDraw, and 1,661 CLI tests with 10 skips. Deferred Draft callbacks access deleted object wrappers during the GUI suite and both processes exit 1. | Both macOS jobs validate the combined Linux-green Draft/BIM guards and complete the GUI gate without deleted-wrapper exceptions. |
 | Dependency Review | The last CodeQL jobs were green, but Dependency Review remains fail-closed because the repository Dependency Graph is disabled. CodeQL is not a substitute. | Enable the authorized repository setting and obtain a passing Dependency Review run; retain complementary locked-dependency and SBOM auditing. |
 | Security | Audit evidence found a symlink graph escape in PR #27, and the stale DTD-only hardening stack is insufficient for the complete untrusted FCStd/XML/archive threat model. Release-blocker issue #24 remains open. | Close the complete extraction, entity, path, temporary-file, and parser acceptance criteria with regression evidence. |
-| Legal and assets | Restricted material-pattern assets, inherited identity/provenance gaps, and a prebuilt Windows thumbnail DLL remain in the integration surface. | Remove or replace restricted/unverifiable material, establish provenance, rebuild permissible binaries from reviewed source, and complete shipped notices. |
+| Legal and assets | The staged, unpublished legal candidate removes all 32 restricted pattern assets and `FCStdThumbnail.dll` from tracked source and recognized manifests; published integration still contains them until the candidate is reviewed and merged, and final archive, staging, and package-payload inspection remains pending. | Review and merge the focused removal, inspect every produced source and package payload, replace user-facing capability only with cleared assets and reviewed source, and complete shipped notices. |
 | Product | There are still no OpenFusion product classes under `src/`; the workspace shell, command palette, contextual actions, Project presentation, and functional timeline are not implemented. | Implement real, tested workflows in roadmap order; inherited FreeCAD capability and visible controls do not close these gaps. |
 | Packaging and release | Required clean-installed packages, checksums, SBOMs, signing/notarization evidence, release tag, and verified GitHub Release are absent. | Pass every package and release gate; unavailable credentials remain explicit pre-production blockers. |
 
@@ -48,17 +48,20 @@ until its build and workflow evidence is recorded.
 - The dependency, bundled-asset, and third-party-license inventory is
   incomplete. No OpenFusion binary may be released until redistribution terms,
   notices, and shipped license texts are audited.
-- Thirty-two installed material-pattern files state `All rights reserved` and
-  are quarantined from every source and binary release until they are removed
-  or independently replaced under documented redistribution terms.
+- Thirty-two inherited material-pattern files stating `All rights reserved`
+  have been removed from source and CMake install manifests. A guard rejects
+  reintroduction, but final package inspection and an original, cleared
+  replacement preset library remain release work.
 - The inherited GUI asset set has 123 SVGs and all 58 PNGs without meaningful
   embedded license markers, and upstream identity art remains wired into the
   GUI and every platform package path. Exact provenance plus original,
   cleared replacement branding is a release blocker.
-- The inherited Windows installer contains a prebuilt unsigned thumbnail shell
-  extension using FreeCAD's CLSID and system-directory registration. It will
-  not ship unless rebuilt from reviewed source with independent identity,
-  coexistence, parser, signing, and uninstall validation.
+- The inherited prebuilt Windows thumbnail shell extension and its installer
+  registration have been removed. Explorer thumbnail support remains absent
+  until it can be rebuilt from reviewed source with independent identity,
+  coexistence, parser, signing, and uninstall validation; final installer
+  inspection is still required. Historical installs may retain the global
+  extension, and cleanup must verify ownership before touching it.
 - GitHub Dependency Review is intentionally fail-closed but cannot run until a
   repository owner enables the GitHub dependency graph. CodeQL does not replace
   this dependency-change gate.

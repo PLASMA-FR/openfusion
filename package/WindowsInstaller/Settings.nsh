@@ -23,9 +23,6 @@ These typically need to be modified for each FreeCAD release
 !ifndef FILES_FREECAD
     !define FILES_FREECAD "${__FILEDIR__}\FreeCAD"
 !endif
-!ifndef FILES_THUMBS
-    !define FILES_THUMBS "${__FILEDIR__}\thumbnail"
-!endif
 
 # msvc redistributables location is required for LibPack builds but not conda
 # when using a LibPack build set the redistributables directory location here

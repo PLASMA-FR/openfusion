@@ -21,9 +21,11 @@ or a substitute for jurisdiction-specific trademark or license advice.
    scaffolds, and `src/Doc/ThirdPartyLibraries.html.cmake` covers only a subset
    of tracked and packaged components. The repository does not yet contain the
    exact artifact-specific license and attribution closure.
-3. Thirty-two material-pattern files installed by the application say
-   `License: "All rights reserved"`; no downstream redistribution grant has
-   been established by this audit.
+3. Thirty-two inherited material-pattern files stating
+   `License: "All rights reserved"` have been removed from the root Git index
+   and recognized build/package manifests under a recursive source-index
+   reintroduction guard. Original cleared replacements, source-archive
+   inspection, and final artifact verification are still required.
 4. Other terms remain incomplete or ambiguous, including the QtColorPicker
    Nokia exception, portions of the IDF asset set, a templated libarea notice,
    and SDK-derived 3Dconnexion material.
@@ -46,11 +48,13 @@ or a substitute for jurisdiction-specific trademark or license advice.
     license marker. This is not proof that those files are unlicensed, but it
     prevents artifact-level sign-off until provenance and required notices are
     established.
-11. The inherited Windows installer can copy a prebuilt, unsigned 2019
-    `FCStdThumbnail.dll` into a system directory and register FreeCAD's shell
-    extension CLSID. A derivative release must omit it until it is rebuilt from
-    reviewed source with independent identity, coexistence, parser, uninstall,
-    and signing validation.
+11. The inherited prebuilt, unsigned 2019 `FCStdThumbnail.dll` and every
+    installer copy, registration, and uninstall action have been removed under
+    a static guard. Explorer thumbnail support remains absent; final installer
+    inspection and any future independent implementation still require
+    identity, coexistence, parser, uninstall, and signing validation.
+    Historical installs may retain the global DLL/CLSID; cleanup must verify
+    ownership and side-by-side installations before changing them.
 
 ## Principal license and notice state
 
@@ -87,14 +91,20 @@ moving heads of their upstream repositories.
 
 ## Material-pattern quarantine
 
-Every file below identifies David Carter as author at line 6 and states
-`License: "All rights reserved"` at line 7. All are listed for installation in
-`src/Mod/Material/CMakeLists.txt:190-222`.
+Every historical file below identifies David Carter as author at line 6 and
+states `License: "All rights reserved"` at line 7. OpenFusion removes the files
+from source and removes their copy/install paths from
+`src/Mod/Material/CMakeLists.txt` rather than altering their metadata.
 
-Do not include them in a public source archive or binary package until an
-applicable redistribution grant is documented. Acceptable closure is a
-verified grant, replacement with original appropriately licensed assets, or
-exclusion from all distributed payloads. Do not silently rewrite the metadata.
+`tools/release/check_restricted_material_patterns.py` checks original paths,
+Git OIDs and SHA-256/size identities, case-insensitive tracked FCMat metadata,
+recognized build/package-manifest references, and small Git LFS pointer blobs.
+It recursively checks initialized submodule indexes only after their checkout
+HEAD and index are verified against the recorded gitlink commit. This source
+guard does not inspect untracked worktree files, Git LFS object storage, source
+archives, staging trees, or binary payloads; all still require independent
+inspection. A future built-in preset library must use original assets with
+documented redistribution terms.
 
 ```text
 src/Mod/Material/Resources/Materials/Patterns/PAT/Diagonal4.FCMat
@@ -247,8 +257,8 @@ clear non-affiliation statement.
 - [ ] Every final artifact has an exact notice inventory and SBOM.
 - [ ] Canonical license and exception texts are installed and visible.
 - [ ] Complete corresponding source is available beside the binaries.
-- [ ] The 32-file material quarantine and all other ambiguous terms are
-      resolved.
+- [ ] The 32-file material quarantine passes CI and final-artifact inspection;
+      replacement presets, if shipped, have documented redistribution terms.
 - [ ] Name and branding clearance is documented.
 - [ ] The FCStd parser inconsistency has been tested and hardened.
 - [ ] Archive/XML resource limits and malformed-file tests pass.
