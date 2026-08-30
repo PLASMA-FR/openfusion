@@ -92,6 +92,7 @@
 #include "DockWindowManager.h"
 #include "DownloadManager.h"
 #include "FileDialog.h"
+#include "GuiApplication.h"
 #include "InputHintWidget.h"
 #include "MenuManager.h"
 #include "ModuleIO.h"
@@ -1684,6 +1685,40 @@ void MainWindow::processMessages(const QList<QString>& msg)
     }
 }
 
+namespace
+{
+void handleDelayedStartupException(std::exception_ptr exception) noexcept
+{
+    auto* application = qobject_cast<Gui::GUIApplication*>(QCoreApplication::instance());
+    if (application && application->requestSystemExit(exception)) {
+        return;
+    }
+
+    try {
+        if (exception) {
+            std::rethrow_exception(exception);
+        }
+        Base::Console().error("Unknown exception in delayed startup callback\n");
+    }
+    catch (const Base::Exception& error) {
+        try {
+            error.reportException();
+        }
+        catch (...) {
+            Base::Console().error("Base exception in delayed startup callback: %s\n", error.what());
+        }
+    }
+    catch (const std::exception& error) {
+        Base::Console().error("Exception in delayed startup callback: %s\n", error.what());
+    }
+    catch (...) {
+        Base::Console().error("Unknown exception in delayed startup callback\n");
+    }
+
+    QCoreApplication::exit(1);
+}
+}  // namespace
+
 void MainWindow::delayedStartup()
 {
     // automatically run unit tests in Gui
@@ -1703,11 +1738,8 @@ void MainWindow::delayedStartup()
                 }
                 Base::Interpreter().runString(command.c_str());
             }
-            catch (const Base::SystemExitException&) {
-                throw;
-            }
-            catch (const Base::Exception& e) {
-                e.reportException();
+            catch (...) {
+                handleDelayedStartupException(std::current_exception());
             }
         });
         return;
@@ -1722,8 +1754,9 @@ void MainWindow::delayedStartup()
             FileDialog::setWorkingDirectory(filename);
         }
     }
-    catch (const Base::SystemExitException&) {
-        throw;
+    catch (...) {
+        handleDelayedStartupException(std::current_exception());
+        return;
     }
 
     if (Application::hiddenMainWindow()) {

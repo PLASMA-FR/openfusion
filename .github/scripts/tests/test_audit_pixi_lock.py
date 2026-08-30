@@ -21,8 +21,7 @@ SPEC.loader.exec_module(audit_pixi_lock)
 
 CONDA_URLS = {
     platform: (
-        f"https://conda.anaconda.org/conda-forge/{platform}/"
-        "example-lib-1.2.3-h123_0.conda"
+        f"https://conda.anaconda.org/conda-forge/{platform}/" "example-lib-1.2.3-h123_0.conda"
     )
     for platform in audit_pixi_lock.EXPECTED_PLATFORMS
 }
@@ -33,8 +32,7 @@ CONDA_SHAS = {
 CONDA_URL = CONDA_URLS["linux-64"]
 CONDA_SHA = CONDA_SHAS["linux-64"]
 PYPI_URL = (
-    f"https://files.pythonhosted.org/packages/ab/cd/{'e' * 60}/"
-    "example_py-2.0.0-py3-none-any.whl"
+    f"https://files.pythonhosted.org/packages/ab/cd/{'e' * 60}/" "example_py-2.0.0-py3-none-any.whl"
 )
 PYPI_SHA = "f" * 64
 PLATFORM_WHEEL_SHA = "d" * 64
@@ -95,9 +93,7 @@ def lock_with_platform_wheel(platform: str, platform_tag: str) -> str:
         )
     )
     replacement_references = platform_references.replace(PYPI_URL, wheel_url)
-    return valid_lock().replace(
-        platform_references, replacement_references, 1
-    ) + "\n".join(
+    return valid_lock().replace(platform_references, replacement_references, 1) + "\n".join(
         (
             f"- pypi: {wheel_url}",
             "  name: example-py",
@@ -118,9 +114,7 @@ class PixiLockAuditTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             lock_path = self.write_lock(Path(temp_dir), valid_lock())
             result = audit_pixi_lock.audit_lock(lock_path)
-            provenance = audit_pixi_lock.source_provenance(
-                SOURCE_DATE_EPOCH, SOURCE_REVISION
-            )
+            provenance = audit_pixi_lock.source_provenance(SOURCE_DATE_EPOCH, SOURCE_REVISION)
             spdx = audit_pixi_lock.make_spdx(result, provenance)
 
         self.assertEqual(len(result.packages), 6)
@@ -133,15 +127,10 @@ class PixiLockAuditTest(unittest.TestCase):
             "not an inventory of a final OpenFusion runtime",
             spdx["packages"][0]["comment"],
         )
-        self.assertTrue(
-            all(p["licenseDeclared"] == "NOASSERTION" for p in spdx["packages"])
-        )
+        self.assertTrue(all(p["licenseDeclared"] == "NOASSERTION" for p in spdx["packages"]))
         self.assertEqual(spdx["comment"], audit_pixi_lock.CHECKSUM_DISCLOSURE)
         self.assertTrue(
-            all(
-                audit_pixi_lock.CHECKSUM_DISCLOSURE in p["comment"]
-                for p in spdx["packages"]
-            )
+            all(audit_pixi_lock.CHECKSUM_DISCLOSURE in p["comment"] for p in spdx["packages"])
         )
 
     def test_repository_lock_passes(self) -> None:
@@ -166,9 +155,7 @@ class PixiLockAuditTest(unittest.TestCase):
                     "https://files.pythonhosted.org", "http://files.pythonhosted.org"
                 ),
             )
-            with self.assertRaisesRegex(
-                audit_pixi_lock.AuditError, "does not use HTTPS"
-            ):
+            with self.assertRaisesRegex(audit_pixi_lock.AuditError, "does not use HTTPS"):
                 audit_pixi_lock.audit_lock(lock_path)
 
     def test_conda_url_ambiguities_fail_closed(self) -> None:
@@ -223,14 +210,11 @@ class PixiLockAuditTest(unittest.TestCase):
 
     def test_conda_archive_name_allows_leading_underscore_only(self) -> None:
         valid_url = (
-            "https://conda.anaconda.org/conda-forge/linux-64/"
-            "_libavif_api-1.3.0-h57928b3_2.conda"
+            "https://conda.anaconda.org/conda-forge/linux-64/" "_libavif_api-1.3.0-h57928b3_2.conda"
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             result = audit_pixi_lock.audit_lock(
-                self.write_lock(
-                    Path(temp_dir), valid_lock().replace(CONDA_URL, valid_url)
-                )
+                self.write_lock(Path(temp_dir), valid_lock().replace(CONDA_URL, valid_url))
             )
         self.assertIn(valid_url, (package.url for package in result.packages))
 
@@ -238,9 +222,7 @@ class PixiLockAuditTest(unittest.TestCase):
             with self.subTest(
                 leading_character=leading_character
             ), tempfile.TemporaryDirectory() as temp_dir:
-                invalid_url = valid_url.replace(
-                    "_libavif_api", f"{leading_character}libavif_api"
-                )
+                invalid_url = valid_url.replace("_libavif_api", f"{leading_character}libavif_api")
                 lock_path = self.write_lock(
                     Path(temp_dir), valid_lock().replace(CONDA_URL, invalid_url)
                 )
@@ -272,12 +254,8 @@ class PixiLockAuditTest(unittest.TestCase):
 
     def test_duplicate_digest_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            lock_path = self.write_lock(
-                Path(temp_dir), valid_lock().replace(PYPI_SHA, CONDA_SHA)
-            )
-            with self.assertRaisesRegex(
-                audit_pixi_lock.AuditError, "duplicate package SHA-256"
-            ):
+            lock_path = self.write_lock(Path(temp_dir), valid_lock().replace(PYPI_SHA, CONDA_SHA))
+            with self.assertRaisesRegex(audit_pixi_lock.AuditError, "duplicate package SHA-256"):
                 audit_pixi_lock.audit_lock(lock_path)
 
     def test_duplicate_platform_reference_fails_closed(self) -> None:
@@ -291,9 +269,7 @@ class PixiLockAuditTest(unittest.TestCase):
                     1,
                 ),
             )
-            with self.assertRaisesRegex(
-                audit_pixi_lock.AuditError, "duplicate package references"
-            ):
+            with self.assertRaisesRegex(audit_pixi_lock.AuditError, "duplicate package references"):
                 audit_pixi_lock.audit_lock(lock_path)
 
     def test_platform_reference_associations_are_retained_and_enforced(self) -> None:
@@ -310,22 +286,16 @@ class PixiLockAuditTest(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             lock_path = self.write_lock(Path(temp_dir), swapped)
-            with self.assertRaisesRegex(
-                audit_pixi_lock.AuditError, "does not match platform"
-            ):
+            with self.assertRaisesRegex(audit_pixi_lock.AuditError, "does not match platform"):
                 audit_pixi_lock.audit_lock(lock_path)
 
     def test_pypi_wheel_platform_swap_fails_closed(self) -> None:
-        windows_wheel = PYPI_URL.replace(
-            "py3-none-any.whl", "cp311-cp311-win_amd64.whl"
-        )
+        windows_wheel = PYPI_URL.replace("py3-none-any.whl", "cp311-cp311-win_amd64.whl")
         with tempfile.TemporaryDirectory() as temp_dir:
             lock_path = self.write_lock(
                 Path(temp_dir), valid_lock().replace(PYPI_URL, windows_wheel)
             )
-            with self.assertRaisesRegex(
-                audit_pixi_lock.AuditError, "do not support linux-64"
-            ):
+            with self.assertRaisesRegex(audit_pixi_lock.AuditError, "do not support linux-64"):
                 audit_pixi_lock.audit_lock(lock_path)
 
     def test_linux_wheel_policy_tags_are_closed_and_platform_specific(self) -> None:
@@ -351,9 +321,7 @@ class PixiLockAuditTest(unittest.TestCase):
                     platform=platform, tag=tag
                 ), tempfile.TemporaryDirectory() as temp_dir:
                     audit_pixi_lock.audit_lock(
-                        self.write_lock(
-                            Path(temp_dir), lock_with_platform_wheel(platform, tag)
-                        )
+                        self.write_lock(Path(temp_dir), lock_with_platform_wheel(platform, tag))
                     )
 
         invalid_tags = (
@@ -368,9 +336,7 @@ class PixiLockAuditTest(unittest.TestCase):
                     audit_pixi_lock.AuditError, f"do not support {platform}"
                 ):
                     audit_pixi_lock.audit_lock(
-                        self.write_lock(
-                            Path(temp_dir), lock_with_platform_wheel(platform, tag)
-                        )
+                        self.write_lock(Path(temp_dir), lock_with_platform_wheel(platform, tag))
                     )
 
     def test_platform_any_requires_a_none_abi(self) -> None:
@@ -386,13 +352,9 @@ class PixiLockAuditTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             lock_path = self.write_lock(
                 Path(temp_dir),
-                valid_lock().replace(
-                    "environments:\n", "environments:\n# injected\n", 1
-                ),
+                valid_lock().replace("environments:\n", "environments:\n# injected\n", 1),
             )
-            with self.assertRaisesRegex(
-                audit_pixi_lock.AuditError, "canonical Pixi layout"
-            ):
+            with self.assertRaisesRegex(audit_pixi_lock.AuditError, "canonical Pixi layout"):
                 audit_pixi_lock.audit_lock(lock_path)
 
     def test_pypi_wheel_identity_must_match_locked_metadata(self) -> None:
@@ -404,61 +366,37 @@ class PixiLockAuditTest(unittest.TestCase):
         )
         for label, old, new in variants:
             with self.subTest(label=label), tempfile.TemporaryDirectory() as temp_dir:
-                lock_path = self.write_lock(
-                    Path(temp_dir), valid_lock().replace(old, new)
-                )
-                with self.assertRaisesRegex(
-                    audit_pixi_lock.AuditError, "identity does not match"
-                ):
+                lock_path = self.write_lock(Path(temp_dir), valid_lock().replace(old, new))
+                with self.assertRaisesRegex(audit_pixi_lock.AuditError, "identity does not match"):
                     audit_pixi_lock.audit_lock(lock_path)
 
     def test_pypi_sdist_identity_is_parsed(self) -> None:
-        sdist_url = PYPI_URL.replace(
-            "example_py-2.0.0-py3-none-any.whl", "example_py-2.0.0.tar.gz"
-        )
+        sdist_url = PYPI_URL.replace("example_py-2.0.0-py3-none-any.whl", "example_py-2.0.0.tar.gz")
         with tempfile.TemporaryDirectory() as temp_dir:
-            lock_path = self.write_lock(
-                Path(temp_dir), valid_lock().replace(PYPI_URL, sdist_url)
-            )
+            lock_path = self.write_lock(Path(temp_dir), valid_lock().replace(PYPI_URL, sdist_url))
             result = audit_pixi_lock.audit_lock(lock_path)
-        package = next(
-            package for package in result.packages if package.ecosystem == "pypi"
-        )
+        package = next(package for package in result.packages if package.ecosystem == "pypi")
         self.assertEqual(package.filename, "example_py-2.0.0.tar.gz")
 
     def test_pypi_standard_normalizations_match(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            normalized = valid_lock().replace(
-                "  name: example-py", "  name: Example...Py"
-            )
+            normalized = valid_lock().replace("  name: example-py", "  name: Example...Py")
             normalized = normalized.replace("  version: 2.0.0", "  version: v2.0.0.0")
-            result = audit_pixi_lock.audit_lock(
-                self.write_lock(Path(temp_dir), normalized)
-            )
+            result = audit_pixi_lock.audit_lock(self.write_lock(Path(temp_dir), normalized))
         self.assertEqual(
-            next(
-                package.name
-                for package in result.packages
-                if package.ecosystem == "pypi"
-            ),
+            next(package.name for package in result.packages if package.ecosystem == "pypi"),
             "Example...Py",
         )
 
     def test_requires_python_accepts_canonical_single_quoted_specifiers(self) -> None:
         for specifier in (">=3.6", ">=3.7"):
-            with self.subTest(
-                specifier=specifier
-            ), tempfile.TemporaryDirectory() as temp_dir:
+            with self.subTest(specifier=specifier), tempfile.TemporaryDirectory() as temp_dir:
                 contents = valid_lock().replace(
                     f"  sha256: {PYPI_SHA}\n",
                     f"  sha256: {PYPI_SHA}\n  requires_python: '{specifier}'\n",
                 )
-                result = audit_pixi_lock.audit_lock(
-                    self.write_lock(Path(temp_dir), contents)
-                )
-            package = next(
-                package for package in result.packages if package.ecosystem == "pypi"
-            )
+                result = audit_pixi_lock.audit_lock(self.write_lock(Path(temp_dir), contents))
+            package = next(package for package in result.packages if package.ecosystem == "pypi")
             self.assertEqual(package.version, "2.0.0")
 
     def test_single_quoted_scalar_decodes_doubled_apostrophes(self) -> None:
@@ -468,12 +406,8 @@ class PixiLockAuditTest(unittest.TestCase):
             1,
         )
         with tempfile.TemporaryDirectory() as temp_dir:
-            result = audit_pixi_lock.audit_lock(
-                self.write_lock(Path(temp_dir), contents)
-            )
-        package = next(
-            package for package in result.packages if package.ecosystem == "conda"
-        )
+            result = audit_pixi_lock.audit_lock(self.write_lock(Path(temp_dir), contents))
+        package = next(package for package in result.packages if package.ecosystem == "conda")
         self.assertEqual(package.reported_license, "OpenFusion's Test License")
 
     def test_requires_python_and_single_quote_errors_fail_closed(self) -> None:
@@ -496,9 +430,7 @@ class PixiLockAuditTest(unittest.TestCase):
                     f"  sha256: {PYPI_SHA}\n  requires_python: {field_value}\n",
                 )
                 with self.assertRaisesRegex(audit_pixi_lock.AuditError, message):
-                    audit_pixi_lock.audit_lock(
-                        self.write_lock(Path(temp_dir), contents)
-                    )
+                    audit_pixi_lock.audit_lock(self.write_lock(Path(temp_dir), contents))
 
     def test_pypi_dev_normalization_does_not_collide_with_local_dev(self) -> None:
         equivalent_versions = (
@@ -524,9 +456,7 @@ class PixiLockAuditTest(unittest.TestCase):
             .replace("  version: 2.0.0", "  version: 1.0+dev")
         )
         with tempfile.TemporaryDirectory() as temp_dir:
-            with self.assertRaisesRegex(
-                audit_pixi_lock.AuditError, "identity does not match"
-            ):
+            with self.assertRaisesRegex(audit_pixi_lock.AuditError, "identity does not match"):
                 audit_pixi_lock.audit_lock(self.write_lock(Path(temp_dir), collision))
 
     def test_pypi_escaped_and_ambiguous_filenames_fail_closed(self) -> None:
@@ -553,9 +483,7 @@ class PixiLockAuditTest(unittest.TestCase):
             ),
             (
                 "missing sdist version",
-                PYPI_URL.replace(
-                    "example_py-2.0.0-py3-none-any.whl", "example_py-.tar.gz"
-                ),
+                PYPI_URL.replace("example_py-2.0.0-py3-none-any.whl", "example_py-.tar.gz"),
                 "missing a distribution or version",
             ),
             (
@@ -608,9 +536,7 @@ class PixiLockAuditTest(unittest.TestCase):
         )
         for label, old, new, message in invalid_values:
             with self.subTest(label=label), tempfile.TemporaryDirectory() as temp_dir:
-                lock_path = self.write_lock(
-                    Path(temp_dir), valid_lock().replace(old, new, 1)
-                )
+                lock_path = self.write_lock(Path(temp_dir), valid_lock().replace(old, new, 1))
                 with self.assertRaisesRegex(audit_pixi_lock.AuditError, message):
                     audit_pixi_lock.audit_lock(lock_path)
 
@@ -624,9 +550,7 @@ class PixiLockAuditTest(unittest.TestCase):
             1,
         )
         with tempfile.TemporaryDirectory() as temp_dir:
-            result = audit_pixi_lock.audit_lock(
-                self.write_lock(Path(temp_dir), contents)
-            )
+            result = audit_pixi_lock.audit_lock(self.write_lock(Path(temp_dir), contents))
         self.assertEqual(len(result.packages), 6)
 
     def test_unexpected_package_schema_fails_closed(self) -> None:
@@ -636,6 +560,12 @@ class PixiLockAuditTest(unittest.TestCase):
                 f"  sha256: {CONDA_SHA}\n",
                 f"  sha256: {CONDA_SHA}\n  mystery: value\n",
                 "unexpected 'mystery' field",
+            ),
+            (
+                "plain scalar ending in a mapping indicator",
+                f"  sha256: {CONDA_SHA}\n",
+                f"  sha256: {CONDA_SHA}\n  license: GPL-2.0:\n",
+                "unsupported non-string YAML form",
             ),
             (
                 "wrong ecosystem field",
@@ -808,9 +738,7 @@ class PixiLockAuditTest(unittest.TestCase):
         )
         for label, old, new, message in variants:
             with self.subTest(label=label), tempfile.TemporaryDirectory() as temp_dir:
-                lock_path = self.write_lock(
-                    Path(temp_dir), valid_lock().replace(old, new, 1)
-                )
+                lock_path = self.write_lock(Path(temp_dir), valid_lock().replace(old, new, 1))
                 with self.assertRaisesRegex(audit_pixi_lock.AuditError, message):
                     audit_pixi_lock.audit_lock(lock_path)
 
@@ -819,25 +747,15 @@ class PixiLockAuditTest(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             directory = Path(temp_dir)
-            result = audit_pixi_lock.audit_lock(
-                self.write_lock(directory, valid_lock())
-            )
-            provenance = audit_pixi_lock.source_provenance(
-                SOURCE_DATE_EPOCH, SOURCE_REVISION
-            )
+            result = audit_pixi_lock.audit_lock(self.write_lock(directory, valid_lock()))
+            provenance = audit_pixi_lock.source_provenance(SOURCE_DATE_EPOCH, SOURCE_REVISION)
             first = directory / "first.spdx.json"
             second = directory / "second.spdx.json"
-            audit_pixi_lock._write_json(
-                first, audit_pixi_lock.make_spdx(result, provenance)
-            )
-            audit_pixi_lock._write_json(
-                second, audit_pixi_lock.make_spdx(result, provenance)
-            )
+            audit_pixi_lock._write_json(first, audit_pixi_lock.make_spdx(result, provenance))
+            audit_pixi_lock._write_json(second, audit_pixi_lock.make_spdx(result, provenance))
             first_bytes = first.read_bytes()
             second_bytes = second.read_bytes()
-            namespace = audit_pixi_lock.make_spdx(result, provenance)[
-                "documentNamespace"
-            ]
+            namespace = audit_pixi_lock.make_spdx(result, provenance)["documentNamespace"]
 
         self.assertEqual(first_bytes, second_bytes)
         self.assertIn(SOURCE_REVISION, namespace)
@@ -846,33 +764,23 @@ class PixiLockAuditTest(unittest.TestCase):
     def test_source_provenance_is_mandatory_and_canonical(self) -> None:
         for epoch in ("", "-1", "01", "now"):
             with self.subTest(epoch=epoch):
-                with self.assertRaisesRegex(
-                    audit_pixi_lock.AuditError, "source date epoch"
-                ):
+                with self.assertRaisesRegex(audit_pixi_lock.AuditError, "source date epoch"):
                     audit_pixi_lock.source_provenance(epoch, SOURCE_REVISION)
         for revision in ("", "ABCDEF" * 7, "1" * 39, "g" * 40):
             with self.subTest(revision=revision):
-                with self.assertRaisesRegex(
-                    audit_pixi_lock.AuditError, "source revision"
-                ):
+                with self.assertRaisesRegex(audit_pixi_lock.AuditError, "source revision"):
                     audit_pixi_lock.source_provenance(SOURCE_DATE_EPOCH, revision)
 
     def test_report_is_not_a_release_sbom_claim(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             lock_path = self.write_lock(Path(temp_dir), valid_lock())
-            provenance = audit_pixi_lock.source_provenance(
-                SOURCE_DATE_EPOCH, SOURCE_REVISION
-            )
-            report = audit_pixi_lock.make_report(
-                audit_pixi_lock.audit_lock(lock_path), provenance
-            )
+            provenance = audit_pixi_lock.source_provenance(SOURCE_DATE_EPOCH, SOURCE_REVISION)
+            report = audit_pixi_lock.make_report(audit_pixi_lock.audit_lock(lock_path), provenance)
         self.assertFalse(report["is_final_runtime_sbom"])
         self.assertFalse(report["archive_bytes_verified"])
         self.assertEqual(report["scope"], "all-platform-pixi-source-lock")
         self.assertEqual(report["source_revision"], SOURCE_REVISION)
-        self.assertEqual(
-            report["checksum_disclosure"], audit_pixi_lock.CHECKSUM_DISCLOSURE
-        )
+        self.assertEqual(report["checksum_disclosure"], audit_pixi_lock.CHECKSUM_DISCLOSURE)
         json.dumps(report)
 
     def test_dependency_review_covers_pull_requests_and_merge_queue(self) -> None:

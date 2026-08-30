@@ -58,6 +58,87 @@ include_directories(
 
 set(CMAKE_AUTOMOC ON)
 
+if(WIN32)
+    set(_openfusion_qmake_target "Qt${FREECAD_QT_MAJOR_VERSION}::qmake")
+    if(NOT TARGET "${_openfusion_qmake_target}")
+        message(FATAL_ERROR
+            "Cannot discover the Qt platform plugins because the imported "
+            "qmake target does not exist: ${_openfusion_qmake_target}"
+        )
+    endif()
+
+    get_target_property(
+        _openfusion_qmake_executable
+        "${_openfusion_qmake_target}"
+        LOCATION
+    )
+    if(NOT _openfusion_qmake_executable)
+        message(FATAL_ERROR
+            "Cannot determine the executable for ${_openfusion_qmake_target}"
+        )
+    endif()
+
+    execute_process(
+        COMMAND "${_openfusion_qmake_executable}" -query QT_INSTALL_PLUGINS
+        RESULT_VARIABLE _openfusion_qmake_result
+        OUTPUT_VARIABLE OPENFUSION_QT_PLUGIN_DIRECTORY
+        ERROR_VARIABLE _openfusion_qmake_error
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_STRIP_TRAILING_WHITESPACE
+    )
+    if(NOT _openfusion_qmake_result EQUAL 0
+       OR OPENFUSION_QT_PLUGIN_DIRECTORY STREQUAL "")
+        message(FATAL_ERROR
+            "${_openfusion_qmake_target} could not query QT_INSTALL_PLUGINS "
+            "(exit ${_openfusion_qmake_result}): ${_openfusion_qmake_error}"
+        )
+    endif()
+
+    file(TO_CMAKE_PATH
+        "${OPENFUSION_QT_PLUGIN_DIRECTORY}"
+        OPENFUSION_QT_PLUGIN_DIRECTORY
+    )
+    if(NOT IS_DIRECTORY "${OPENFUSION_QT_PLUGIN_DIRECTORY}")
+        message(FATAL_ERROR
+            "Qt reported a missing QT_INSTALL_PLUGINS directory: "
+            "${OPENFUSION_QT_PLUGIN_DIRECTORY}"
+        )
+    endif()
+    file(REAL_PATH
+        "${OPENFUSION_QT_PLUGIN_DIRECTORY}"
+        OPENFUSION_QT_PLUGIN_DIRECTORY
+    )
+
+    set(
+        OPENFUSION_QT_PLATFORM_PLUGIN_DIRECTORY
+        "${OPENFUSION_QT_PLUGIN_DIRECTORY}/platforms"
+    )
+    if(NOT IS_DIRECTORY "${OPENFUSION_QT_PLATFORM_PLUGIN_DIRECTORY}")
+        message(FATAL_ERROR
+            "Qt's QT_INSTALL_PLUGINS directory has no platforms directory: "
+            "${OPENFUSION_QT_PLATFORM_PLUGIN_DIRECTORY}"
+        )
+    endif()
+
+    foreach(_openfusion_qt_platform_plugin IN ITEMS windows offscreen)
+        file(GLOB _openfusion_qt_platform_plugin_files
+            LIST_DIRECTORIES FALSE
+            "${OPENFUSION_QT_PLATFORM_PLUGIN_DIRECTORY}/q${_openfusion_qt_platform_plugin}*.dll"
+        )
+        if(NOT _openfusion_qt_platform_plugin_files)
+            message(FATAL_ERROR
+                "The Qt ${_openfusion_qt_platform_plugin} platform plugin is "
+                "missing from ${OPENFUSION_QT_PLATFORM_PLUGIN_DIRECTORY}"
+            )
+        endif()
+    endforeach()
+
+    set(OPENFUSION_WINDOWS_QT_TEST_ENVIRONMENT
+        "QT_PLUGIN_PATH=${OPENFUSION_QT_PLUGIN_DIRECTORY}"
+        "QT_QPA_PLATFORM_PLUGIN_PATH=${OPENFUSION_QT_PLATFORM_PLUGIN_DIRECTORY}"
+    )
+endif()
+
 function(setup_qt_test)
     foreach(_testname ${ARGN})
         add_executable(${_testname}_Tests_run ${_testname}.cpp)
@@ -77,6 +158,18 @@ function(setup_qt_test)
             FreeCADGui
             ${QtTest_LIBRARIES}
             ${${_testname}_LIBS})
+
+        set(_openfusion_qt_test_environment "QT_QPA_PLATFORM=offscreen")
+        if(WIN32)
+            list(APPEND
+                _openfusion_qt_test_environment
+                ${OPENFUSION_WINDOWS_QT_TEST_ENVIRONMENT}
+            )
+        endif()
+
+        set_tests_properties(${_testname}_Tests_run PROPERTIES
+            LABELS "Qt"
+            ENVIRONMENT "${_openfusion_qt_test_environment}")
     endforeach()
 endfunction()
 
@@ -147,6 +240,24 @@ if(BUILD_TEST
    AND BUILD_IMPORT
    AND BUILD_MESH)
     add_subdirectory(acceptance)
+endif()
+
+if(WIN32)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/WindowsTestRuntimePath.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/WindowsTestRuntimePath.cmake"
+        @ONLY
+    )
+
+    # PRE_TEST discovery executes the test binary while CTest is reading its
+    # include files.  Register the build-tree runtime PATH bootstrap first so
+    # discovery and the subsequently registered tests inherit the same paths.
+    set_property(
+        DIRECTORY
+        APPEND
+        PROPERTY TEST_INCLUDE_FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/WindowsTestRuntimePath.cmake"
+    )
 endif()
 
 include(GoogleTest)

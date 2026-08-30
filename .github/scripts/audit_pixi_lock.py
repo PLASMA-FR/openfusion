@@ -85,9 +85,7 @@ YAML_TIMESTAMP_RE = re.compile(
     r"[0-9]{1,2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?"
     r"(?:[ \t]*(?:[Zz]|[-+][0-9]{1,2}(?::?[0-9]{2})?))?)?"
 )
-YAML_REFERENCE_RE = re.compile(
-    r"^(?:&[A-Za-z0-9_-]+|\*[A-Za-z0-9_-]+|!!?[A-Za-z][^\s]*)"
-)
+YAML_REFERENCE_RE = re.compile(r"^(?:&[A-Za-z0-9_-]+|\*[A-Za-z0-9_-]+|!!?[A-Za-z][^\s]*)")
 YAML_COMMENT_RE = re.compile(r"(?:^|\s)#")
 CONDA_MATCHSPEC_RE = re.compile(
     r"[A-Za-z0-9_][A-Za-z0-9_.-]*"
@@ -96,12 +94,8 @@ CONDA_MATCHSPEC_RE = re.compile(
 )
 PURL_RE = re.compile(r"pkg:[!-~]+")
 TRACK_FEATURE_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
-PYPI_REQUIREMENT_RE = re.compile(
-    r"[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[A-Za-z0-9._,-]+\])?(?:[ -~]*)"
-)
-PEP440_SPECIFIER_RE = re.compile(
-    r"(===|~=|==|!=|<=|>=|<|>)([A-Za-z0-9][A-Za-z0-9.!*+_-]*)"
-)
+PYPI_REQUIREMENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[A-Za-z0-9._,-]+\])?(?:[ -~]*)")
+PEP440_SPECIFIER_RE = re.compile(r"(===|~=|==|!=|<=|>=|<|>)([A-Za-z0-9][A-Za-z0-9.!*+_-]*)")
 METADATA_TEXT_RE = re.compile(r"[ -~]+")
 CONDA_CHANNEL_COMPONENTS = frozenset(("freecad", "conda-forge"))
 CONDA_SUBDIRECTORIES = frozenset((*EXPECTED_PLATFORMS, "noarch"))
@@ -193,9 +187,7 @@ def _parse_header(
     lines: list[str],
 ) -> tuple[tuple[str, ...], tuple[str, ...], dict[str, list[str]]]:
     if not lines or lines[0] != f"version: {LOCK_FORMAT_VERSION}":
-        raise AuditError(
-            f"expected canonical Pixi lock format version {LOCK_FORMAT_VERSION}"
-        )
+        raise AuditError(f"expected canonical Pixi lock format version {LOCK_FORMAT_VERSION}")
     if lines.count("environments:") != 1 or lines.count("  default:") != 1:
         raise AuditError("expected exactly one default Pixi environment")
 
@@ -239,27 +231,18 @@ def _parse_header(
             references[platform].append(reference_match.group(2))
 
     if tuple(channels) != EXPECTED_CHANNELS:
-        raise AuditError(
-            "Pixi channels changed from the reviewed allowlist: " + repr(channels)
-        )
+        raise AuditError("Pixi channels changed from the reviewed allowlist: " + repr(channels))
     if tuple(indexes) != EXPECTED_INDEXES:
-        raise AuditError(
-            "Python indexes changed from the reviewed allowlist: " + repr(indexes)
-        )
+        raise AuditError("Python indexes changed from the reviewed allowlist: " + repr(indexes))
     if tuple(references) != EXPECTED_PLATFORMS:
         raise AuditError(
-            "Pixi platforms changed from the reviewed matrix: "
-            + repr(tuple(references))
+            "Pixi platforms changed from the reviewed matrix: " + repr(tuple(references))
         )
     for platform_name, platform_references in references.items():
         if not platform_references:
-            raise AuditError(
-                f"platform {platform_name} has no locked package references"
-            )
+            raise AuditError(f"platform {platform_name} has no locked package references")
         if len(platform_references) != len(set(platform_references)):
-            raise AuditError(
-                f"platform {platform_name} contains duplicate package references"
-            )
+            raise AuditError(f"platform {platform_name} contains duplicate package references")
 
     canonical_header = [
         f"version: {LOCK_FORMAT_VERSION}",
@@ -293,9 +276,7 @@ def _reference_kind(url: str) -> str:
 
 def _split_package_url(url: str):
     if CONTROL_RE.search(url) or "\\" in url:
-        raise AuditError(
-            f"package URL contains a forbidden control or backslash: {url!r}"
-        )
+        raise AuditError(f"package URL contains a forbidden control or backslash: {url!r}")
     try:
         parsed = urlsplit(url)
         port = parsed.port
@@ -422,8 +403,7 @@ def _pep440_key(version: str, source: str) -> tuple[object, ...]:
     local = None
     if local_text is not None:
         local = tuple(
-            int(part) if part.isdigit() else part.lower()
-            for part in re.split(r"[-_.]", local_text)
+            int(part) if part.isdigit() else part.lower() for part in re.split(r"[-_.]", local_text)
         )
     return (int(match.group("epoch") or 0), tuple(release), pre, post, dev, local)
 
@@ -443,9 +423,7 @@ def _pypi_identity(
     if filename.endswith(".whl"):
         components = filename[:-4].split("-")
         if len(components) == 5:
-            archive_name, archive_version, python_tag, abi_tag, platform_tag = (
-                components
-            )
+            archive_name, archive_version, python_tag, abi_tag, platform_tag = components
         elif len(components) == 6:
             (
                 archive_name,
@@ -458,13 +436,9 @@ def _pypi_identity(
             if not re.fullmatch(r"[0-9][A-Za-z0-9_]*", build_tag):
                 raise AuditError(f"invalid or ambiguous wheel build tag in {url}")
         else:
-            raise AuditError(
-                f"wheel filename has ambiguous component boundaries: {url}"
-            )
+            raise AuditError(f"wheel filename has ambiguous component boundaries: {url}")
         if not WHEEL_NAME_RE.fullmatch(archive_name):
-            raise AuditError(
-                f"wheel distribution component is not escaped canonically: {url}"
-            )
+            raise AuditError(f"wheel distribution component is not escaped canonically: {url}")
         wheel_tags = (
             _wheel_tag_component(python_tag, "Python", url),
             _wheel_tag_component(abi_tag, "ABI", url),
@@ -474,18 +448,12 @@ def _pypi_identity(
         suffix = ".tar.gz" if filename.endswith(".tar.gz") else ".zip"
         stem = filename[: -len(suffix)]
         if stem.count("-") != 1:
-            raise AuditError(
-                f"sdist filename has ambiguous component boundaries: {url}"
-            )
+            raise AuditError(f"sdist filename has ambiguous component boundaries: {url}")
         archive_name, archive_version = stem.split("-", 1)
         if not archive_name or not archive_version:
-            raise AuditError(
-                f"sdist filename is missing a distribution or version: {url}"
-            )
+            raise AuditError(f"sdist filename is missing a distribution or version: {url}")
         if not WHEEL_NAME_RE.fullmatch(archive_name):
-            raise AuditError(
-                f"sdist distribution component is not escaped canonically: {url}"
-            )
+            raise AuditError(f"sdist distribution component is not escaped canonically: {url}")
 
     archive_name_key = _canonical_project_name(archive_name, url)
     archive_version_key = _pep440_key(archive_version, url)
@@ -517,21 +485,15 @@ def _wheel_supports_platform(
                 "manylinux1_x86_64",
                 "manylinux2010_x86_64",
                 "manylinux2014_x86_64",
-            ) or bool(
-                re.fullmatch(r"(?:manylinux|musllinux)_[0-9]+_[0-9]+_x86_64", tag)
-            )
+            ) or bool(re.fullmatch(r"(?:manylinux|musllinux)_[0-9]+_[0-9]+_x86_64", tag))
         if platform == "linux-aarch64":
             return tag in (
                 "linux_aarch64",
                 "manylinux2014_aarch64",
-            ) or bool(
-                re.fullmatch(r"(?:manylinux|musllinux)_[0-9]+_[0-9]+_aarch64", tag)
-            )
+            ) or bool(re.fullmatch(r"(?:manylinux|musllinux)_[0-9]+_[0-9]+_aarch64", tag))
         if platform == "osx-64":
             return bool(
-                re.fullmatch(
-                    r"macosx_[0-9]+_[0-9]+_(?:x86_64|intel|fat64|universal2)", tag
-                )
+                re.fullmatch(r"macosx_[0-9]+_[0-9]+_(?:x86_64|intel|fat64|universal2)", tag)
             )
         if platform == "osx-arm64":
             return bool(re.fullmatch(r"macosx_[0-9]+_[0-9]+_(?:arm64|universal2)", tag))
@@ -555,9 +517,7 @@ def _finish_package(ecosystem: str, url: str, fields: dict[str, str]) -> LockedP
         for numeric_field in ("build_number", "size", "timestamp"):
             value = fields.get(numeric_field)
             if value is not None and not re.fullmatch(r"0|[1-9][0-9]*", value):
-                raise AuditError(
-                    f"Conda package has a noncanonical {numeric_field} field: {url}"
-                )
+                raise AuditError(f"Conda package has a noncanonical {numeric_field} field: {url}")
         noarch = fields.get("noarch")
         if noarch is not None:
             if noarch not in ("generic", "python"):
@@ -645,9 +605,7 @@ def _parse_packages(lines: list[str]) -> tuple[LockedPackage, ...]:
             allowed_scalars = PACKAGE_SCALAR_FIELDS[ecosystem]
             allowed_lists = PACKAGE_LIST_FIELDS[ecosystem]
             if key not in allowed_scalars and key not in allowed_lists:
-                raise AuditError(
-                    f"unexpected {key!r} field in {ecosystem} package record: {url}"
-                )
+                raise AuditError(f"unexpected {key!r} field in {ecosystem} package record: {url}")
             if key in seen_fields:
                 raise AuditError(f"duplicate {key!r} field for package {url}")
             seen_fields.add(key)
@@ -660,9 +618,7 @@ def _parse_packages(lines: list[str]) -> tuple[LockedPackage, ...]:
                     )
                 continue
             if key in PACKAGE_INTEGER_FIELDS[ecosystem]:
-                fields[key] = _integer_scalar(
-                    value, f"integer {key!r} for package {url}"
-                )
+                fields[key] = _integer_scalar(value, f"integer {key!r} for package {url}")
             else:
                 fields[key] = _package_scalar(ecosystem, key, value, url)
             continue
@@ -690,7 +646,7 @@ def _string_scalar(value: str | None, context: str) -> str:
     if (
         value[0] in "-?:[]{},&*!|>%@`"
         or value == "..."
-        or ": " in value
+        or re.search(r":(?:\s|$)", value)
         or YAML_COMMENT_RE.search(value)
         or YAML_REFERENCE_RE.search(value)
         or YAML_NON_STRING_RE.fullmatch(value)
@@ -762,10 +718,7 @@ def _package_scalar(ecosystem: str, field: str, value: str | None, url: str) -> 
         _validate_requires_python(decoded, url)
     elif field == "noarch" and decoded not in ("generic", "python"):
         raise AuditError(f"invalid canonical {context}")
-    elif (
-        field in ("license", "license_family")
-        and METADATA_TEXT_RE.fullmatch(decoded) is None
-    ):
+    elif field in ("license", "license_family") and METADATA_TEXT_RE.fullmatch(decoded) is None:
         raise AuditError(f"invalid canonical {context}")
     return decoded
 
@@ -802,15 +755,11 @@ def audit_lock(path: Path) -> AuditResult:
     if len(digests) != len(set(digests)):
         raise AuditError("lock file contains duplicate package SHA-256 digests")
 
-    referenced_urls = [
-        url for platform_urls in references.values() for url in platform_urls
-    ]
+    referenced_urls = [url for platform_urls in references.values() for url in platform_urls]
     unknown = sorted(set(referenced_urls).difference(urls))
     unused = sorted(set(urls).difference(referenced_urls))
     if unknown:
-        raise AuditError(
-            f"environment references missing package metadata: {unknown[:3]!r}"
-        )
+        raise AuditError(f"environment references missing package metadata: {unknown[:3]!r}")
     package_by_url = {package.url: package for package in packages}
     for platform, platform_urls in references.items():
         for url in platform_urls:
@@ -833,8 +782,7 @@ def audit_lock(path: Path) -> AuditResult:
         indexes=indexes,
         platforms=tuple(references),
         platform_references=tuple(
-            (platform, tuple(platform_urls))
-            for platform, platform_urls in references.items()
+            (platform, tuple(platform_urls)) for platform, platform_urls in references.items()
         ),
         reference_count=len(referenced_urls),
         packages=packages,
@@ -843,17 +791,13 @@ def audit_lock(path: Path) -> AuditResult:
 
 def source_provenance(source_date_epoch: str, source_revision: str) -> SourceProvenance:
     if not re.fullmatch(r"0|[1-9][0-9]*", source_date_epoch):
-        raise AuditError(
-            "source date epoch must be a canonical non-negative Unix timestamp"
-        )
+        raise AuditError("source date epoch must be a canonical non-negative Unix timestamp")
     if not SOURCE_REVISION_RE.fullmatch(source_revision):
         raise AuditError("source revision must be a full lowercase Git object ID")
     try:
         instant = datetime.fromtimestamp(int(source_date_epoch), timezone.utc)
     except (OverflowError, OSError, ValueError) as exc:
-        raise AuditError(
-            "source date epoch is outside the supported timestamp range"
-        ) from exc
+        raise AuditError("source date epoch is outside the supported timestamp range") from exc
     return SourceProvenance(
         created=instant.strftime("%Y-%m-%dT%H:%M:%SZ"),
         revision=source_revision,
@@ -887,9 +831,7 @@ def make_spdx(result: AuditResult, provenance: SourceProvenance) -> dict[str, ob
         if package.build:
             comment_parts.append(f"Conda build: {package.build}")
         if package.reported_license:
-            comment_parts.append(
-                f"Pixi lock reported license: {package.reported_license}"
-            )
+            comment_parts.append(f"Pixi lock reported license: {package.reported_license}")
         comment_parts.append(CHECKSUM_DISCLOSURE)
         package_entries.append(
             {

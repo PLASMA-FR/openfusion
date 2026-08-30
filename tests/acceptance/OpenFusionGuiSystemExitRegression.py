@@ -1,0 +1,319 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+"""Process-level regression for GUI SystemExit propagation and shutdown cleanup."""
+
+from __future__ import annotations
+
+import argparse
+import atexit
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+
+POSITIONAL_MODE = "positional"
+INTERNAL_MODE = "internal"
+INTERNAL_SUCCESS_MODE = "internal-success"
+POSITIONAL_EXIT_CODE = 7
+INTERNAL_EXIT_CODE = 1
+INTERNAL_SUCCESS_EXIT_CODE = 0
+CHILD_MODE_ENV = "OPENFUSION_GUI_SYSTEM_EXIT_CHILD"
+STATE_DIR_ENV = "OPENFUSION_GUI_SYSTEM_EXIT_STATE_DIR"
+QT_PLUGIN_PATH_ENV = "QT_PLUGIN_PATH"
+QT_PLATFORM_PLUGIN_PATH_ENV = "QT_QPA_PLATFORM_PLUGIN_PATH"
+
+
+def _validate_windows_qt_plugin_environment() -> list[str]:
+    if os.name != "nt":
+        return []
+
+    failures: list[str] = []
+    configured_paths: dict[str, Path] = {}
+    for variable in (QT_PLUGIN_PATH_ENV, QT_PLATFORM_PLUGIN_PATH_ENV):
+        value = os.environ.get(variable, "")
+        if not value:
+            failures.append(f"lifecycle driver did not inherit {variable}")
+            continue
+        try:
+            configured_paths[variable] = Path(value).resolve(strict=True)
+        except OSError as error:
+            failures.append(f"{variable} does not name an existing path: {error}")
+
+    if len(configured_paths) != 2:
+        return failures
+
+    plugin_directory = configured_paths[QT_PLUGIN_PATH_ENV]
+    platform_directory = configured_paths[QT_PLATFORM_PLUGIN_PATH_ENV]
+    if platform_directory.parent != plugin_directory:
+        failures.append(
+            f"{QT_PLATFORM_PLUGIN_PATH_ENV} is not the platforms directory below "
+            f"{QT_PLUGIN_PATH_ENV}: {platform_directory}"
+        )
+
+    available_plugins = {
+        candidate.name.casefold()
+        for candidate in platform_directory.iterdir()
+        if candidate.is_file()
+    }
+    for platform in ("windows", "offscreen"):
+        prefix = f"q{platform}"
+        if not any(
+            name.startswith(prefix) and name.endswith(".dll")
+            for name in available_plugins
+        ):
+            failures.append(
+                f"Qt {platform} platform plugin is missing from {platform_directory}"
+            )
+    return failures
+
+
+def observe_gui_runtime(scenario: str) -> None:
+    import FreeCAD
+    import FreeCADGui
+
+    state_dir = Path(os.environ[STATE_DIR_ENV])
+    state_dir.mkdir(parents=True, exist_ok=True)
+    finalized_marker = state_dir / "python-finalized.txt"
+
+    def mark_python_finalized(path: str = str(finalized_marker)) -> None:
+        with open(path, "w", encoding="utf-8") as marker:
+            marker.write("finalized\n")
+
+    atexit.register(mark_python_finalized)
+
+    event_loop_active = bool(FreeCADGui.getMainWindow().property("eventLoop"))
+    if not event_loop_active:
+        raise RuntimeError(
+            "GUI SystemExit regression did not run inside the Qt event loop"
+        )
+
+    executable_name = FreeCAD.ConfigGet("ExeName")
+    cache_dir = Path(FreeCAD.getUserCachePath())
+    lock_candidates = sorted(
+        path
+        for path in cache_dir.glob(f"{executable_name}_*.lock")
+        if path.is_file() and "_Doc_" not in path.name
+    )
+    if len(lock_candidates) != 1:
+        raise RuntimeError(
+            "Expected exactly one GUI process lock in "
+            f"{cache_dir}, found: {[str(path) for path in lock_candidates]}"
+        )
+
+    observation = {
+        "cache_dir": str(cache_dir),
+        "event_loop_active": event_loop_active,
+        "executable_name": executable_name,
+        "lock_path": str(lock_candidates[0]),
+        "pid": os.getpid(),
+        "scenario": scenario,
+    }
+    observation_path = state_dir / "observation.json"
+    temporary_path = state_dir / "observation.json.tmp"
+    temporary_path.write_text(
+        json.dumps(observation, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary_path, observation_path)
+
+
+def _run_positional_child() -> None:
+    observe_gui_runtime(POSITIONAL_MODE)
+    print("OpenFusion GUI positional callback raising SystemExit(7)", flush=True)
+    raise SystemExit(POSITIONAL_EXIT_CODE)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--freecad", required=True, type=Path)
+    parser.add_argument("--state-dir", required=True, type=Path)
+    return parser.parse_args()
+
+
+def _run_scenario(
+    freecad: Path,
+    root_state_dir: Path,
+    scenario: str,
+    expected_exit_code: int,
+) -> list[str]:
+    state_dir = root_state_dir / scenario
+    state_dir.mkdir(parents=True)
+
+    home_dir = state_dir / "home"
+    data_dir = state_dir / "data"
+    cache_dir = state_dir / "cache"
+    profile_dir = state_dir / "profile"
+    for directory in (home_dir, data_dir, cache_dir, profile_dir):
+        directory.mkdir()
+
+    application_log = state_dir / "FreeCADGui-system-exit.log"
+    console_log = state_dir / "console.log"
+    observation_path = state_dir / "observation.json"
+    finalized_marker = state_dir / "python-finalized.txt"
+
+    environment = os.environ.copy()
+    environment.update(
+        {
+            CHILD_MODE_ENV: scenario,
+            STATE_DIR_ENV: str(state_dir),
+            "FREECAD_USER_DATA": str(data_dir),
+            "FREECAD_USER_HOME": str(home_dir),
+            "FREECAD_USER_TEMP": str(cache_dir),
+        }
+    )
+    environment.pop("PYTHONHOME", None)
+    environment.pop("PYTHONPATH", None)
+
+    command = [
+        str(freecad),
+        "--hidden",
+        "--user-cfg",
+        str(profile_dir / "user.cfg"),
+        "--system-cfg",
+        str(profile_dir / "system.cfg"),
+        "--log-file",
+        str(application_log),
+    ]
+    if scenario == POSITIONAL_MODE:
+        command.append(str(Path(__file__).resolve()))
+    else:
+        test_case = (
+            "OpenFusionGuiIntentionalSuccess.IntentionalInternalSuccess."
+            "test_success_exit_code"
+            if scenario == INTERNAL_SUCCESS_MODE
+            else "OpenFusionGuiIntentionalFailure.IntentionalInternalFailure."
+            "test_failure_exit_code"
+        )
+        command.extend(
+            [
+                "--python-path",
+                str(Path(__file__).resolve().parent),
+                "--run-test",
+                test_case,
+            ]
+        )
+
+    try:
+        completed = subprocess.run(
+            command,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=90,
+        )
+        console_output = completed.stdout
+        return_code = completed.returncode
+    except subprocess.TimeoutExpired as error:
+        console_output = error.stdout or ""
+        if isinstance(console_output, bytes):
+            console_output = console_output.decode("utf-8", errors="replace")
+        console_log.write_text(console_output, encoding="utf-8")
+        return [f"{scenario}: FreeCAD GUI lifecycle regression timed out"]
+
+    console_log.write_text(console_output, encoding="utf-8")
+    failures: list[str] = []
+    if return_code != expected_exit_code:
+        failures.append(
+            f"{scenario}: FreeCAD returned {return_code}; "
+            f"expected exact exit code {expected_exit_code}"
+        )
+
+    observation: dict[str, object] = {}
+    if not observation_path.is_file():
+        failures.append(f"{scenario}: callback observation was not written")
+    else:
+        try:
+            observation = json.loads(observation_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            failures.append(f"{scenario}: cannot read callback observation: {error}")
+
+    if observation:
+        if observation.get("scenario") != scenario:
+            failures.append(f"{scenario}: callback recorded the wrong scenario")
+        if observation.get("event_loop_active") is not True:
+            failures.append(
+                f"{scenario}: callback did not observe the active event loop"
+            )
+
+        observed_cache = Path(str(observation.get("cache_dir", "")))
+        observed_lock = Path(str(observation.get("lock_path", "")))
+        if not observed_cache.is_dir():
+            failures.append(
+                f"{scenario}: persistent cache directory was removed: {observed_cache}"
+            )
+        if observed_lock.exists():
+            failures.append(
+                f"{scenario}: GUI process lock remained after shutdown: {observed_lock}"
+            )
+
+    if not finalized_marker.is_file():
+        failures.append(f"{scenario}: embedded Python was not finalized")
+
+    if not application_log.is_file():
+        failures.append(f"{scenario}: FreeCAD did not write its application log")
+    else:
+        application_output = application_log.read_text(
+            encoding="utf-8", errors="replace"
+        )
+        if "Finish: Event loop left" not in application_output:
+            failures.append(f"{scenario}: event loop did not return normally")
+        if " terminating..." not in application_output:
+            failures.append(f"{scenario}: normal teardown did not start")
+
+    if " completely terminated" not in console_output:
+        failures.append(f"{scenario}: normal teardown did not complete")
+
+    if failures and console_output:
+        failures.append(f"{scenario}: FreeCAD output follows:\n{console_output}")
+    return failures
+
+
+def _run_driver() -> int:
+    args = _parse_args()
+    freecad = args.freecad.resolve()
+    state_dir = args.state_dir.resolve()
+
+    environment_failures = _validate_windows_qt_plugin_environment()
+    if environment_failures:
+        for failure in environment_failures:
+            print(f"FAIL: {failure}", file=sys.stderr)
+        return 1
+
+    if state_dir.exists():
+        shutil.rmtree(state_dir)
+    state_dir.mkdir(parents=True)
+
+    failures = _run_scenario(freecad, state_dir, POSITIONAL_MODE, POSITIONAL_EXIT_CODE)
+    failures.extend(
+        _run_scenario(
+            freecad,
+            state_dir,
+            INTERNAL_SUCCESS_MODE,
+            INTERNAL_SUCCESS_EXIT_CODE,
+        )
+    )
+    failures.extend(
+        _run_scenario(freecad, state_dir, INTERNAL_MODE, INTERNAL_EXIT_CODE)
+    )
+    if failures:
+        for failure in failures:
+            print(f"FAIL: {failure}", file=sys.stderr)
+        return 1
+
+    print(
+        "FreeCAD GUI preserved positional SystemExit(7), internal test success exit 0, "
+        "internal test failure exit 1, and completed lock/interpreter cleanup"
+    )
+    return 0
+
+
+if os.environ.get(CHILD_MODE_ENV) == POSITIONAL_MODE:
+    _run_positional_child()
+elif __name__ == "__main__":
+    raise SystemExit(_run_driver())
