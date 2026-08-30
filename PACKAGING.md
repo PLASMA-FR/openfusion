@@ -123,12 +123,14 @@ numeric ownership, a fixed modification time derived from
 
 The repository now contains a fail-closed staging and verification tool at
 `packaging/linux/create_deterministic_tarball.py`. It packages only an existing
-quiescent `DESTDIR` installation, validates x86-64 ELF identity, normalizes and
-manifests every payload entry, publishes the archive last as the commit marker,
-and verifies the bounded decompression and canonical payload before success.
-Its focused policy suite and a synthetic real-ELF smoke test pass; this does not
-yet establish that an installed OpenFusion runtime is complete or usable, so no
-tarball is currently claimed as a release artifact. See
+quiescent `DESTDIR` installation, validates the architecture of every ELF,
+normalizes and manifests every payload entry, resolves the complete symlink
+graph, publishes the archive last as the commit marker, and verifies bounded
+decompression and the canonical payload. Production builds deliberately fail
+closed because the repository does not yet provide an authenticated OpenFusion
+executable identity contract; an arbitrary ELF cannot satisfy that gate. The
+private test API can create only SemVer test fixtures. No tarball is currently
+claimed as a release artifact. See
 `packaging/linux/README.md` for the exact staging contract and commands.
 
 The final archive must be extracted into at least a normal temporary path and

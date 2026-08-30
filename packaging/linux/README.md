@@ -9,9 +9,27 @@ The tool consumes an installation that has already been produced beneath an
 absolute `DESTDIR` and exact absolute install prefix. It never runs an install,
 renames inherited binaries, downloads dependencies, or edits the staged tree.
 
-## Build and verify a staged archive
+## Production identity blocker
 
-For an installation rooted at `/tmp/openfusion-stage/opt/openfusion`, run:
+The production CLI currently refuses every build with
+`no authenticated OpenFusion executable identity contract is configured`.
+This is intentional. The current source tree still builds inherited FreeCAD
+executables and does not provide a canonical OpenFusion executable whose
+version and source revision can be authenticated offline. Checking only an ELF
+machine type, executable bit, path, or filename would allow an arbitrary Linux
+binary to be relabeled as OpenFusion.
+
+Before this blocker can be removed, the product must define and implement the
+canonical installed executable and an offline identity record bound to the
+OpenFusion version, exact source commit, and build provenance. The packager and
+verifier must then authenticate that record. Until then, the private Python
+test API is the only path that can create an archive, and it accepts only a
+SemVer prerelease identifier named `test`. The CLI exposes no bypass.
+
+## Build and verify interface
+
+Once the production identity contract exists, an installation rooted at
+`/tmp/openfusion-stage/opt/openfusion` will use this interface:
 
 ```bash
 mkdir -p /tmp/openfusion-output
@@ -41,15 +59,12 @@ holds a nonblocking advisory lock on the directory descriptor, but the lock is
 not a substitute for the exclusivity assertion because unrelated writers may
 ignore it. Existing entries are never overwritten.
 
-The target architecture is explicit and trusted only after all staged ELF
-files have the expected class, byte order, and `e_machine`, with at least one
-executable ELF beneath `bin/`. That representative must have an in-file,
-bounded program-header table and a structurally valid executable `PT_LOAD`
-segment; a header-only ELF lookalike is rejected. The production CLI has no
-architecture-check bypass, and its verifier rejects artifacts marked with the unit-test bypass.
-Synthetic tests can opt in only through an explicit private Python API keyword
-and a SemVer prerelease identifier named `test`. A successful run creates and
-internally verifies exactly these files:
+The target architecture is explicit. Every staged ELF must have the expected
+class, byte order, and `e_machine`, but architecture coherence is not product
+identity. The production CLI has no identity bypass, and the verifier rejects
+test fixtures unless its caller uses the explicit private Python API flag. Once
+the production identity blocker is resolved, a successful run will create and
+internally verify exactly these files:
 
 - `openfusion-0.1.0-linux-x86_64.tar.zst`
 - `openfusion-0.1.0-linux-x86_64.tar.zst.manifest.json`
@@ -79,12 +94,16 @@ snapshot against a malicious concurrent writer, which is why a stopped
 installer is an explicit precondition.
 
 Before writing an archive, the tool also rejects empty trees, devices, FIFOs,
-sockets, absolute symlinks, symlinks that lexically escape the packaged
-prefix, output paths inside that prefix, and existing outputs. It rejects
-sparse files and sparse tar members. Regular files and symlinks must have link
-count one. Setuid, setgid, and sticky bits are rejected. All extended
-attributes are rejected because this format does not preserve them; that
-fail-closed rule includes POSIX ACL and Linux file-capability attributes.
+sockets, absolute symlinks, output paths inside the prefix, and existing
+outputs. Symlinks are resolved against the complete payload graph rather than
+checked one at a time: composed escapes, cycles, dangling targets, traversal
+through non-directories, and chains longer than 40 hops are rejected by both
+the builder and verifier. A policy-versioned global budget of 2,000,000
+resolution steps bounds aggregate work across shared chains. It rejects sparse
+files and sparse tar members. Regular files and symlinks must have link count
+one. Setuid, setgid, and sticky bits are rejected. All extended attributes are
+rejected because this format does not preserve them; that fail-closed rule
+includes POSIX ACL and Linux file-capability attributes.
 
 Entries are ordered by UTF-8 path bytes. Archive ownership is normalized to
 `root:root` with numeric UID/GID zero. Directories and executable files use
@@ -107,7 +126,7 @@ header against the manifest, extracts through a path-safe implementation,
 rescans the payload, revalidates ELF identity, and reconstructs the canonical
 tar for an exact byte comparison.
 
-Policy version 1 has these absolute ceilings:
+Policy version 2 has these absolute ceilings:
 
 | Resource | Limit |
 | --- | ---: |
@@ -115,13 +134,15 @@ Policy version 1 has these absolute ceilings:
 | Manifest | 256 MiB |
 | Checksum file | 4 KiB |
 | Payload entries | 500,000 |
-| ELF program headers | 4,096 |
 | UTF-8 path or symlink target | 4,095 bytes |
+| Symlink resolution | 40 hops |
+| Aggregate symlink resolution | 2,000,000 steps |
 | One PAX extended header | 64 KiB |
-| One regular file | 8 GiB |
+| One regular file | 8 GiB minus 1 byte |
 | Total regular-file content | 32 GiB |
 | Decompressed tar | 40 GiB |
 | zstd working memory | 512 MiB |
+| `SOURCE_DATE_EPOCH` | 8,589,934,591 |
 
 The build is reproducible for identical payload bytes, paths,
 `SOURCE_DATE_EPOCH`, script version, Python version, and zstd implementation.
@@ -146,7 +167,7 @@ Run the focused tests with:
 python3 -m unittest -v tests.openfusion.test_linux_tarball
 ```
 
-`PurePolicyTests` and `SnapshotPolicyTests` do not require `zstd` and always
-run. Only `ZstdIntegrationTests` is skipped when the system executable is not
-available; the test-only architecture bypass remains inaccessible from the
-packaging CLI.
+The complete suite requires `zstd`. Its absence is a hard failure, not a skip,
+because otherwise a release gate could appear green without exercising archive
+construction and verification. The test-only product-identity bypass remains
+inaccessible from the packaging CLI.
