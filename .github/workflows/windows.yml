@@ -22,7 +22,7 @@ jobs:
   windows-release:
     name: Windows x64 Release (Conda compiler)
     runs-on: windows-2022
-    timeout-minutes: 300
+    timeout-minutes: 360
 
     defaults:
       run:
@@ -145,7 +145,7 @@ jobs:
           }
 
       - name: Build Release
-        timeout-minutes: 100
+        timeout-minutes: 240
         run: |
           $ErrorActionPreference = "Stop"
           pixi run build-release 2>&1 | Tee-Object -FilePath logs/build.log
@@ -228,6 +228,159 @@ jobs:
           pixi run ninja --version 2>&1 | Tee-Object -FilePath logs/ninja-version.txt
           if ($LASTEXITCODE -ne 0) { throw "Ninja version probe failed." }
 
+      - name: Verify CTest-native test runtime discovery
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $moduleRoot = (Resolve-Path -LiteralPath build/release/Mod).Path
+          $moduleRoot = $moduleRoot.TrimEnd([char[]]@('\', '/'))
+          $modulePrefix = $moduleRoot + [IO.Path]::DirectorySeparatorChar
+          $preconfiguredModulePaths = @(
+            $env:PATH -split [IO.Path]::PathSeparator |
+              ForEach-Object {
+                if (-not [string]::IsNullOrWhiteSpace($_)) {
+                  try {
+                    [IO.Path]::GetFullPath($_).TrimEnd([char[]]@('\', '/'))
+                  } catch {}
+                }
+              } |
+              Where-Object {
+                $_ -ieq $moduleRoot -or
+                  $_.StartsWith(
+                    $modulePrefix,
+                    [StringComparison]::OrdinalIgnoreCase
+                  )
+              }
+          )
+          if ($preconfiguredModulePaths.Count -ne 0) {
+            throw (
+              "Build-tree module directories were already present on PATH " +
+              "before the native CTest probe: " +
+              ($preconfiguredModulePaths -join ", ")
+            )
+          }
+
+          $discovery = @(
+            pixi run ctest --test-dir build/release --show-only=json-v1
+          )
+          if ($LASTEXITCODE -ne 0) {
+            throw "CTest-native GoogleTest discovery failed."
+          }
+          $discovery | Set-Content -Encoding utf8 `
+            logs/ctest-native-runtime-discovery.json
+
+          $report = Get-Content -Raw `
+            logs/ctest-native-runtime-discovery.json | ConvertFrom-Json
+          if ($report.tests -isnot [System.Array]) {
+            throw "CTest-native discovery JSON did not contain a tests array."
+          }
+          $materialTests = @(
+            $report.tests | Where-Object {
+              (@($_.command) -join " ") -match `
+                '(?i)Material_tests_run(?:\.exe)?'
+            }
+          )
+          if ($materialTests.Count -eq 0) {
+            throw "CTest-native discovery did not register Material tests."
+          }
+
+          $manifest = Join-Path $PWD `
+            "build/release/tests/windows-native-test-runtime-paths.txt"
+          if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+            throw "CTest-native runtime manifest was not generated: $manifest"
+          }
+          $manifestPaths = @(
+            Get-Content -LiteralPath $manifest |
+              Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+              ForEach-Object {
+                [IO.Path]::GetFullPath($_).TrimEnd([char[]]@('\', '/'))
+              }
+          )
+          $binaryRoot = (Resolve-Path -LiteralPath build/release/bin).Path
+          $binaryRoot = $binaryRoot.TrimEnd([char[]]@('\', '/'))
+          $materialRoot = (
+            Resolve-Path -LiteralPath build/release/Mod/Material
+          ).Path.TrimEnd([char[]]@('\', '/'))
+          if ($manifestPaths -notcontains $binaryRoot) {
+            throw "CTest-native runtime manifest omitted the build bin directory."
+          }
+          if ($manifestPaths -notcontains $materialRoot) {
+            throw "CTest-native runtime manifest omitted the Material directory."
+          }
+
+          $qtPluginManifest = Join-Path $PWD `
+            "build/release/tests/windows-native-test-qt-plugin-paths.txt"
+          if (-not (Test-Path -LiteralPath $qtPluginManifest -PathType Leaf)) {
+            throw "CTest-native Qt plugin manifest was not generated: $qtPluginManifest"
+          }
+          $qtPluginPaths = @(
+            Get-Content -LiteralPath $qtPluginManifest |
+              Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+              ForEach-Object {
+                [IO.Path]::GetFullPath($_).TrimEnd([char[]]@('\', '/'))
+              }
+          )
+          if ($qtPluginPaths.Count -ne 2) {
+            throw "CTest-native Qt plugin manifest must contain exactly two paths."
+          }
+          $qtPluginRoot = $qtPluginPaths[0]
+          $qtPlatformRoot = $qtPluginPaths[1]
+          $expectedPlatformRoot = [IO.Path]::GetFullPath(
+            (Join-Path $qtPluginRoot "platforms")
+          ).TrimEnd([char[]]@('\', '/'))
+          if (-not $qtPlatformRoot.Equals(
+              $expectedPlatformRoot,
+              [StringComparison]::OrdinalIgnoreCase
+          )) {
+            throw (
+              "Qt platform plugin path is not below the queried plugin root: " +
+              "$qtPlatformRoot"
+            )
+          }
+          foreach ($platformPlugin in @("qwindows*.dll", "qoffscreen*.dll")) {
+            $matches = @(
+              Get-ChildItem -LiteralPath $qtPlatformRoot -Filter $platformPlugin `
+                -File
+            )
+            if ($matches.Count -eq 0) {
+              throw "CTest-native Qt plugin path omitted $platformPlugin."
+            }
+          }
+
+          Copy-Item -LiteralPath $manifest `
+            logs/ctest-native-runtime-paths.txt
+          Copy-Item -LiteralPath $qtPluginManifest `
+            logs/ctest-native-qt-plugin-paths.txt
+          @(
+            "discovered_tests=$(@($report.tests).Count)",
+            "material_tests=$($materialTests.Count)",
+            "runtime_directories=$($manifestPaths.Count)",
+            "qt_plugin_root=$qtPluginRoot",
+            "qt_platform_plugin_root=$qtPlatformRoot"
+          ) | Set-Content -Encoding ascii `
+            logs/ctest-native-runtime-summary.txt
+
+      - name: Register native test runtime directories
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = "Stop"
+          pixi run python tests/ci/test_windows_test_runtime.py 2>&1 |
+            Tee-Object -FilePath logs/windows-test-runtime-unit.log
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows test runtime helper unit tests failed."
+          }
+
+          pixi run python .github/scripts/prepare_windows_test_runtime.py `
+            --build-dir build/release `
+            --github-path "$env:GITHUB_PATH" `
+            --manifest logs/windows-test-runtime-paths.txt `
+            --require-artifact Materials.pyd `
+            2>&1 | Tee-Object -FilePath logs/windows-test-runtime-setup.log
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows native test runtime setup failed."
+          }
+
       - name: Discover CTest tests
         timeout-minutes: 10
         run: |
@@ -241,6 +394,19 @@ jobs:
             throw "CTest JSON did not contain a tests array."
           }
           $count = @($report.tests).Count
+          $testNames = @($report.tests | ForEach-Object { $_.name })
+          $requiredAcceptance = @(
+            "OpenFusion_Assembly_Acceptance",
+            "OpenFusion_Core_Acceptance",
+            "OpenFusion_GUI_SystemExit_Propagation",
+            "OpenFusion_TechDraw_Acceptance"
+          )
+          $missingAcceptance = @(
+            $requiredAcceptance | Where-Object { $testNames -notcontains $_ }
+          )
+          if ($missingAcceptance.Count -ne 0) {
+            throw "Acceptance tests were not registered with CTest: $($missingAcceptance -join ', ')"
+          }
           "$count" | Set-Content -Encoding ascii logs/ctest-count.txt
           Write-Host "Discovered $count CTest tests"
           if ($count -eq 0) { throw "CTest discovered zero tests." }
@@ -257,6 +423,73 @@ jobs:
             --timeout 600 `
             2>&1 | Tee-Object -FilePath logs/ctest.log
           if ($LASTEXITCODE -ne 0) { throw "CTest baseline failed." }
+
+      - name: Validate TechDraw GUI SVG and PDF export
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = "Stop"
+          $outputDir = Join-Path $PWD "build/release/Testing/OpenFusionAcceptance"
+          $profileDir = Join-Path $env:RUNNER_TEMP `
+            "openfusion-techdraw-gui-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $applicationLog = Join-Path $outputDir "FreeCADGui-techdraw-export.log"
+          $stdoutLog = Join-Path $PWD "logs/techdraw-gui-export.log"
+          $binary = Join-Path $PWD "build/release/bin/FreeCAD.exe"
+          $fixture = Join-Path $outputDir "OpenFusionTechDrawAcceptance.FCStd"
+          New-Item -ItemType Directory -Force $outputDir, $profileDir | Out-Null
+          if (-not (Test-Path -LiteralPath $fixture -PathType Leaf)) {
+            throw "Missing TechDraw fixture: $fixture"
+          }
+
+          $env:OPENFUSION_ACCEPTANCE_OUTPUT_DIR = $outputDir
+          $env:QT_QPA_PLATFORM = "windows"
+          $arguments = @(
+            "--safe-mode",
+            "--user-cfg", (Join-Path $profileDir "user.cfg"),
+            "--system-cfg", (Join-Path $profileDir "system.cfg"),
+            "--log-file", $applicationLog,
+            "--python-path", (Join-Path $PWD "tests/acceptance"),
+            "--run-test", "OpenFusionTechDrawGuiExportAcceptance"
+          )
+          pixi run $binary @arguments 2>&1 | Tee-Object -FilePath $stdoutLog
+          if ($LASTEXITCODE -ne 0) {
+            throw "TechDraw GUI export acceptance failed with exit code $LASTEXITCODE."
+          }
+
+          $requiredFiles = @(
+            $applicationLog,
+            (Join-Path $outputDir "TechDrawGuiExport/OpenFusionTechDraw-full-page.svg"),
+            (Join-Path $outputDir "TechDrawGuiExport/OpenFusionTechDraw-full-page.pdf")
+          )
+          foreach ($path in $requiredFiles) {
+            if (
+              -not (Test-Path -LiteralPath $path -PathType Leaf) -or
+              (Get-Item -LiteralPath $path).Length -eq 0
+            ) {
+              throw "Missing or empty TechDraw GUI export artifact: $path"
+            }
+          }
+
+          pixi run python .github/scripts/validate_unittest_summary.py `
+            $stdoutLog `
+            --expected-count 1 `
+            --label "TechDraw GUI export"
+          if ($LASTEXITCODE -ne 0) {
+            throw "TechDraw GUI export summary validation failed."
+          }
+
+      - name: Upload TechDraw GUI export diagnostics
+        if: always()
+        timeout-minutes: 10
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: techdraw-gui-windows-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            logs/techdraw-gui-export.log
+            build/release/Testing/OpenFusionAcceptance/FreeCADGui-techdraw-export.log
+            build/release/Testing/OpenFusionAcceptance/TechDrawGuiExport/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
 
       - name: Run native FreeCADCmd baseline
         timeout-minutes: 30
@@ -352,18 +585,13 @@ jobs:
           Copy-Item -LiteralPath $applicationLog logs/freecadcmd-application.log
           if ($testExitCode -ne 0) { throw "FreeCADCmd test baseline failed." }
 
-          $output = Get-Content -Raw logs/freecadcmd-tests.log
-          $summaries = [regex]::Matches(
-            $output,
-            '(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$'
-          )
-          if ($summaries.Count -eq 0) {
-            throw "FreeCADCmd emitted no anchored unittest summary."
+          pixi run python .github/scripts/validate_unittest_summary.py `
+            logs/freecadcmd-tests.log `
+            --count-file logs/freecadcmd-test-count.txt `
+            --label FreeCADCmd
+          if ($LASTEXITCODE -ne 0) {
+            throw "FreeCADCmd summary validation failed."
           }
-          $count = [int]$summaries[$summaries.Count - 1].Groups[1].Value
-          "$count" | Set-Content -Encoding ascii logs/freecadcmd-test-count.txt
-          Write-Host "FreeCADCmd final unittest summary reported $count tests"
-          if ($count -le 0) { throw "FreeCADCmd final unittest summary reported zero tests." }
 
       - name: Inventory and run native FreeCAD GUI baseline
         timeout-minutes: 45
@@ -449,19 +677,12 @@ jobs:
           Copy-Item -LiteralPath $applicationLog logs/freecadgui-application.log
           if ($testExitCode -ne 0) { throw "FreeCAD GUI test baseline failed." }
 
-          $output = Get-Content -Raw logs/freecadgui-tests.log
-          $summaries = [regex]::Matches(
-            $output,
-            '(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$'
-          )
-          if ($summaries.Count -eq 0) {
-            throw "FreeCAD GUI emitted no anchored unittest summary."
-          }
-          $count = [int]$summaries[$summaries.Count - 1].Groups[1].Value
-          "$count" | Set-Content -Encoding ascii logs/freecadgui-test-count.txt
-          Write-Host "FreeCAD GUI final unittest summary reported $count tests"
-          if ($count -le 0) {
-            throw "FreeCAD GUI final unittest summary reported zero tests."
+          pixi run python .github/scripts/validate_unittest_summary.py `
+            logs/freecadgui-tests.log `
+            --count-file logs/freecadgui-test-count.txt `
+            --label "FreeCAD GUI"
+          if ($LASTEXITCODE -ne 0) {
+            throw "FreeCAD GUI summary validation failed."
           }
 
       - name: Record baseline diagnostics
@@ -489,6 +710,13 @@ jobs:
           }
           if (Test-Path build/release/Testing/Temporary) {
             Copy-Item -Recurse build/release/Testing/Temporary logs/ctest-temporary
+          }
+          if (
+            Test-Path -LiteralPath build/release/Testing/OpenFusionAcceptance `
+              -PathType Container
+          ) {
+            Copy-Item -LiteralPath build/release/Testing/OpenFusionAcceptance `
+              -Destination logs/openfusion-acceptance -Recurse -ErrorAction Stop
           }
 
       - name: Upload Windows baseline logs

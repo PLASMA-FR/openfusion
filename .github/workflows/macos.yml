@@ -22,7 +22,7 @@ jobs:
   macos-release:
     name: macOS ${{ matrix.arch_name }} Release (Conda compiler)
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 300
+    timeout-minutes: 360
 
     strategy:
       fail-fast: false
@@ -149,7 +149,7 @@ jobs:
           grep -Eq '^BUILD_TECHDRAW:BOOL=(ON|TRUE)$' build/release/CMakeCache.txt
 
       - name: Build Release
-        timeout-minutes: 100
+        timeout-minutes: 240
         run: |
           set -euo pipefail
           pixi run build-release 2>&1 | tee logs/build.log
@@ -211,6 +211,18 @@ jobs:
           if not isinstance(tests, list):
               raise SystemExit("CTest JSON did not contain a tests array")
           count = len(tests)
+          names = {test.get("name") for test in tests if isinstance(test, dict)}
+          required_acceptance = {
+              "OpenFusion_Assembly_Acceptance",
+              "OpenFusion_Core_Acceptance",
+              "OpenFusion_GUI_SystemExit_Propagation",
+              "OpenFusion_TechDraw_Acceptance",
+          }
+          missing_acceptance = sorted(required_acceptance - names)
+          if missing_acceptance:
+              raise SystemExit(
+                  f"Acceptance tests were not registered with CTest: {missing_acceptance}"
+              )
           Path("logs/ctest-count.txt").write_text(f"{count}\n", encoding="utf-8")
           print(f"Discovered {count} CTest tests")
           if count == 0:
@@ -228,6 +240,65 @@ jobs:
             --parallel 2 \
             --timeout 600 \
             2>&1 | tee logs/ctest.log
+
+      - name: Validate TechDraw GUI SVG and PDF export
+        timeout-minutes: 10
+        env:
+          QT_QPA_PLATFORM: cocoa
+        run: |
+          set -euo pipefail
+          output_dir="$PWD/build/release/Testing/OpenFusionAcceptance"
+          profile_dir="$RUNNER_TEMP/openfusion-techdraw-gui-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          application_log="$output_dir/FreeCADGui-techdraw-export.log"
+          stdout_log="logs/techdraw-gui-export.log"
+          binary="$PWD/build/release/bin/FreeCAD"
+          fixture="$output_dir/OpenFusionTechDrawAcceptance.FCStd"
+          mkdir -p "$output_dir" "$profile_dir"
+          test -x "$binary"
+          test -s "$fixture"
+
+          set +e
+          OPENFUSION_ACCEPTANCE_OUTPUT_DIR="$output_dir" \
+            pixi run "$binary" \
+              --safe-mode \
+              --user-cfg "$profile_dir/user.cfg" \
+              --system-cfg "$profile_dir/system.cfg" \
+              --log-file "$application_log" \
+              --python-path "$PWD/tests/acceptance" \
+              --run-test OpenFusionTechDrawGuiExportAcceptance \
+              2>&1 | tee "$stdout_log"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          if (( pipeline_status[0] != 0 || pipeline_status[1] != 0 )); then
+            printf 'TechDraw GUI export failed: process=%d tee=%d\n' \
+              "${pipeline_status[0]}" "${pipeline_status[1]}" >&2
+            if (( pipeline_status[0] != 0 )); then
+              exit "${pipeline_status[0]}"
+            fi
+            exit "${pipeline_status[1]}"
+          fi
+
+          test -s "$application_log"
+          test -s "$output_dir/TechDrawGuiExport/OpenFusionTechDraw-full-page.svg"
+          test -s "$output_dir/TechDrawGuiExport/OpenFusionTechDraw-full-page.pdf"
+          pixi run python .github/scripts/validate_unittest_summary.py \
+            "$stdout_log" \
+            --expected-count 1 \
+            --label "TechDraw GUI export"
+
+      - name: Upload TechDraw GUI export diagnostics
+        if: always()
+        timeout-minutes: 10
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: techdraw-gui-macos-${{ matrix.arch_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            logs/techdraw-gui-export.log
+            build/release/Testing/OpenFusionAcceptance/FreeCADGui-techdraw-export.log
+            build/release/Testing/OpenFusionAcceptance/TechDrawGuiExport/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
 
       - name: Run native FreeCADCmd baseline
         timeout-minutes: 30
@@ -312,26 +383,10 @@ jobs:
             exit "$test_exit_code"
           fi
 
-          pixi run python - <<'PY'
-          import re
-          from pathlib import Path
-
-          output = Path("logs/freecadcmd-tests.log").read_text(
-              encoding="utf-8", errors="replace"
-          )
-          summaries = re.findall(
-              r"(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+"
-              r"[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$",
-              output,
-          )
-          if not summaries:
-              raise SystemExit("FreeCADCmd emitted no anchored unittest summary")
-          count = int(summaries[-1])
-          Path("logs/freecadcmd-test-count.txt").write_text(f"{count}\n", encoding="utf-8")
-          print(f"FreeCADCmd final unittest summary reported {count} tests")
-          if count <= 0:
-              raise SystemExit("FreeCADCmd final unittest summary reported zero tests")
-          PY
+          pixi run python .github/scripts/validate_unittest_summary.py \
+            logs/freecadcmd-tests.log \
+            --count-file logs/freecadcmd-test-count.txt \
+            --label FreeCADCmd
 
       - name: Inventory and run native FreeCAD GUI baseline
         timeout-minutes: 45
@@ -415,26 +470,10 @@ jobs:
             exit "$test_exit_code"
           fi
 
-          pixi run python - <<'PY'
-          import re
-          from pathlib import Path
-
-          output = Path("logs/freecadgui-tests.log").read_text(
-              encoding="utf-8", errors="replace"
-          )
-          summaries = re.findall(
-              r"(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+"
-              r"[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$",
-              output,
-          )
-          if not summaries:
-              raise SystemExit("FreeCAD GUI emitted no anchored unittest summary")
-          count = int(summaries[-1])
-          Path("logs/freecadgui-test-count.txt").write_text(f"{count}\n", encoding="utf-8")
-          print(f"FreeCAD GUI final unittest summary reported {count} tests")
-          if count <= 0:
-              raise SystemExit("FreeCAD GUI final unittest summary reported zero tests")
-          PY
+          pixi run python .github/scripts/validate_unittest_summary.py \
+            logs/freecadgui-tests.log \
+            --count-file logs/freecadgui-test-count.txt \
+            --label "FreeCAD GUI"
 
       - name: Record baseline diagnostics
         if: always()
@@ -456,6 +495,10 @@ jobs:
           cp build/release/CMakeFiles/CMakeConfigureLog.yaml logs/CMakeConfigureLog.yaml \
             2>/dev/null || true
           cp -R build/release/Testing/Temporary logs/ctest-temporary 2>/dev/null || true
+          if [[ -d build/release/Testing/OpenFusionAcceptance ]]; then
+            cp -R build/release/Testing/OpenFusionAcceptance \
+              logs/openfusion-acceptance
+          fi
 
       - name: Upload macOS baseline logs
         if: always()

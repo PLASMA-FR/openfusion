@@ -263,17 +263,33 @@ class RestrictedMaterialPatternsTest(unittest.TestCase):
     def test_canonical_lfs_pointer_to_quarantined_blob_is_rejected(self) -> None:
         original = RESTRICTED_PATTERN_PATHS[0]
         _oid, sha256, size = RESTRICTED_PATTERN_BLOBS[original]
-        pointer = (
+        canonical_pointer = (
             "version https://git-lfs.github.com/spec/v1\n"
             f"oid sha256:{sha256}\n"
             f"size {size}\n"
         )
-        self.assertIsNotNone(LFS_POINTER.fullmatch(pointer.encode("ascii")))
+        self.assertIsNotNone(LFS_POINTER.fullmatch(canonical_pointer.encode("ascii")))
         renamed = "assets/renamed-pattern.payload"
-        self._write(renamed, pointer)
+        self._write(renamed, canonical_pointer)
         self.assertIn(
             "quarantined Git LFS object referenced by tracked pointer: "
             f"{renamed} (matches {original}; oid=sha256:{sha256}; size={size})",
+            find_violations(self.repo_root),
+        )
+
+        wrong_size = size + 1
+        wrong_size_pointer = (
+            "version https://git-lfs.github.com/spec/v1\n"
+            f"oid sha256:{sha256}\n"
+            f"size {wrong_size}\n"
+        )
+        self.assertIsNotNone(LFS_POINTER.fullmatch(wrong_size_pointer.encode("ascii")))
+        self._write(renamed, wrong_size_pointer)
+        self.assertIn(
+            "quarantined Git LFS object referenced by tracked pointer with "
+            f"mismatched declared size: {renamed} (matches {original}; "
+            f"oid=sha256:{sha256}; declared-size={wrong_size}; "
+            f"quarantined-size={size})",
             find_violations(self.repo_root),
         )
 

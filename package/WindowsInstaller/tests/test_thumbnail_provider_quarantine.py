@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
 """Static release guard for the unaudited inherited Windows thumbnail provider."""
 
 from dataclasses import dataclass

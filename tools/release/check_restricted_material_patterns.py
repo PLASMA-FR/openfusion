@@ -670,14 +670,36 @@ def _audit_blobs(
                     pointer_identity = None
                 if pointer_identity is not None:
                     pointer_oid, pointer_size = pointer_identity
-                    pointer_source = restricted_content.get((pointer_oid, pointer_size))
-                    if pointer_source is not None:
+                    pointer_match = next(
+                        (
+                            (source, quarantined_size)
+                            for (
+                                quarantined_oid,
+                                quarantined_size,
+                            ), source in restricted_content.items()
+                            if quarantined_oid == pointer_oid
+                        ),
+                        None,
+                    )
+                    if pointer_match is not None:
+                        pointer_source, quarantined_size = pointer_match
                         for entry in entries:
-                            violations.append(
-                                f"quarantined Git LFS object referenced by tracked "
-                                f"pointer: {entry.relative} (matches {pointer_source}; "
-                                f"oid=sha256:{pointer_oid}; size={pointer_size})"
-                            )
+                            if pointer_size == quarantined_size:
+                                violations.append(
+                                    f"quarantined Git LFS object referenced by "
+                                    f"tracked pointer: {entry.relative} (matches "
+                                    f"{pointer_source}; oid=sha256:{pointer_oid}; "
+                                    f"size={pointer_size})"
+                                )
+                            else:
+                                violations.append(
+                                    f"quarantined Git LFS object referenced by "
+                                    f"tracked pointer with mismatched declared size: "
+                                    f"{entry.relative} (matches {pointer_source}; "
+                                    f"oid=sha256:{pointer_oid}; "
+                                    f"declared-size={pointer_size}; "
+                                    f"quarantined-size={quarantined_size})"
+                                )
 
                 text_entries = [
                     entry

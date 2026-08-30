@@ -8,6 +8,7 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 - Foundation: FreeCAD 1.1.3 source is present and the `upstream` remote is configured read-only.
 - Active milestone: M0 — reproducible upstream baseline.
+- Core acceptance: implemented and green on committed local tested head `2f7fa2c8e940759d07698442054af0d12f222125`; the published cross-platform matrix remains red.
 - OpenFusion workspace shell: designed, not implemented.
 - OpenFusion release artifacts: not produced.
 - Production readiness: **not achieved**.
@@ -18,6 +19,28 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 - Windows thumbnail quarantine: the inherited prebuilt COM server and all
   installer actions are removed under a CI guard; an independently reviewed
   OpenFusion-identity provider is deferred.
+
+### Verified M0 execution snapshot (2026-08-30)
+
+| Item | Verified state |
+|---|---|
+| Remote integration / draft PR #28 | `51ae387b9ff3c0d1f3c894adb897717664967974`; all four recorded workflows are terminal and failed |
+| Local tested implementation head | `2f7fa2c8e940759d07698442054af0d12f222125`; committed locally and awaiting publication, so not remote evidence |
+| Local host | Ubuntu 24.04 arm64, Neoverse-N1, 2 CPUs, 12,506,804,224 bytes RAM |
+| Locked toolchain | Pixi 0.59.0; `pixi.lock` SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc`; Clang 21.1.0; CMake 4.2.1; Ninja 1.13.2; Python 3.11.14; Qt 6.8.3 |
+| Baseline build and CTest | 6,744/6,744 build steps; 1,428 discovered, 1,422 enabled, two FileInfo race failures, three skipped, six disabled; all three acceptance tests passed in 79.22 seconds |
+| Published implementation tested locally | 634/634 incremental build steps; 1,429 discovered, 1,423 enabled, zero failures, three skipped, six disabled in 80.86 seconds; CLI 1,661 with 10 skipped and zero failures; GUI 1,759 passed |
+| Committed local next head | 324-edge and four-edge builds passed; 1,433 CTest entries, 1,427 enabled, zero failed, three skipped, six disabled in 90.11 seconds; CLI 1,661 with 10 skipped, zero failures, and parsed count 1,661 in 153.353 seconds; faithful safe-mode GUI 1,759 passed, exit 0, parsed count 1,759 in `4.2e+02s` |
+| Focused local evidence | Parser 9/9; SystemExit classifier 4/4; targeted FileInfo 2/2; Qt callbacks 2/2; lifecycle 1/1 across exact codes 0, 1, and 7; TechDraw GUI export 1/1 in 2.55 seconds with exit 0, SVG 13,163 bytes, and PDF 298,780 bytes; review findings resolved by increasing the lifecycle timeout from 240 to 330 seconds and always executing WriteOnly while documenting/asserting the Windows readable-and-writable projection without a skip or DACL change |
+| Published matrix failures | Linux scientific-summary false-negative; Windows two FileInfo assertions and three timeouts despite Materials 35/35; macOS arm64 uncaught SystemExit/-6; macOS x86_64 exit 1 after GUI 1,759 `OK`; Security blocked only by disabled Dependency Graph while all three CodeQL jobs passed |
+| Remaining baseline gate | Publish local head `2f7fa2c8e940759d07698442054af0d12f222125`, re-fetch, then rerun and retrieve the complete PR #28 matrix, logs, and artifacts |
+
+These results do not establish a supported platform or package. Native Windows
+execution proved only the Materials runtime-path correction; Windows and both
+macOS jobs still require green reruns. Dependency Review remains fail-closed on
+an external repository setting, and interactive GUI, performance, clean-install,
+legal, security, and product gates remain open. An invalid interrupted
+hidden-mode diagnostic is not counted as evidence.
 
 ## Status and priority vocabulary
 

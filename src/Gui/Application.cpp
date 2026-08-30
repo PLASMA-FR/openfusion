@@ -2440,7 +2440,42 @@ void setAppNameAndIcon()
 #endif
 }
 
-void tryRunEventLoop(GUISingleApplication& mainApp)
+class EventLoopLockFileCleanup
+{
+public:
+    EventLoopLockFileCleanup(Base::ofstream& lock, Base::FileInfo& file)
+        : lock(lock)
+        , file(file)
+    {}
+
+    ~EventLoopLockFileCleanup() noexcept
+    {
+        try {
+            lock.close();
+        }
+        catch (...) {
+        }
+
+        if (removeFile && !file.deleteFile()) {
+            Base::Console().warning(
+                "Failed to remove GUI process lock file: %s\n",
+                file.filePath().c_str()
+            );
+        }
+    }
+
+    void removeOnDestruction() noexcept
+    {
+        removeFile = true;
+    }
+
+private:
+    Base::ofstream& lock;
+    Base::FileInfo& file;
+    bool removeFile = false;
+};
+
+int tryRunEventLoop(GUISingleApplication& mainApp)
 {
     std::stringstream out;
     out << App::Application::getUserCachePath() << App::Application::getExecutableName() << "_"
@@ -2449,6 +2484,7 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
     // open a lock file with the PID
     Base::FileInfo fi(out.str());
     Base::ofstream lock(fi);
+    EventLoopLockFileCleanup cleanup(lock, fi);
 
 #if !defined(FC_OS_WIN32) || (BOOST_VERSION < 107600)
     std::string filename = out.str();
@@ -2458,20 +2494,18 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
     try {
         boost::interprocess::file_lock flock(filename.c_str());
         if (flock.try_lock()) {
+            cleanup.removeOnDestruction();
             Base::Console().log("Init: Executing event loop…\n");
-            QApplication::exec();
+            const int exitCode = QApplication::exec();
 
-            // Qt can't handle exceptions thrown from event handlers, so we need
-            // to manually rethrow SystemExitExceptions.
-            if (mainApp.caughtException) {
-                throw Base::SystemExitException(*mainApp.caughtException.get());
+            // GUIApplication::notify() cannot allow SystemExit to escape a Qt callback. Use the
+            // captured exception as the authoritative source so another Qt exit request cannot
+            // replace the Python exit code before the event loop stops.
+            long caughtSystemExitCode = 0;
+            if (mainApp.getCaughtSystemExitCode(caughtSystemExitCode)) {
+                return static_cast<int>(caughtSystemExitCode);
             }
-
-            // close the lock file, in case of a crash we can see the existing lock file
-            // on the next restart and try to repair the documents, if needed.
-            flock.unlock();
-            lock.close();
-            fi.deleteFile();
+            return exitCode;
         }
         else {
             Base::Console().error(
@@ -2480,6 +2514,7 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
                 "Attempted lock file: %s",
                 fi.filePath().c_str()
             );
+            return 1;
         }
     }
     catch (const boost::interprocess::interprocess_exception& e) {
@@ -2490,17 +2525,14 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
             msg.toUtf8().constData(),
             fi.filePath().c_str()
         );
+        return 1;
     }
 }
 
-void runEventLoop(GUISingleApplication& mainApp)
+int runEventLoop(GUISingleApplication& mainApp)
 {
     try {
-        tryRunEventLoop(mainApp);
-    }
-    catch (const Base::SystemExitException&) {
-        Base::Console().message("System exit\n");
-        throw;
+        return tryRunEventLoop(mainApp);
     }
     catch (const std::exception& e) {
         // catching nasty stuff coming out of the event loop
@@ -2518,6 +2550,26 @@ void runEventLoop(GUISingleApplication& mainApp)
 }  // namespace
 
 void Application::runApplication()
+{
+    (void)runApplicationImpl(true);
+}
+
+int Application::runApplicationWithExitCode()
+{
+    try {
+        return runApplicationImpl(false);
+    }
+    catch (...) {
+        long exitCode = 0;
+        if (Base::getSystemExitCode(std::current_exception(), exitCode)) {
+            Base::Console().message("System exit\n");
+            return static_cast<int>(exitCode);
+        }
+        throw;
+    }
+}
+
+int Application::runApplicationImpl(bool rethrowSystemExit)
 {
     StartupProcess::setupApplication();
 
@@ -2568,7 +2620,7 @@ void Application::runApplication()
 
     // check if a single or multiple instances can run
     if (onlySingleInstance(mainApp)) {
-        return;
+        return 0;
     }
 
     setAppNameAndIcon();
@@ -2609,9 +2661,17 @@ void Application::runApplication()
     }
 #endif
 
-    runEventLoop(mainApp);
+    const int exitCode = runEventLoop(mainApp);
 
     Base::Console().log("Finish: Event loop left\n");
+
+    long caughtSystemExitCode = 0;
+    if (rethrowSystemExit && mainApp.getCaughtSystemExitCode(caughtSystemExitCode)) {
+        Base::Console().message("System exit\n");
+        throw Base::SystemExitException(caughtSystemExitCode);
+    }
+
+    return exitCode;
 }
 
 bool Application::hiddenMainWindow()
