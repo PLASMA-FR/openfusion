@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   locked-dependency-audit:
-    name: Locked dependency integrity
+    name: Locked dependency metadata
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -46,15 +46,16 @@ jobs:
             --pattern 'test_audit_pixi_lock.py' \
             --verbose
 
-      - name: Audit lock and generate source dependency inventory
+      - name: Audit locked metadata and generate source dependency inventory
         env:
           AUDIT_OUTPUT: ${{ runner.temp }}/openfusion-dependency-audit
         run: |
           set -euo pipefail
           install -d -m 0700 "$AUDIT_OUTPUT"
-          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
           python3 .github/scripts/audit_pixi_lock.py \
             --lock pixi.lock \
+            --source-date-epoch "$(git show -s --format=%ct HEAD)" \
+            --source-revision "$(git rev-parse --verify HEAD)" \
             --spdx-out "$AUDIT_OUTPUT/openfusion-pixi-lock.spdx.json" \
             --report-out "$AUDIT_OUTPUT/pixi-lock-audit.json"
           python3 -m json.tool "$AUDIT_OUTPUT/openfusion-pixi-lock.spdx.json" >/dev/null
@@ -71,7 +72,7 @@ jobs:
 
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -87,6 +88,8 @@ jobs:
       - name: Review dependency changes
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
+          base-ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          head-ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
           fail-on-severity: moderate
           fail-on-scopes: runtime, development, unknown
 

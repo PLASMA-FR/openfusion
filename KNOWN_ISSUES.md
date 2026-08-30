@@ -45,6 +45,11 @@ until its build and workflow evidence is recorded.
   → Dependency graph**. The independent Pixi lock integrity audit and its
   source-lock SPDX inventory add evidence but do not replace this
   dependency-change gate or the final-package SBOM requirement.
+- The source-lock SPDX JSON is deterministic and syntax-checked, but CI does
+  not yet run a hash-pinned SPDX semantic/schema validator. Its metadata audit
+  records the lock's asserted digests without downloading or hashing archive
+  bytes. Both semantic validation and final-package byte verification remain
+  release work rather than inferred evidence.
 - The untrusted-input, plugin/Python, external-process, archive, temporary-file,
   and CI supply-chain security reviews are incomplete.
 
