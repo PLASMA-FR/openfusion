@@ -1,5 +1,50 @@
 # Testing OpenFusion
 
+## Verified local integration evidence (2026-08-30)
+
+The tables below record completed local logs only. They do not replace remote
+PR checks or clean-installed package tests.
+
+### Environment
+
+| Field | Value |
+|---|---|
+| Commit | `403e72f24303ab6d7a91d29a35648ef2f0d2cc05` |
+| Host | Ubuntu 24.04 arm64; Neoverse-N1; 2 CPUs; 12,506,804,224 bytes RAM |
+| Environment | Pixi 0.59.0; `pixi.lock` SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc` |
+| Toolchain | Clang 21.1.0; CMake 4.2.1; Ninja 1.13.2; Python 3.11.14; Qt 6.8.3 |
+
+### Baseline reproduction before the fixes
+
+| Gate | Result | Time / detail |
+|---|---|---|
+| Release build | 6,744/6,744 steps | Passed |
+| CTest discovery | 1,428 total; 1,422 enabled | Six disabled |
+| CTest execution | Two FileInfo race failures; three skipped; all three acceptance tests passed | 79.22 s |
+| Serial FileInfo confirmation | 14/14 passed | Confirmed a cross-process fixture race rather than a deterministic functional failure |
+| Unicode mirror GUI regression | 0/1 passed; exact process exit 1 | Reproduced the Latin-1 generated-command defect |
+
+### Fixed local head
+
+| Gate | Result | Time / detail |
+|---|---|---|
+| Incremental Release build | 634/634 steps | Passed |
+| CTest discovery | 1,429 total; 1,423 enabled | Six disabled |
+| CTest execution | Zero failures; three skipped; all four acceptance tests passed | 80.86 s |
+| SystemExit focus | 1/1 passed | 3.39 s; preserved exact code 7 and ran cleanup |
+| Unicode mirror focus | 1/1 passed | 0.563 s |
+| FileInfo stress | 2,000 targeted invocations and 1,400 full-fixture repetitions passed | Process-unique fixture isolation |
+| Windows runtime helper unit tests | 5/5 passed | Local helper coverage only; native Windows execution pending |
+| TechDraw GUI export | 1/1 passed | 2.54 s; SVG 13,163 bytes; PDF 298,780 bytes |
+| CLI Python suite | 1,661 ran; 10 skipped; zero failures | 156.014 s |
+| GUI Python suite | 1,759 passed | 424 s |
+
+The remote `integration/acceptance-ci` branch and draft PR #28 still resolve to
+`1a27d1f46030c9e42aff67bc1d90cb5c6114ea03`. Existing remote conclusions are
+therefore stale with respect to these local results but remain the remote truth
+until the five commits are pushed and the full matrix is re-fetched. Windows
+native CTest and macOS arm64/x86_64 reruns are pending.
+
 OpenFusion treats geometry correctness, document compatibility, undo/redo, and installability as release gates. Compilation alone is not acceptance evidence.
 
 ## Upstream regression suites

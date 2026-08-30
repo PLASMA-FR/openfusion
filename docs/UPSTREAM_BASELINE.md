@@ -44,6 +44,12 @@ The executable names remain the upstream names until the dedicated identity and 
 
 ## Baseline evidence
 
+The first table and narrative below are retained as historical GitHub evidence
+from the initial fail-closed run. They do not describe the newer local
+integration head. Current local evidence follows under "Current local
+integration evidence" and remains non-authoritative for remote platforms until
+draft PR #28 is pushed and re-fetched.
+
 Results are updated only from completed logs. `Pending` is not a pass.
 
 | Gate | Environment | Status | Evidence |
@@ -81,6 +87,31 @@ plain `gtest_main` and has no initialized application singleton. The focused
 repair implements the already-declared five-argument constructor and supplies
 an explicit line number in these value-conversion tests. A successful full
 rerun is required before changing the C++ test gate to Passed.
+
+### Current local integration evidence
+
+Local head `403e72f24303ab6d7a91d29a35648ef2f0d2cc05` was exercised on Ubuntu
+24.04 arm64, Neoverse-N1, 2 CPUs, and 12,506,804,224 bytes RAM. The locked
+environment used Pixi 0.59.0 (`pixi.lock` SHA-256
+`114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc`), Clang
+21.1.0, CMake 4.2.1, Ninja 1.13.2, Python 3.11.14, and Qt 6.8.3.
+
+| Gate | Result |
+|---|---|
+| Baseline Release build | 6,744/6,744 steps passed |
+| Baseline CTest | 1,428 discovered; 1,422 enabled; two FileInfo race failures; three skipped; six disabled; all three acceptance tests passed in 79.22 s |
+| Fixed incremental build | 634/634 steps passed |
+| Fixed CTest | 1,429 discovered; 1,423 enabled; zero failures; three skipped; six disabled; all four acceptance tests passed in 80.86 s |
+| Focused regressions | SystemExit 1/1 in 3.39 s with exact code 7 and cleanup; Unicode mirror 1/1 in 0.563 s; FileInfo 2,000 targeted and 1,400 full-fixture repetitions; Windows helper 5/5 |
+| TechDraw GUI export | 1/1 in 2.54 s; SVG 13,163 bytes and PDF 298,780 bytes |
+| CLI suite | 1,661 ran, 10 skipped, zero failures, 156.014 s |
+| GUI suite | 1,759 passed, 424 s |
+
+Remote `integration/acceptance-ci` and draft PR #28 still point to
+`1a27d1f46030c9e42aff67bc1d90cb5c6114ea03`, so their old red runs remain the
+remote source of truth. Native Windows CTest and both macOS reruns remain
+pending. The local result does not close interactive GUI, performance,
+clean-install packaging, legal, security, dependency-review, or product gates.
 
 ## Baseline change rule
 

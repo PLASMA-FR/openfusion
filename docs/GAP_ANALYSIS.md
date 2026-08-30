@@ -40,12 +40,12 @@ This document separates inherited FreeCAD capability from verified OpenFusion pr
 
 ## Highest-priority gaps
 
-1. Record a reproducible untouched build, tests, launch, save/reopen smoke test, and performance baseline.
-2. Implement and test the M1 Design workspace spine without changing document serialization or modeling commands.
-3. Establish the core acceptance model and undo/save/reopen regression harness.
-4. Build the functional Part Design timeline only after the shared selection and workspace context are stable.
-5. Verify import/export and data-safety behavior before major visual refactoring.
-6. Establish cross-platform CI and packaging smoke tests before making platform-support claims.
+1. Push the five verified local baseline commits, re-fetch draft PR #28, and retrieve complete Linux, Windows, macOS arm64, and macOS x86_64 results and artifacts.
+2. Resolve the native Windows runtime-path gate and both macOS reruns without weakening or skipping tests.
+3. Complete issue #24's untrusted-file security scope and the legal asset/binary provenance release blockers.
+4. Implement and test the M1 Design workspace spine without changing document serialization or modeling commands.
+5. Build the functional Part Design timeline only after the shared selection and workspace context are stable.
+6. Establish clean-install package tests and retained performance baselines before making platform-support claims.
 
 ## M1 vertical-slice evidence required
 

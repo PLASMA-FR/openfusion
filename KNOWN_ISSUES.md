@@ -1,5 +1,22 @@
 # Known Issues
 
+## Current integration and release blockers (2026-08-30)
+
+| Area | Exact current state | Exit condition |
+|---|---|---|
+| Remote baseline | Local head `403e72f24303ab6d7a91d29a35648ef2f0d2cc05` is ahead with five verified commits, while draft PR #28 and remote `integration/acceptance-ci` remain at `1a27d1f46030c9e42aff67bc1d90cb5c6114ea03` with the older red runs. | Push without rewriting shared history, re-fetch the head, and retrieve every new job conclusion, log, and artifact. |
+| Windows | The runtime-path helper has 5/5 local unit tests, but native CTest discovery and execution have not run on a real Windows runner at the local head. | A real Windows Release runner discovers and executes native module tests, including `Material_tests_run.exe`, without ad hoc DLL copying. |
+| macOS | The UTF-8 and SystemExit regressions pass locally on Linux arm64; macOS x86_64 and arm64 reruns are pending. | Both macOS jobs build and complete CTest, TechDraw, CLI, and GUI gates with correct exit propagation. |
+| Dependency Review | The last CodeQL jobs were green, but Dependency Review remains fail-closed because the repository Dependency Graph is disabled. CodeQL is not a substitute. | Enable the authorized repository setting and obtain a passing Dependency Review run; retain complementary locked-dependency and SBOM auditing. |
+| Security | Audit evidence found a symlink graph escape in PR #27, and the stale DTD-only hardening stack is insufficient for the complete untrusted FCStd/XML/archive threat model. Release-blocker issue #24 remains open. | Close the complete extraction, entity, path, temporary-file, and parser acceptance criteria with regression evidence. |
+| Legal and assets | Restricted material-pattern assets, inherited identity/provenance gaps, and a prebuilt Windows thumbnail DLL remain in the integration surface. | Remove or replace restricted/unverifiable material, establish provenance, rebuild permissible binaries from reviewed source, and complete shipped notices. |
+| Product | There are still no OpenFusion product classes under `src/`; the workspace shell, command palette, contextual actions, Project presentation, and functional timeline are not implemented. | Implement real, tested workflows in roadmap order; inherited FreeCAD capability and visible controls do not close these gaps. |
+| Packaging and release | Required clean-installed packages, checksums, SBOMs, signing/notarization evidence, release tag, and verified GitHub Release are absent. | Pass every package and release gate; unavailable credentials remain explicit pre-production blockers. |
+
+The local Linux arm64 baseline is materially improved but is not a production
+readiness claim. If one platform remains externally blocked, work may continue
+elsewhere, but M0 cannot advance on stale or inferred evidence.
+
 **Status:** Foundation/pre-alpha
 
 **Release blocker count:** Not yet baselined

@@ -8,11 +8,29 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 - Foundation: FreeCAD 1.1.3 source is present and the `upstream` remote is configured read-only.
 - Active milestone: M0 — reproducible upstream baseline.
-- Core acceptance: implemented in source; cross-platform execution evidence is pending.
+- Core acceptance: implemented and green on the verified local Linux arm64 head; remote and cross-platform execution evidence is pending.
 - OpenFusion workspace shell: designed, not implemented.
 - OpenFusion release artifacts: not produced.
 - Production readiness: **not achieved**.
 - Supported-platform claims: none until clean-machine package tests pass.
+
+### Verified M0 execution snapshot (2026-08-30)
+
+| Item | Verified state |
+|---|---|
+| Tested implementation head | `403e72f24303ab6d7a91d29a35648ef2f0d2cc05` |
+| Remote integration / draft PR #28 | Still `1a27d1f46030c9e42aff67bc1d90cb5c6114ea03`; existing red runs predate the five local commits and remain authoritative until a push and re-fetch |
+| Local host | Ubuntu 24.04 arm64, Neoverse-N1, 2 CPUs, 12,506,804,224 bytes RAM |
+| Locked toolchain | Pixi 0.59.0; `pixi.lock` SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc`; Clang 21.1.0; CMake 4.2.1; Ninja 1.13.2; Python 3.11.14; Qt 6.8.3 |
+| Baseline build and CTest | 6,744/6,744 build steps; 1,428 discovered, 1,422 enabled, two FileInfo race failures, three skipped, six disabled; all three acceptance tests passed in 79.22 seconds |
+| Fixed local build and CTest | 634/634 incremental build steps; 1,429 discovered, 1,423 enabled, zero failures, three skipped, six disabled; all four acceptance tests passed in 80.86 seconds |
+| Broader local suites | CLI: 1,661 ran, 10 skipped, zero failures in 156.014 seconds; GUI: 1,759 passed in 424 seconds |
+| Remaining baseline gate | Push and re-fetch, then require the complete PR #28 Linux, Windows, macOS arm64, and macOS x86_64 matrix plus logs and artifacts |
+
+These results do not establish a supported platform or package. Native Windows
+CTest execution and both macOS reruns remain pending, Dependency Review remains
+fail-closed on an external repository setting, and interactive GUI, performance,
+clean-install, legal, security, and product gates remain open.
 
 ## Status and priority vocabulary
 

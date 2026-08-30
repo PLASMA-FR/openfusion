@@ -38,6 +38,30 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   application preference singleton used by the legacy constructor.
 - Preserved exact UTF-8 output paths in TechDraw SVG and PDF export and added
   rendered, semantic GUI acceptance coverage for both ASCII and Unicode paths.
+- Passed generated Part mirror Python commands as UTF-8 rather than Latin-1,
+  preserving non-Latin-1 object labels on the current local integration head.
+- Preserved an exact nonzero event-loop exit code while still running GUI
+  cleanup when `Base::SystemExitException` crosses the application boundary.
+- Gave Base FileInfo fixtures process-unique paths so parallel CTest processes
+  do not delete or replace each other's files.
+- Added deterministic Windows native-test runtime-path bootstrapping and five
+  helper unit tests. Real Windows runner validation remains pending.
+
+### Verification
+
+- On local head `403e72f24303ab6d7a91d29a35648ef2f0d2cc05`, an incremental Release build
+  completed 634/634 steps and CTest reported 1,423 enabled tests, zero failures,
+  three skips, six disabled tests, and four passing acceptance tests in 80.86
+  seconds. CLI ran 1,661 tests with 10 skips and no failures; GUI reported
+  1,759 passes.
+- Focused evidence includes exact exit code 7 plus cleanup, a passing Unicode
+  mirror regression, 2,000 targeted and 1,400 full-fixture FileInfo stress
+  repetitions, five passing Windows helper tests, and rendered TechDraw SVG/PDF
+  output. These are local Linux arm64 results, not Windows or macOS evidence.
+- Draft PR #28 and `integration/acceptance-ci` still point to
+  `1a27d1f46030c9e42aff67bc1d90cb5c6114ea03`; their existing red runs remain
+  current remote truth until the local commits are pushed and the matrix is
+  re-fetched.
 
 ### Security
 
