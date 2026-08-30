@@ -9,7 +9,7 @@ class FileInfoTest: public ::testing::Test
 protected:
     FileInfoTest()
     {
-        tmp.setFile(Base::FileInfo::getTempPath() + "fctest");
+        tmp.setFile(Base::FileInfo::getTempFileName("fctest"));
         tmp.createDirectory();
 
         file.setFile(tmp.filePath() + "/test.txt");
@@ -28,6 +28,7 @@ protected:
     {
         EXPECT_TRUE(file.deleteFile());
         EXPECT_TRUE(dir.deleteDirectory());
+        EXPECT_TRUE(tmp.deleteDirectory());
     }
 
 protected:
@@ -84,7 +85,12 @@ TEST_F(FileInfoTest, TestSetPermission)
     EXPECT_FALSE(file.isWritable());
 
     file.setPermissions(Base::FileInfo::WriteOnly);
+#ifdef _WIN32
+    // Windows cannot represent write-only files; the supported fallback is readable and writable.
+    EXPECT_TRUE(file.isReadable());
+#else
     EXPECT_FALSE(file.isReadable());
+#endif
     EXPECT_TRUE(file.isWritable());
 
     file.setPermissions(Base::FileInfo::ReadWrite);
@@ -114,7 +120,12 @@ TEST_F(FileInfoTest, TestCheckDirectory)
 
 TEST_F(FileInfoTest, TestSize)
 {
+#ifdef _WIN32
+    // Text mode writes \r\n on Windows, so "Test\n" becomes 6 bytes.
+    EXPECT_EQ(file.size(), 6);
+#else
     EXPECT_EQ(file.size(), 5);
+#endif
 }
 
 TEST_F(FileInfoTest, TestLastModified)

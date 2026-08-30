@@ -23,12 +23,15 @@
 # *                                                                         *
 # ***************************************************************************
 """Provides functions to create Clone objects."""
+
 ## @package make_clone
 # \ingroup draftmake
 # \brief Provides functions to create Clone objects.
 
 ## \addtogroup draftmake
 # @{
+from functools import partial
+
 import FreeCAD as App
 from draftobjects.clone import Clone
 from draftutils import params
@@ -38,6 +41,21 @@ from draftutils import gui_utils
 if App.GuiUp:
     from PySide import QtCore
     from draftviewproviders.view_clone import ViewProviderClone
+
+
+def _deferred_format_object(target, origin):
+    """Format a clone unless its document object was deleted while queued."""
+    try:
+        gui_utils.format_object(target, origin)
+    except ReferenceError:
+        for obj in (target, origin):
+            try:
+                getattr(obj, "ViewObject", None)
+            except ReferenceError:
+                # A zero-delay callback can outlive a document closed in the same event
+                # turn. Formatting is presentation-only, so a deleted object needs no work.
+                return
+        raise
 
 
 def make_clone(obj, delta=None, forcedraft=False):
@@ -114,7 +132,9 @@ def make_clone(obj, delta=None, forcedraft=False):
                         pass
                 if App.GuiUp:
                     # Shape of clone may not yet be available (v1.1 regression). See below.
-                    QtCore.QTimer.singleShot(0, lambda: gui_utils.format_object(cl, base))
+                    QtCore.QTimer.singleShot(
+                        0, partial(_deferred_format_object, cl, base)
+                    )
                     gui_utils.select(cl)
                 return cl
 
@@ -136,7 +156,7 @@ def make_clone(obj, delta=None, forcedraft=False):
         # Shape of clone may not yet be available (v1.1 regression). We need to delay
         # `format_object()` as that function requires the correct number of faces.
         # https://github.com/FreeCAD/FreeCAD/issues/27958
-        QtCore.QTimer.singleShot(0, lambda: gui_utils.format_object(cl, obj[0]))
+        QtCore.QTimer.singleShot(0, partial(_deferred_format_object, cl, obj[0]))
         gui_utils.select(cl)
     return cl
 

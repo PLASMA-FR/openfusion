@@ -12,7 +12,7 @@ name: Linux packaging policy
       - ".github/workflows/linux-packaging-policy.yml"
       - "PACKAGING.md"
       - "packaging/linux/**"
-      - "tests/openfusion/test_linux_tarball.py"
+      - "tests/openfusion/**"
   push:
     branches:
       - main
@@ -20,7 +20,7 @@ name: Linux packaging policy
       - ".github/workflows/linux-packaging-policy.yml"
       - "PACKAGING.md"
       - "packaging/linux/**"
-      - "tests/openfusion/test_linux_tarball.py"
+      - "tests/openfusion/**"
 
 permissions:
   contents: read

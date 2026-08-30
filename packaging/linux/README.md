@@ -7,7 +7,9 @@ release gates.
 
 The tool consumes an installation that has already been produced beneath an
 absolute `DESTDIR` and exact absolute install prefix. It never runs an install,
-renames inherited binaries, downloads dependencies, or edits the staged tree.
+renames inherited binaries, or downloads dependencies. It does not
+intentionally modify staged payload contents, modes, ownership, or non-access
+timestamps; reads may update access times as documented below.
 
 ## Production identity blocker
 
@@ -87,11 +89,15 @@ python3 packaging/linux/create_deterministic_tarball.py verify \
 
 Build traversal is anchored to held directory descriptors and uses
 `openat`-style operations with `O_NOFOLLOW`. Accepted content is copied into a
-private `0700` workspace and made read-only. The complete source tree is then
-read and hashed a second time; membership, metadata, content, symlink, or root
-changes fail the build. This check cannot provide an atomic filesystem
-snapshot against a malicious concurrent writer, which is why a stopped
-installer is an explicit precondition.
+private `0700` workspace and made read-only. Before publication, the source is
+scanned again and the tool compares entry membership, object identity,
+regular-file contents, symlink targets, and the non-access-time metadata
+recorded by its policy. A source access-time-only change is outside this
+comparison and is not guaranteed to fail the build; reads may update access
+times, and the tool deliberately does not rely on the privileged and
+filesystem-dependent `O_NOATIME` flag. This comparison cannot provide an
+atomic filesystem snapshot against a malicious concurrent writer, which is
+why a stopped installer is an explicit precondition.
 
 Before writing an archive, the tool also rejects empty trees, devices, FIFOs,
 sockets, absolute symlinks, output paths inside the prefix, and existing
