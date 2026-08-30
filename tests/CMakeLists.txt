@@ -77,6 +77,10 @@ function(setup_qt_test)
             FreeCADGui
             ${QtTest_LIBRARIES}
             ${${_testname}_LIBS})
+
+        set_tests_properties(${_testname}_Tests_run PROPERTIES
+            LABELS "Qt"
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endforeach()
 endfunction()
 
