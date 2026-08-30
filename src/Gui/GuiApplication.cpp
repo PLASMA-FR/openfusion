@@ -49,6 +49,7 @@
 #include <App/Application.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
+#include <Base/Interpreter.h>
 
 #include "GuiApplication.h"
 #include "Application.h"
@@ -104,7 +105,7 @@ bool GUIApplication::notify(QObject* receiver, QEvent* event)
         }
     }
     catch (const Base::SystemExitException& e) {
-        caughtException.reset(new Base::SystemExitException(e));
+        caughtSystemExit = true;
         qApp->exit(e.getExitCode());
         return true;
     }

@@ -25,9 +25,7 @@
 #define GUI_APPLICATION_H
 
 #include "GuiApplicationNativeEventAware.h"
-#include <Base/Interpreter.h>  // For Base::SystemExitException
 #include <QList>
-#include <memory>
 
 class QSessionManager;
 
@@ -50,8 +48,8 @@ public:
      */
     bool notify(QObject* receiver, QEvent* event) override;
 
-    /// Pointer to exceptions caught in Qt event handler
-    std::shared_ptr<Base::SystemExitException> caughtException;
+    /// Whether a Python SystemExit was caught at the Qt event boundary.
+    bool caughtSystemExit = false;
 
 public Q_SLOTS:
     void commitData(QSessionManager& manager);

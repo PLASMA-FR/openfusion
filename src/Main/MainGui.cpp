@@ -330,9 +330,10 @@ int main(int argc, char** argv)
     std::streambuf* oldclog = std::clog.rdbuf(&stdclog);
     std::streambuf* oldcerr = std::cerr.rdbuf(&stdcerr);
 
+    int applicationExitCode = 0;
     try {
         if (inGuiMode()) {
-            Gui::Application::runApplication();
+            applicationExitCode = Gui::Application::runApplication();
         }
         else {
             App::Application::runApplication();
@@ -366,7 +367,7 @@ int main(int argc, char** argv)
 
     Base::Console().log("%s completely terminated\n", App::Application::Config()["ExeName"].c_str());
 
-    return 0;
+    return applicationExitCode;
 }
 
 #if defined(_MSC_VER)
