@@ -18,7 +18,15 @@ import unittest
 from unittest import mock
 
 
-SCRIPT = Path(__file__).parents[2] / "packaging" / "linux" / "create_deterministic_tarball.py"
+SCRIPT = (
+    Path(__file__).parents[2]
+    / "packaging"
+    / "linux"
+    / "create_deterministic_tarball.py"
+)
+WORKFLOW = (
+    Path(__file__).parents[2] / ".github" / "workflows" / "linux-packaging-policy.yml"
+)
 SPEC = importlib.util.spec_from_file_location("openfusion_linux_tarball", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 tarball = importlib.util.module_from_spec(SPEC)
@@ -60,6 +68,18 @@ class PurePolicyTests(unittest.TestCase):
         assert isinstance(value, dict)
         return value
 
+    @staticmethod
+    def _canonical_manifest(value: dict[str, object]) -> bytes:
+        return (
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+
     def test_semver_rejects_leading_zero_numeric_prerelease(self) -> None:
         self.assertEqual(tarball._validate_version("1.2.3-0"), "1.2.3-0")
         self.assertEqual(tarball._validate_version("1.2.3-alpha01"), "1.2.3-alpha01")
@@ -69,20 +89,57 @@ class PurePolicyTests(unittest.TestCase):
                     tarball._validate_version(invalid)
 
     def test_absolute_limits_are_embedded_in_versioned_policy(self) -> None:
-        self.assertEqual(tarball.POLICY_VERSION, 1)
+        self.assertEqual(tarball.POLICY_VERSION, 2)
         self.assertEqual(tarball.POLICY_LIMITS["archive_bytes"], 16 * 1024**3)
-        self.assertEqual(tarball.POLICY_LIMITS["elf_program_headers"], 4096)
         self.assertEqual(tarball.POLICY_LIMITS["pax_header_bytes"], 64 * 1024)
+        self.assertEqual(tarball.POLICY_LIMITS["symlink_hops"], 40)
+        self.assertEqual(tarball.POLICY_LIMITS["symlink_graph_steps"], 2_000_000)
         self.assertEqual(tarball.POLICY_LIMITS["tar_bytes"], 40 * 1024**3)
         self.assertEqual(tarball.POLICY_LIMITS["zstd_memory_mib"], 512)
+
+    def test_tar_numeric_boundaries_match_non_pax_policy(self) -> None:
+        maximum = (1 << 33) - 1
+        self.assertEqual(tarball.MAX_FILE_BYTES, maximum)
+        self.assertEqual(tarball.MAX_SOURCE_DATE_EPOCH, maximum)
+
+        at_limit = tarball.tarfile.TarInfo("file")
+        at_limit.size = maximum
+        at_limit.mtime = maximum
+        self.assertEqual(
+            len(at_limit.tobuf(format=tarball.tarfile.PAX_FORMAT)),
+            tarball.tarfile.BLOCKSIZE,
+        )
+
+        over_limit = tarball.tarfile.TarInfo("file")
+        over_limit.size = maximum + 1
+        over_limit.mtime = maximum + 1
+        self.assertGreater(
+            len(over_limit.tobuf(format=tarball.tarfile.PAX_FORMAT)),
+            tarball.tarfile.BLOCKSIZE,
+        )
+
+        manifest = self._minimal_manifest()
+        manifest["entries"][0]["size"] = maximum
+        tarball._parse_manifest(
+            self._canonical_manifest(manifest), allow_test_identity_bypass=True
+        )
+        manifest["entries"][0]["size"] = maximum + 1
+        with self.assertRaisesRegex(tarball.PackagingError, "file exceeds"):
+            tarball._parse_manifest(
+                self._canonical_manifest(manifest), allow_test_identity_bypass=True
+            )
+
+        with mock.patch.dict(os.environ, {"SOURCE_DATE_EPOCH": str(maximum)}):
+            self.assertEqual(tarball._source_date_epoch(), maximum)
+        with mock.patch.dict(os.environ, {"SOURCE_DATE_EPOCH": str(maximum + 1)}):
+            with self.assertRaisesRegex(tarball.PackagingError, "outside"):
+                tarball._source_date_epoch()
 
     def test_path_and_symlink_target_limits_are_fail_closed(self) -> None:
         with self.assertRaisesRegex(tarball.PackagingError, "path exceeds"):
             tarball._validate_relative_path("a" * (tarball.MAX_PATH_BYTES + 1))
         with self.assertRaisesRegex(tarball.PackagingError, "target exceeds"):
-            tarball._validate_symlink(
-                "link", "a" * (tarball.MAX_TARGET_BYTES + 1)
-            )
+            tarball._validate_symlink("link", "a" * (tarball.MAX_TARGET_BYTES + 1))
 
     def test_elf_machine_validation_is_architecture_specific(self) -> None:
         header = bytearray(64)
@@ -103,6 +160,126 @@ class PurePolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(tarball.PackagingError, "architecture mismatch"):
             tarball._validate_elf_identity(wrong, "bin/application", "x86_64")
 
+    def test_symlink_graph_rejects_composed_escape(self) -> None:
+        records = [
+            ("a", "directory", None),
+            ("a/redirect", "symlink", ".."),
+            ("gateway", "symlink", "a/redirect/.."),
+        ]
+        with self.assertRaisesRegex(tarball.PackagingError, "composed symlink escapes"):
+            tarball._validate_symlink_graph(records)
+
+    def test_symlink_graph_rejects_cycles_and_excessive_depth(self) -> None:
+        with self.assertRaisesRegex(tarball.PackagingError, "symlink cycle"):
+            tarball._validate_symlink_graph(
+                [("first", "symlink", "second"), ("second", "symlink", "first")]
+            )
+
+        records = [
+            (f"link-{index}", "symlink", f"link-{index + 1}")
+            for index in range(tarball.MAX_SYMLINK_HOPS)
+        ]
+        records.append((f"link-{tarball.MAX_SYMLINK_HOPS}", "symlink", "target"))
+        records.append(("target", "file", None))
+        with self.assertRaisesRegex(tarball.PackagingError, "resolution exceeds"):
+            tarball._validate_symlink_graph(records)
+
+        allowed = [
+            (f"allowed-{index}", "symlink", f"allowed-{index + 1}")
+            for index in range(tarball.MAX_SYMLINK_HOPS - 1)
+        ]
+        allowed.append((f"allowed-{tarball.MAX_SYMLINK_HOPS - 1}", "symlink", "target"))
+        allowed.append(("target", "file", None))
+        tarball._validate_symlink_graph(allowed)
+
+    def test_symlink_graph_accepts_finite_revisit_state(self) -> None:
+        tarball._validate_symlink_graph(
+            [
+                ("d", "directory", None),
+                ("d/up", "symlink", ".."),
+                ("file", "file", None),
+                ("link", "symlink", "d/up/d/up/file"),
+            ]
+        )
+
+    def test_symlink_graph_global_budget_bounds_shared_chains(self) -> None:
+        records = [
+            ("chain-0", "symlink", "chain-1"),
+            ("chain-1", "symlink", "chain-2"),
+            ("chain-2", "symlink", "target"),
+            ("shared-a", "symlink", "chain-0"),
+            ("shared-b", "symlink", "chain-0"),
+            ("target", "file", None),
+        ]
+        with self.assertRaisesRegex(tarball.PackagingError, "work budget"):
+            tarball._validate_symlink_graph(records, maximum_steps=18)
+        tarball._validate_symlink_graph(records, maximum_steps=19)
+
+    def test_symlink_graph_rejects_invalid_target_types(self) -> None:
+        cases = (
+            (
+                [("file", "file", None), ("link", "symlink", "file/child")],
+                "non-directory",
+            ),
+            ([("link", "symlink", "missing")], "dangling symlink"),
+        )
+        for records, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(tarball.PackagingError, message):
+                    tarball._validate_symlink_graph(records)
+
+    def test_manifest_verifier_rejects_composed_symlink_escape(self) -> None:
+        manifest = self._minimal_manifest()
+        manifest["entries"] = [
+            {"mode": 0o755, "path": "a", "type": "directory"},
+            {
+                "mode": 0o777,
+                "path": "a/redirect",
+                "target": "..",
+                "type": "symlink",
+            },
+            {
+                "mode": 0o777,
+                "path": "gateway",
+                "target": "a/redirect/..",
+                "type": "symlink",
+            },
+        ]
+        with self.assertRaisesRegex(tarball.PackagingError, "composed symlink escapes"):
+            tarball._parse_manifest(
+                self._canonical_manifest(manifest), allow_test_identity_bypass=True
+            )
+
+    def test_disallowed_test_identity_precedes_entry_traversal(self) -> None:
+        manifest = self._minimal_manifest()
+        with mock.patch.object(
+            tarball,
+            "_validate_symlink_graph",
+            side_effect=AssertionError("entry traversal must not run"),
+        ) as graph:
+            with self.assertRaisesRegex(
+                tarball.PackagingError, "explicit test API flag"
+            ):
+                tarball._parse_manifest(self._canonical_manifest(manifest))
+        graph.assert_not_called()
+
+    def test_production_product_identity_is_fail_closed(self) -> None:
+        with self.assertRaisesRegex(
+            tarball.PackagingError, "no authenticated OpenFusion executable identity"
+        ):
+            tarball._product_identity_status("0.1.0", False)
+        with self.assertRaisesRegex(tarball.PackagingError, "test-only"):
+            tarball._product_identity_status("0.1.0", True)
+        self.assertEqual(
+            tarball._product_identity_status("0.1.0-test.1", True),
+            "test-only-bypass",
+        )
+
+    def test_missing_zstd_is_a_hard_error(self) -> None:
+        with mock.patch.object(tarball.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(tarball.PackagingError, "zstd was not found"):
+                tarball._find_zstd(None)
+
     def test_cli_exposes_no_test_fixture_bypass(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
@@ -120,7 +297,7 @@ class PurePolicyTests(unittest.TestCase):
                         "--output-dir",
                         "/tmp/output",
                         "--staging-is-quiescent",
-                        "--test-only-allow-missing-elf",
+                        "--test-only-bypass-product-identity",
                     ]
                 )
 
@@ -185,8 +362,14 @@ class PurePolicyTests(unittest.TestCase):
 
     def test_manifest_rejects_boolean_values_for_integer_policy_fields(self) -> None:
         mutations = (
-            ("policy version", lambda value: value["policy"].__setitem__("version", True)),
-            ("normalization uid", lambda value: value["normalization"].__setitem__("uid", False)),
+            (
+                "policy version",
+                lambda value: value["policy"].__setitem__("version", True),
+            ),
+            (
+                "normalization uid",
+                lambda value: value["normalization"].__setitem__("uid", False),
+            ),
         )
         for label, mutate in mutations:
             with self.subTest(field=label):
@@ -202,7 +385,15 @@ class PurePolicyTests(unittest.TestCase):
                     + "\n"
                 ).encode("utf-8")
                 with self.assertRaises(tarball.PackagingError):
-                    tarball._parse_manifest(content)
+                    tarball._parse_manifest(content, allow_test_identity_bypass=True)
+
+    def test_packaging_workflow_covers_merge_queue_and_requires_zstd(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "  merge_group:\n    types:\n      - checks_requested\n", workflow
+        )
+        self.assertIn("          command -v zstd\n", workflow)
+        self.assertNotIn("skipUnless", workflow)
 
 
 class SnapshotPolicyTests(unittest.TestCase):
@@ -272,25 +463,12 @@ class SnapshotPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(tarball.PackagingError, "architecture mismatch"):
             self._scan()
 
-    def test_header_only_fake_elf_cannot_validate_production_architecture(self) -> None:
-        (self.source / "bin").mkdir()
-        header = bytearray(64)
-        header[:4] = b"\x7fELF"
-        header[4] = 2
-        header[5] = 1
-        header[6] = 1
-        header[16:18] = (2).to_bytes(2, "little")
-        header[18:20] = (62).to_bytes(2, "little")
-        header[20:24] = (1).to_bytes(4, "little")
-        header[32:40] = (64).to_bytes(8, "little")
-        header[52:54] = (64).to_bytes(2, "little")
-        header[54:56] = (56).to_bytes(2, "little")
-        header[56:58] = (1).to_bytes(2, "little")
-        executable = self.source / "bin" / "fake"
-        executable.write_bytes(header)
-        executable.chmod(0o755)
-        scan = self._scan()
-        self.assertFalse(scan.representative_elf_found)
+    def test_source_scan_rejects_composed_symlink_escape(self) -> None:
+        (self.source / "a").mkdir()
+        os.symlink("..", self.source / "a" / "redirect")
+        os.symlink("a/redirect/..", self.source / "gateway")
+        with self.assertRaisesRegex(tarball.PackagingError, "composed symlink escapes"):
+            self._scan()
 
     def test_directory_addition_during_copy_is_detected(self) -> None:
         (self.source / "file").write_bytes(b"payload")
@@ -311,7 +489,9 @@ class SnapshotPolicyTests(unittest.TestCase):
             with mock.patch.object(
                 tarball, "_copy_and_hash_regular_file", side_effect=mutate_after_copy
             ):
-                with self.assertRaisesRegex(tarball.PackagingError, "membership changed"):
+                with self.assertRaisesRegex(
+                    tarball.PackagingError, "membership changed"
+                ):
                     tarball._scan_source_tree(
                         source, destination, 1_700_000_000, "x86_64"
                     )
@@ -319,12 +499,15 @@ class SnapshotPolicyTests(unittest.TestCase):
             os.close(destination)
             os.close(source)
 
-    def test_missing_representative_elf_requires_test_only_api(self) -> None:
+    def test_missing_product_identity_contract_requires_test_only_api(self) -> None:
         (self.source / "file").write_bytes(b"payload")
         source = os.open(self.source, os.O_RDONLY | os.O_DIRECTORY)
         private = os.open(self.private, os.O_RDONLY | os.O_DIRECTORY)
         try:
-            with self.assertRaisesRegex(tarball.PackagingError, "proves the x86_64"):
+            with self.assertRaisesRegex(
+                tarball.PackagingError,
+                "no authenticated OpenFusion executable identity",
+            ):
                 tarball._create_private_snapshot(
                     source,
                     private,
@@ -421,9 +604,15 @@ class SnapshotPolicyTests(unittest.TestCase):
             os.close(source)
 
 
-@unittest.skipUnless(shutil.which("zstd"), "zstd is required for tar.zst integration tests")
 class ZstdIntegrationTests(unittest.TestCase):
     maxDiff = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if shutil.which("zstd") is None:
+            raise AssertionError(
+                "zstd is required; the Linux packaging release gate must not be skipped"
+            )
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="openfusion-package-test-")
@@ -450,7 +639,9 @@ class ZstdIntegrationTests(unittest.TestCase):
         library.chmod(0o600)
         os.symlink("libOpenFusion.so.1", self.prefix / "lib" / "libOpenFusion.so")
         (self.prefix / "share").mkdir()
-        (self.prefix / "share" / "Unicode-模型.txt").write_text("model data\n", encoding="utf-8")
+        (self.prefix / "share" / "Unicode-模型.txt").write_text(
+            "model data\n", encoding="utf-8"
+        )
 
     def _build(self, output: Path) -> tuple[Path, Path, Path]:
         return tarball.build_package(
@@ -462,13 +653,13 @@ class ZstdIntegrationTests(unittest.TestCase):
             1_700_000_000,
             staging_is_quiescent=True,
             output_is_exclusive=True,
-            _test_only_allow_missing_elf=True,
+            _test_only_bypass_product_identity=True,
         )
 
     def _verify(self, outputs: tuple[Path, Path, Path]) -> None:
         tarball.verify_package(
             *outputs,
-            _test_only_allow_missing_elf=True,
+            _test_only_bypass_product_identity=True,
         )
 
     def test_repeated_build_is_byte_identical_and_verifiable(self) -> None:
@@ -504,11 +695,13 @@ class ZstdIntegrationTests(unittest.TestCase):
         records = {record["path"]: record for record in manifest["entries"]}
         self.assertEqual(records["bin/test-launcher"]["mode"], 0o755)
         self.assertEqual(records["lib/libOpenFusion.so.1"]["mode"], 0o644)
-        self.assertEqual(records["lib/libOpenFusion.so"]["target"], "libOpenFusion.so.1")
+        self.assertEqual(
+            records["lib/libOpenFusion.so"]["target"], "libOpenFusion.so.1"
+        )
         artifact_digest = hashlib.sha256(first[0].read_bytes()).hexdigest()
         self.assertEqual(manifest["archive_sha256"], artifact_digest)
         self.assertEqual(manifest["architecture"], "x86_64")
-        self.assertEqual(manifest["elf_validation"], "test-only-bypass")
+        self.assertEqual(manifest["product_identity"], "test-only-bypass")
         self.assertEqual(manifest["policy"]["version"], tarball.POLICY_VERSION)
         checksum_lines = first[2].read_text(encoding="ascii").splitlines()
         self.assertEqual(len(checksum_lines), 2)
@@ -556,24 +749,33 @@ class ZstdIntegrationTests(unittest.TestCase):
                 self._build(self.output_one)
         self.assertEqual(list(self.output_one.iterdir()), [])
 
-    def test_real_x86_64_elf_is_required_without_test_bypass(self) -> None:
+    def test_arbitrary_x86_64_elf_cannot_claim_openfusion_identity(self) -> None:
         (self.prefix / "bin").mkdir()
         executable = self.prefix / "bin" / "test-launcher"
-        shutil.copyfile("/usr/bin/true", executable)
+        header = bytearray(64)
+        header[:4] = b"\x7fELF"
+        header[4] = 2
+        header[5] = 1
+        header[6] = 1
+        header[16:18] = (2).to_bytes(2, "little")
+        header[18:20] = (62).to_bytes(2, "little")
+        header[20:24] = (1).to_bytes(4, "little")
+        executable.write_bytes(header)
         executable.chmod(0o755)
-        outputs = tarball.build_package(
-            self.destdir,
-            "/opt/openfusion",
-            "0.1.0",
-            "x86_64",
-            self.output_one,
-            1_700_000_000,
-            staging_is_quiescent=True,
-            output_is_exclusive=True,
-        )
-        manifest = json.loads(outputs[1].read_text(encoding="utf-8"))
-        self.assertEqual(manifest["elf_validation"], "validated")
-        tarball.verify_package(*outputs)
+        with self.assertRaisesRegex(
+            tarball.PackagingError, "no authenticated OpenFusion executable identity"
+        ):
+            tarball.build_package(
+                self.destdir,
+                "/opt/openfusion",
+                "0.1.0",
+                "x86_64",
+                self.output_one,
+                1_700_000_000,
+                staging_is_quiescent=True,
+                output_is_exclusive=True,
+            )
+        self.assertEqual(list(self.output_one.iterdir()), [])
 
     def test_archive_is_published_last_as_commit_marker(self) -> None:
         self._populate()
@@ -600,7 +802,7 @@ class ZstdIntegrationTests(unittest.TestCase):
                 self.output_one,
                 1_700_000_000,
                 staging_is_quiescent=True,
-                _test_only_allow_missing_elf=True,
+                _test_only_bypass_product_identity=True,
             )
 
     def test_publication_failure_rolls_back_precommit_companions(self) -> None:
@@ -646,13 +848,17 @@ class ZstdIntegrationTests(unittest.TestCase):
             self._build(self.output_one)
         (self.prefix / "absolute").unlink()
         os.symlink("../../../../outside", self.prefix / "escape")
-        with self.assertRaisesRegex(tarball.PackagingError, "escapes the packaged prefix"):
+        with self.assertRaisesRegex(
+            tarball.PackagingError, "escapes the packaged prefix"
+        ):
             self._build(self.output_one)
 
     def test_fifo_is_rejected(self) -> None:
         (self.prefix / "file").write_bytes(b"payload")
         os.mkfifo(self.prefix / "forbidden-fifo")
-        with self.assertRaisesRegex(tarball.PackagingError, "special files are forbidden"):
+        with self.assertRaisesRegex(
+            tarball.PackagingError, "special files are forbidden"
+        ):
             self._build(self.output_one)
 
     def test_output_inside_prefix_is_rejected(self) -> None:
@@ -668,7 +874,9 @@ class ZstdIntegrationTests(unittest.TestCase):
         (alternate / "file").write_bytes(b"payload")
         (self.destdir / "opt" / "openfusion").rmdir()
         os.symlink("../alternate", self.destdir / "opt" / "openfusion")
-        with self.assertRaisesRegex(tarball.PackagingError, "without following symlinks"):
+        with self.assertRaisesRegex(
+            tarball.PackagingError, "without following symlinks"
+        ):
             self._build(self.output_one)
 
     def test_existing_output_is_not_overwritten(self) -> None:
@@ -686,16 +894,28 @@ class ZstdIntegrationTests(unittest.TestCase):
         with artifact.open("ab") as stream:
             stream.write(b"tamper")
         with self.assertRaisesRegex(tarball.PackagingError, "SHA-256"):
-            tarball.verify_package(artifact, manifest, checksum)
+            tarball.verify_package(
+                artifact,
+                manifest,
+                checksum,
+                _test_only_bypass_product_identity=True,
+            )
 
     def test_tampered_checksum_fails_verification(self) -> None:
         self._populate()
         artifact, manifest, checksum = self._build(self.output_one)
         checksum.write_text(f"{'0' * 64}  {artifact.name}\n", encoding="ascii")
         with self.assertRaisesRegex(tarball.PackagingError, "checksum file"):
-            tarball.verify_package(artifact, manifest, checksum)
+            tarball.verify_package(
+                artifact,
+                manifest,
+                checksum,
+                _test_only_bypass_product_identity=True,
+            )
 
-    def test_canonical_manifest_rejects_added_fields_even_with_updated_checksum(self) -> None:
+    def test_canonical_manifest_rejects_added_fields_even_with_updated_checksum(
+        self,
+    ) -> None:
         self._populate()
         artifact, manifest, checksum = self._build(self.output_one)
         manifest_data = json.loads(manifest.read_text(encoding="utf-8"))

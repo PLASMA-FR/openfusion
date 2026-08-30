@@ -9,6 +9,7 @@ install, rename, patch, or otherwise modify the staged application.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import contextlib
 import fcntl
 import hashlib
@@ -27,9 +28,9 @@ from dataclasses import dataclass
 from typing import BinaryIO, Iterator, Sequence
 
 
-FORMAT_VERSION = 2
-POLICY_VERSION = 1
-MAX_SOURCE_DATE_EPOCH = 9_223_372_036
+FORMAT_VERSION = 3
+POLICY_VERSION = 2
+MAX_SOURCE_DATE_EPOCH = (1 << 33) - 1
 MAX_ARCHIVE_BYTES = 16 * 1024**3
 MAX_MANIFEST_BYTES = 256 * 1024**2
 MAX_CHECKSUM_BYTES = 4096
@@ -37,21 +38,27 @@ MAX_ENTRIES = 500_000
 MAX_PATH_BYTES = 4095
 MAX_TARGET_BYTES = 4095
 MAX_PAX_HEADER_BYTES = 64 * 1024
-MAX_FILE_BYTES = 8 * 1024**3
+MAX_FILE_BYTES = (1 << 33) - 1
 MAX_TOTAL_FILE_BYTES = 32 * 1024**3
 MAX_TAR_BYTES = 40 * 1024**3
-MAX_ELF_PROGRAM_HEADERS = 4096
+MAX_SYMLINK_HOPS = 40
+MAX_SYMLINK_GRAPH_STEPS = 2_000_000
 ZSTD_MEMORY_MIB = 512
+PRODUCT_IDENTITY_BLOCKER = (
+    "production packaging is blocked: no authenticated OpenFusion executable identity "
+    "contract is configured"
+)
 POLICY_LIMITS = {
     "archive_bytes": MAX_ARCHIVE_BYTES,
     "checksum_bytes": MAX_CHECKSUM_BYTES,
     "entries": MAX_ENTRIES,
-    "elf_program_headers": MAX_ELF_PROGRAM_HEADERS,
     "file_bytes": MAX_FILE_BYTES,
     "manifest_bytes": MAX_MANIFEST_BYTES,
     "path_bytes": MAX_PATH_BYTES,
     "pax_header_bytes": MAX_PAX_HEADER_BYTES,
     "symlink_target_bytes": MAX_TARGET_BYTES,
+    "symlink_hops": MAX_SYMLINK_HOPS,
+    "symlink_graph_steps": MAX_SYMLINK_GRAPH_STEPS,
     "tar_bytes": MAX_TAR_BYTES,
     "total_file_bytes": MAX_TOTAL_FILE_BYTES,
     "zstd_memory_mib": ZSTD_MEMORY_MIB,
@@ -126,7 +133,6 @@ class SourceRecord:
 class SourceScan:
     root_snapshot: Snapshot
     records: tuple[SourceRecord, ...]
-    representative_elf_found: bool
 
 
 @dataclass(frozen=True)
@@ -176,21 +182,31 @@ class DigestingReader:
 def _validate_text(value: str, label: str) -> None:
     if not value:
         raise PackagingError(f"{label} must not be empty")
-    if "\x00" in value or any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+    if "\x00" in value or any(
+        0xD800 <= ord(character) <= 0xDFFF for character in value
+    ):
         raise PackagingError(f"{label} is not valid UTF-8 text")
 
 
 def _validate_version(version: str) -> str:
     _validate_text(version, "version")
     if len(version.encode("utf-8")) > 80:
-        raise PackagingError(f"version is not a supported semantic version: {version!r}")
+        raise PackagingError(
+            f"version is not a supported semantic version: {version!r}"
+        )
     match = SEMVER_RE.fullmatch(version)
     if match is None:
-        raise PackagingError(f"version is not a supported semantic version: {version!r}")
+        raise PackagingError(
+            f"version is not a supported semantic version: {version!r}"
+        )
     prerelease = match.group("prerelease")
     if prerelease is not None:
         for identifier in prerelease.split("."):
-            if identifier.isdecimal() and len(identifier) > 1 and identifier.startswith("0"):
+            if (
+                identifier.isdecimal()
+                and len(identifier) > 1
+                and identifier.startswith("0")
+            ):
                 raise PackagingError(
                     "numeric semantic-version prerelease identifier has a leading zero: "
                     f"{identifier}"
@@ -215,7 +231,9 @@ def _validate_prefix(prefix: str) -> PurePosixPath:
         raise PackagingError("install prefix must not have a trailing slash")
     components = prefix.split("/")[1:]
     if any(component in {"", ".", ".."} for component in components):
-        raise PackagingError("install prefix must be normalized and contain no dot components")
+        raise PackagingError(
+            "install prefix must be normalized and contain no dot components"
+        )
     return PurePosixPath(prefix)
 
 
@@ -234,7 +252,9 @@ def _canonical_directory(path_value: str | Path, label: str) -> Path:
     except OSError as error:
         raise PackagingError(f"cannot access {label} {path}: {error}") from error
     if path != resolved:
-        raise PackagingError(f"{label} must be canonical and must not traverse symlinks: {path}")
+        raise PackagingError(
+            f"{label} must be canonical and must not traverse symlinks: {path}"
+        )
     if not stat.S_ISDIR(metadata.st_mode):
         raise PackagingError(f"{label} is not a directory: {path}")
     return path
@@ -349,7 +369,9 @@ def _descriptor_path(descriptor: int, child: str = "") -> Path:
     return base / child if child else base
 
 
-def _require_directory_identity(path: Path, expected_descriptor: int, label: str) -> None:
+def _require_directory_identity(
+    path: Path, expected_descriptor: int, label: str
+) -> None:
     reopened = _open_directory(path, label)
     try:
         expected = os.fstat(expected_descriptor)
@@ -360,7 +382,9 @@ def _require_directory_identity(path: Path, expected_descriptor: int, label: str
         os.close(reopened)
 
 
-def _directory_descriptor_is_within(child_descriptor: int, parent_descriptor: int) -> bool:
+def _directory_descriptor_is_within(
+    child_descriptor: int, parent_descriptor: int
+) -> bool:
     """Check directory ancestry by identity, including bind-mounted aliases."""
 
     target = os.fstat(parent_descriptor)
@@ -391,7 +415,9 @@ def _directory_descriptor_is_within(child_descriptor: int, parent_descriptor: in
             os.close(current)
             current = ancestor
     except OSError as error:
-        raise PackagingError(f"cannot validate output directory ancestry: {error}") from error
+        raise PackagingError(
+            f"cannot validate output directory ancestry: {error}"
+        ) from error
     finally:
         os.close(current)
     raise PackagingError("output directory ancestry exceeds the safety bound")
@@ -400,20 +426,28 @@ def _directory_descriptor_is_within(child_descriptor: int, parent_descriptor: in
 def _validate_relative_path(relative_path: str) -> None:
     _validate_text(relative_path, "archive path")
     if len(relative_path.encode("utf-8")) > MAX_PATH_BYTES:
-        raise PackagingError(f"archive path exceeds the policy limit: {relative_path!r}")
+        raise PackagingError(
+            f"archive path exceeds the policy limit: {relative_path!r}"
+        )
     path = PurePosixPath(relative_path)
     if path.is_absolute() or str(path) != relative_path:
         raise PackagingError(f"archive path is not normalized: {relative_path!r}")
     if any(component in {"", ".", ".."} for component in path.parts):
-        raise PackagingError(f"archive path contains an unsafe component: {relative_path!r}")
+        raise PackagingError(
+            f"archive path contains an unsafe component: {relative_path!r}"
+        )
 
 
 def _validate_symlink(relative_path: str, target: str) -> None:
     _validate_text(target, f"symlink target for {relative_path}")
     if len(target.encode("utf-8")) > MAX_TARGET_BYTES:
-        raise PackagingError(f"symlink target exceeds the policy limit: {relative_path}")
+        raise PackagingError(
+            f"symlink target exceeds the policy limit: {relative_path}"
+        )
     if target.startswith("/"):
-        raise PackagingError(f"absolute symlink is not relocatable: {relative_path} -> {target}")
+        raise PackagingError(
+            f"absolute symlink is not relocatable: {relative_path} -> {target}"
+        )
     resolved_components = list(PurePosixPath(relative_path).parts[:-1])
     for component in target.split("/"):
         if component in {"", "."}:
@@ -427,6 +461,108 @@ def _validate_symlink(relative_path: str, target: str) -> None:
         else:
             _validate_text(component, f"symlink target component for {relative_path}")
             resolved_components.append(component)
+
+
+def _validate_symlink_graph(
+    records: Sequence[tuple[str, str, str | None]],
+    *,
+    maximum_steps: int = MAX_SYMLINK_GRAPH_STEPS,
+) -> None:
+    """Resolve every symlink against the complete payload graph."""
+
+    if (
+        type(maximum_steps) is not int
+        or maximum_steps <= 0
+        or maximum_steps > MAX_SYMLINK_GRAPH_STEPS
+    ):
+        raise PackagingError("symlink graph work budget is invalid")
+
+    entry_types: dict[str, str] = {}
+    symlink_targets: dict[str, str] = {}
+    for relative_path, kind, target in records:
+        if relative_path in entry_types:
+            raise PackagingError(f"duplicate payload path: {relative_path}")
+        entry_types[relative_path] = kind
+        if kind == "symlink":
+            if target is None:
+                raise PackagingError(f"symlink target is missing: {relative_path}")
+            _validate_symlink(relative_path, target)
+            symlink_targets[relative_path] = target
+
+    steps = 0
+
+    def consume_step() -> None:
+        nonlocal steps
+        steps += 1
+        if steps > maximum_steps:
+            raise PackagingError(
+                f"symlink graph exceeds the {maximum_steps}-step work budget"
+            )
+
+    for link_path, initial_target in symlink_targets.items():
+        consume_step()
+        resolved = list(PurePosixPath(link_path).parent.parts)
+        pending = deque(initial_target.split("/"))
+        seen_states: set[tuple[str, tuple[str, ...]]] = set()
+        hops = 1
+        while pending:
+            consume_step()
+            component = pending.popleft()
+            if component in {"", "."}:
+                continue
+            if component == "..":
+                if not resolved:
+                    raise PackagingError(
+                        f"composed symlink escapes the packaged prefix: {link_path}"
+                    )
+                resolved.pop()
+                continue
+
+            resolved.append(component)
+            candidate = "/".join(resolved)
+            kind = entry_types.get(candidate)
+            if kind == "symlink":
+                hops += 1
+                state = (candidate, tuple(pending))
+                if state in seen_states:
+                    raise PackagingError(
+                        f"symlink cycle is forbidden: {link_path} reaches {candidate}"
+                    )
+                if hops > MAX_SYMLINK_HOPS:
+                    raise PackagingError(
+                        f"symlink resolution exceeds {MAX_SYMLINK_HOPS} hops: {link_path}"
+                    )
+                seen_states.add(state)
+                resolved.pop()
+                for target_component in reversed(symlink_targets[candidate].split("/")):
+                    pending.appendleft(target_component)
+            elif pending and kind != "directory":
+                detail = "missing" if kind is None else kind
+                raise PackagingError(
+                    f"symlink traverses a non-directory payload entry ({detail}): "
+                    f"{link_path} through {candidate}"
+                )
+
+        final_path = "/".join(resolved)
+        final_kind = "directory" if not final_path else entry_types.get(final_path)
+        if final_kind is None:
+            raise PackagingError(
+                f"dangling symlink is forbidden: {link_path} resolves to {final_path}"
+            )
+
+
+def _product_identity_status(version: str, allow_test_bypass: bool) -> str:
+    if not allow_test_bypass:
+        raise PackagingError(PRODUCT_IDENTITY_BLOCKER)
+    match = SEMVER_RE.fullmatch(version)
+    assert match is not None
+    prerelease = match.group("prerelease") or ""
+    if "test" not in prerelease.split("."):
+        raise PackagingError(
+            "test-only product identity bypass requires a SemVer prerelease identifier "
+            "named test"
+        )
+    return "test-only-bypass"
 
 
 def _normalized_mode(metadata: os.stat_result, kind: str) -> int:
@@ -461,7 +597,9 @@ def _reject_xattrs_fd(descriptor: int, relative_path: str) -> None:
         )
 
 
-def _reject_symlink_xattrs(parent_descriptor: int, name: str, relative_path: str) -> None:
+def _reject_symlink_xattrs(
+    parent_descriptor: int, name: str, relative_path: str
+) -> None:
     anchored_path = f"/proc/self/fd/{parent_descriptor}/{name}"
     try:
         attributes = os.listxattr(anchored_path, follow_symlinks=False)
@@ -471,7 +609,9 @@ def _reject_symlink_xattrs(parent_descriptor: int, name: str, relative_path: str
         ) from error
     if attributes:
         detail = ", ".join(sorted(attributes))
-        raise PackagingError(f"xattrs are forbidden on symlink {relative_path}: {detail}")
+        raise PackagingError(
+            f"xattrs are forbidden on symlink {relative_path}: {detail}"
+        )
 
 
 def _reject_sparse_file(metadata: os.stat_result, relative_path: str) -> None:
@@ -514,74 +654,6 @@ def _validate_elf_identity(
         )
 
 
-def _elf_program_header_layout(
-    header: bytes,
-    identity: tuple[int, int, int],
-    file_size: int,
-) -> tuple[int, int] | None:
-    elf_class, elf_data, _ = identity
-    if elf_class != 2 or len(header) < 64:
-        return None
-    byte_order = "little" if elf_data == 1 else "big"
-    elf_type = int.from_bytes(header[16:18], byte_order)
-    elf_version = int.from_bytes(header[20:24], byte_order)
-    program_header_offset = int.from_bytes(header[32:40], byte_order)
-    elf_header_size = int.from_bytes(header[52:54], byte_order)
-    program_header_size = int.from_bytes(header[54:56], byte_order)
-    program_header_count = int.from_bytes(header[56:58], byte_order)
-    table_size = program_header_size * program_header_count
-    if (
-        elf_type not in {2, 3}
-        or elf_version != 1
-        or elf_header_size != 64
-        or program_header_size != 56
-        or program_header_count <= 0
-        or program_header_count > MAX_ELF_PROGRAM_HEADERS
-        or program_header_offset < elf_header_size
-        or program_header_offset > file_size
-        or table_size > file_size - program_header_offset
-    ):
-        return None
-    return program_header_offset, table_size
-
-
-def _is_representative_executable_elf(
-    header: bytes,
-    identity: tuple[int, int, int],
-    file_size: int,
-    program_headers: bytes,
-) -> bool:
-    layout = _elf_program_header_layout(header, identity, file_size)
-    if layout is None or len(program_headers) != layout[1]:
-        return False
-    byte_order = "little" if identity[1] == 1 else "big"
-    load_found = False
-    executable_load_found = False
-    for offset in range(0, len(program_headers), 56):
-        program_header = program_headers[offset : offset + 56]
-        program_type = int.from_bytes(program_header[0:4], byte_order)
-        if program_type != 1:
-            continue
-        load_found = True
-        flags = int.from_bytes(program_header[4:8], byte_order)
-        file_offset = int.from_bytes(program_header[8:16], byte_order)
-        virtual_address = int.from_bytes(program_header[16:24], byte_order)
-        file_bytes = int.from_bytes(program_header[32:40], byte_order)
-        memory_bytes = int.from_bytes(program_header[40:48], byte_order)
-        alignment = int.from_bytes(program_header[48:56], byte_order)
-        if (
-            file_bytes > memory_bytes
-            or file_offset > file_size
-            or file_bytes > file_size - file_offset
-            or (alignment not in {0, 1} and alignment & (alignment - 1))
-            or (alignment > 1 and (virtual_address - file_offset) % alignment != 0)
-        ):
-            return False
-        if flags & 0x1 and file_bytes > 0:
-            executable_load_found = True
-    return load_found and executable_load_found
-
-
 def _sorted_directory_names(descriptor: int, relative_path: str) -> list[str]:
     try:
         names = os.listdir(descriptor)
@@ -613,24 +685,34 @@ def _copy_and_hash_regular_file(
     normalized_mode: int,
     epoch: int,
     architecture: str,
-) -> tuple[str, tuple[int, int, int] | None, bool]:
-    source_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+) -> tuple[str, tuple[int, int, int] | None]:
+    source_flags = (
+        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    )
     try:
         source = os.open(name, source_flags, dir_fd=source_directory)
     except OSError as error:
-        raise PackagingError(f"cannot safely open staged file {relative_path}: {error}") from error
+        raise PackagingError(
+            f"cannot safely open staged file {relative_path}: {error}"
+        ) from error
     destination: int | None = None
     try:
         before = os.fstat(source)
         if Snapshot.from_stat(before) != expected or not stat.S_ISREG(before.st_mode):
-            raise PackagingError(f"staged file changed before snapshot: {relative_path}")
+            raise PackagingError(
+                f"staged file changed before snapshot: {relative_path}"
+            )
         _reject_privileged_mode(before, relative_path)
         _reject_sparse_file(before, relative_path)
         _reject_xattrs_fd(source, relative_path)
         if before.st_nlink != 1:
-            raise PackagingError(f"hardlinked staged files are forbidden: {relative_path}")
+            raise PackagingError(
+                f"hardlinked staged files are forbidden: {relative_path}"
+            )
         if before.st_size > MAX_FILE_BYTES:
-            raise PackagingError(f"staged file exceeds the per-file policy limit: {relative_path}")
+            raise PackagingError(
+                f"staged file exceeds the per-file policy limit: {relative_path}"
+            )
         if destination_directory is not None:
             destination_flags = (
                 os.O_WRONLY
@@ -656,27 +738,18 @@ def _copy_and_hash_regular_file(
                 _write_all(destination, data)
         after = os.fstat(source)
         if Snapshot.from_stat(after) != expected or total != before.st_size:
-            raise PackagingError(f"staged file changed during snapshot: {relative_path}")
+            raise PackagingError(
+                f"staged file changed during snapshot: {relative_path}"
+            )
         identity = _elf_identity(bytes(header), relative_path)
-        representative = False
         if identity is not None:
             _validate_elf_identity(identity, relative_path, architecture)
-            layout = _elf_program_header_layout(bytes(header), identity, before.st_size)
-            program_headers = b""
-            if layout is not None:
-                program_headers = os.pread(source, layout[1], layout[0])
-            representative = _is_representative_executable_elf(
-                bytes(header),
-                identity,
-                before.st_size,
-                program_headers,
-            )
         if destination is not None:
             snapshot_mode = 0o555 if normalized_mode == 0o755 else 0o444
             os.fchmod(destination, snapshot_mode)
             os.utime(destination, ns=(epoch * 1_000_000_000,) * 2)
             os.fsync(destination)
-        return digest.hexdigest(), identity, representative
+        return digest.hexdigest(), identity
     finally:
         if destination is not None:
             os.close(destination)
@@ -705,7 +778,6 @@ def _scan_source_tree(
     records: list[SourceRecord] = []
     total_file_bytes = 0
     manifest_size_budget = 16 * 1024
-    representative_elf_found = False
     try:
         while pending:
             source_directory, destination_directory, parent_relative = pending.pop()
@@ -713,14 +785,18 @@ def _scan_source_tree(
                 directory_before = Snapshot.from_stat(os.fstat(source_directory))
                 _reject_privileged_mode(os.fstat(source_directory), parent_relative)
                 _reject_xattrs_fd(source_directory, parent_relative)
-                names_before = _sorted_directory_names(source_directory, parent_relative)
+                names_before = _sorted_directory_names(
+                    source_directory, parent_relative
+                )
                 for name in names_before:
                     relative_path = (
                         f"{parent_relative}/{name}" if parent_relative else name
                     )
                     _validate_relative_path(relative_path)
                     try:
-                        metadata = os.stat(name, dir_fd=source_directory, follow_symlinks=False)
+                        metadata = os.stat(
+                            name, dir_fd=source_directory, follow_symlinks=False
+                        )
                     except OSError as error:
                         raise PackagingError(
                             f"cannot inspect staged entry {relative_path}: {error}"
@@ -734,7 +810,9 @@ def _scan_source_tree(
                             | getattr(os, "O_DIRECTORY", 0)
                             | getattr(os, "O_NOFOLLOW", 0)
                         )
-                        child_source = os.open(name, child_flags, dir_fd=source_directory)
+                        child_source = os.open(
+                            name, child_flags, dir_fd=source_directory
+                        )
                         child_destination: int | None = None
                         try:
                             if Snapshot.from_stat(os.fstat(child_source)) != snapshot:
@@ -770,7 +848,7 @@ def _scan_source_tree(
                         )
                     elif stat.S_ISREG(metadata.st_mode):
                         normalized_mode = _normalized_mode(metadata, "file")
-                        digest, identity, representative = _copy_and_hash_regular_file(
+                        digest, identity = _copy_and_hash_regular_file(
                             source_directory,
                             destination_directory,
                             name,
@@ -785,12 +863,6 @@ def _scan_source_tree(
                             raise PackagingError(
                                 "staged tree exceeds the total file-size policy limit"
                             )
-                        if (
-                            representative
-                            and normalized_mode == 0o755
-                            and relative_path.startswith("bin/")
-                        ):
-                            representative_elf_found = True
                         records.append(
                             SourceRecord(
                                 relative_path,
@@ -816,9 +888,14 @@ def _scan_source_tree(
                                 f"cannot read staged symlink {relative_path}: {error}"
                             ) from error
                         _validate_symlink(relative_path, target)
-                        if Snapshot.from_stat(
-                            os.stat(name, dir_fd=source_directory, follow_symlinks=False)
-                        ) != snapshot:
+                        if (
+                            Snapshot.from_stat(
+                                os.stat(
+                                    name, dir_fd=source_directory, follow_symlinks=False
+                                )
+                            )
+                            != snapshot
+                        ):
                             raise PackagingError(
                                 f"staged symlink changed during snapshot: {relative_path}"
                             )
@@ -848,15 +925,20 @@ def _scan_source_tree(
                             f"(mode {stat.filemode(metadata.st_mode)})"
                         )
                     if len(records) > MAX_ENTRIES:
-                        raise PackagingError("staged tree exceeds the entry-count policy limit")
-                    manifest_size_budget += len(
-                        json.dumps(
-                            records[-1].manifest_record(),
-                            ensure_ascii=False,
-                            separators=(",", ":"),
-                            sort_keys=True,
-                        ).encode("utf-8")
-                    ) + 1
+                        raise PackagingError(
+                            "staged tree exceeds the entry-count policy limit"
+                        )
+                    manifest_size_budget += (
+                        len(
+                            json.dumps(
+                                records[-1].manifest_record(),
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                                sort_keys=True,
+                            ).encode("utf-8")
+                        )
+                        + 1
+                    )
                     if manifest_size_budget > MAX_MANIFEST_BYTES:
                         raise PackagingError(
                             "staged tree exceeds the manifest-size policy limit"
@@ -874,9 +956,7 @@ def _scan_source_tree(
                     )
                 if destination_directory is not None:
                     os.fchmod(destination_directory, 0o555)
-                    os.utime(
-                        destination_directory, ns=(epoch * 1_000_000_000,) * 2
-                    )
+                    os.utime(destination_directory, ns=(epoch * 1_000_000_000,) * 2)
                     os.fsync(destination_directory)
             finally:
                 if destination_directory is not None:
@@ -891,7 +971,10 @@ def _scan_source_tree(
     if root_after != root_snapshot:
         raise PackagingError("installed prefix root changed during snapshot")
     records.sort(key=lambda record: record.relative_path.encode("utf-8"))
-    return SourceScan(root_snapshot, tuple(records), representative_elf_found)
+    _validate_symlink_graph(
+        [(record.relative_path, record.kind, record.link_target) for record in records]
+    )
+    return SourceScan(root_snapshot, tuple(records))
 
 
 def _create_private_snapshot(
@@ -900,7 +983,7 @@ def _create_private_snapshot(
     epoch: int,
     architecture: str,
     version: str,
-    test_only_allow_missing_elf: bool,
+    test_only_bypass_product_identity: bool,
 ) -> tuple[Path, str, SourceScan]:
     os.mkdir("snapshot", 0o700, dir_fd=private_descriptor)
     snapshot_descriptor = _open_prefix_at(
@@ -917,23 +1000,13 @@ def _create_private_snapshot(
             raise PackagingError(
                 "installed prefix changed between private snapshot and source audit"
             )
-        if not copied.representative_elf_found:
-            if not test_only_allow_missing_elf:
-                raise PackagingError(
-                    f"no executable ELF under bin/ proves the {architecture} artifact label"
-                )
-            match = SEMVER_RE.fullmatch(version)
-            assert match is not None
-            prerelease = match.group("prerelease") or ""
-            if "test" not in prerelease.split("."):
-                raise PackagingError(
-                    "test-only ELF bypass requires a SemVer prerelease identifier named test"
-                )
+        identity_status = _product_identity_status(
+            version, test_only_bypass_product_identity
+        )
         os.fsync(snapshot_descriptor)
     finally:
         os.close(snapshot_descriptor)
-    status = "validated" if copied.representative_elf_found else "test-only-bypass"
-    return _descriptor_path(private_descriptor, "snapshot"), status, copied
+    return _descriptor_path(private_descriptor, "snapshot"), identity_status, copied
 
 
 def _snapshot_matches(path: Path, snapshot: Snapshot) -> bool:
@@ -956,8 +1029,12 @@ def _open_regular_file(entry: Entry) -> tuple[BinaryIO, os.stat_result]:
         ) from error
     try:
         metadata = os.fstat(descriptor)
-        if Snapshot.from_stat(metadata) != entry.snapshot or not stat.S_ISREG(metadata.st_mode):
-            raise PackagingError(f"staged file changed while packaging: {entry.relative_path}")
+        if Snapshot.from_stat(metadata) != entry.snapshot or not stat.S_ISREG(
+            metadata.st_mode
+        ):
+            raise PackagingError(
+                f"staged file changed while packaging: {entry.relative_path}"
+            )
         return os.fdopen(descriptor, "rb", closefd=True), metadata
     except Exception:
         os.close(descriptor)
@@ -996,10 +1073,14 @@ def _scan_tree(root: Path) -> list[Entry]:
                     key=lambda item: item.name.encode("utf-8", errors="strict"),
                 )
         except (OSError, UnicodeError) as error:
-            raise PackagingError(f"cannot scan staged directory {directory}: {error}") from error
+            raise PackagingError(
+                f"cannot scan staged directory {directory}: {error}"
+            ) from error
         for child in children:
             _validate_text(child.name, f"filename under {parent_relative or '.'}")
-            relative_path = f"{parent_relative}/{child.name}" if parent_relative else child.name
+            relative_path = (
+                f"{parent_relative}/{child.name}" if parent_relative else child.name
+            )
             _validate_relative_path(relative_path)
             try:
                 metadata = child.stat(follow_symlinks=False)
@@ -1046,7 +1127,9 @@ def _scan_tree(root: Path) -> list[Entry]:
                     ) from error
                 _validate_symlink(relative_path, target)
                 if not _snapshot_matches(source_path, snapshot):
-                    raise PackagingError(f"staged symlink changed while scanning: {relative_path}")
+                    raise PackagingError(
+                        f"staged symlink changed while scanning: {relative_path}"
+                    )
                 entries.append(
                     Entry(
                         relative_path,
@@ -1068,13 +1151,13 @@ def _scan_tree(root: Path) -> list[Entry]:
     if not entries:
         raise PackagingError("installed prefix is empty")
     entries.sort(key=lambda entry: entry.relative_path.encode("utf-8"))
+    _validate_symlink_graph(
+        [(entry.relative_path, entry.kind, entry.link_target) for entry in entries]
+    )
     return entries
 
 
-def _validate_payload_elf(
-    entries: Sequence[Entry], architecture: str, allow_test_bypass: bool
-) -> None:
-    representative_found = False
+def _validate_payload_elf(entries: Sequence[Entry], architecture: str) -> None:
     for entry in entries:
         if entry.kind != "file":
             continue
@@ -1082,12 +1165,6 @@ def _validate_payload_elf(
             with entry.source_path.open("rb") as stream:
                 header = stream.read(64)
                 identity = _elf_identity(header, entry.relative_path)
-                program_headers = b""
-                if identity is not None:
-                    layout = _elf_program_header_layout(header, identity, entry.size)
-                    if layout is not None:
-                        stream.seek(layout[0])
-                        program_headers = stream.read(layout[1])
         except OSError as error:
             raise PackagingError(
                 f"cannot inspect ELF identity for {entry.relative_path}: {error}"
@@ -1095,21 +1172,6 @@ def _validate_payload_elf(
         if identity is None:
             continue
         _validate_elf_identity(identity, entry.relative_path, architecture)
-        if (
-            _is_representative_executable_elf(
-                header,
-                identity,
-                entry.size,
-                program_headers,
-            )
-            and entry.mode == 0o755
-            and entry.relative_path.startswith("bin/")
-        ):
-            representative_found = True
-    if not representative_found and not allow_test_bypass:
-        raise PackagingError(
-            f"no executable ELF under bin/ proves the {architecture} artifact label"
-        )
 
 
 def _tar_info(name: str, kind: str, mode: int, epoch: int) -> tarfile.TarInfo:
@@ -1134,12 +1196,18 @@ def _tar_info(name: str, kind: str, mode: int, epoch: int) -> tarfile.TarInfo:
     return info
 
 
-def _write_tar(tar_path: Path, archive_root: str, entries: Sequence[Entry], epoch: int) -> None:
-    with tarfile.open(tar_path, mode="w", format=tarfile.PAX_FORMAT, encoding="utf-8") as archive:
+def _write_tar(
+    tar_path: Path, archive_root: str, entries: Sequence[Entry], epoch: int
+) -> None:
+    with tarfile.open(
+        tar_path, mode="w", format=tarfile.PAX_FORMAT, encoding="utf-8"
+    ) as archive:
         archive.addfile(_tar_info(archive_root, "directory", 0o755, epoch))
         for entry in entries:
             if not _snapshot_matches(entry.source_path, entry.snapshot):
-                raise PackagingError(f"staged entry changed while packaging: {entry.relative_path}")
+                raise PackagingError(
+                    f"staged entry changed while packaging: {entry.relative_path}"
+                )
             archive_name = f"{archive_root}/{entry.relative_path}"
             info = _tar_info(archive_name, entry.kind, entry.mode, epoch)
             if entry.kind == "directory":
@@ -1158,7 +1226,10 @@ def _write_tar(tar_path: Path, archive_root: str, entries: Sequence[Entry], epoc
                         raise PackagingError(
                             f"staged file changed while writing archive: {entry.relative_path}"
                         )
-                    if reader.bytes_read != entry.size or reader.hexdigest != entry.sha256:
+                    if (
+                        reader.bytes_read != entry.size
+                        or reader.hexdigest != entry.sha256
+                    ):
                         raise PackagingError(
                             "staged file content changed while writing archive: "
                             f"{entry.relative_path}"
@@ -1179,7 +1250,9 @@ def _find_zstd(zstd_value: str | None) -> Path:
         resolved = candidate_path.resolve(strict=True)
         metadata = resolved.stat()
     except OSError as error:
-        raise PackagingError(f"cannot inspect zstd executable {candidate_path}: {error}") from error
+        raise PackagingError(
+            f"cannot inspect zstd executable {candidate_path}: {error}"
+        ) from error
     if not stat.S_ISREG(metadata.st_mode) or not os.access(resolved, os.X_OK):
         raise PackagingError(f"zstd is not an executable regular file: {resolved}")
     return resolved
@@ -1248,7 +1321,9 @@ def _compress(tar_path: Path, archive_path: Path, zstd: Path) -> None:
         os.fsync(output.fileno())
 
 
-def _decompress(archive_path: Path, tar_path: Path, zstd: Path, maximum_size: int) -> None:
+def _decompress(
+    archive_path: Path, tar_path: Path, zstd: Path, maximum_size: int
+) -> None:
     arguments = [
         str(zstd),
         "--decompress",
@@ -1286,7 +1361,7 @@ def _manifest_bytes(
     epoch: int,
     entries: Sequence[Entry],
     archive_sha256: str,
-    elf_validation: str,
+    product_identity: str,
 ) -> bytes:
     for entry in entries:
         member_name = f"{archive_root}/{entry.relative_path}"
@@ -1300,7 +1375,7 @@ def _manifest_bytes(
         "archive_sha256": archive_sha256,
         "artifact": artifact_name,
         "checksum": checksum_name,
-        "elf_validation": elf_validation,
+        "product_identity": product_identity,
         "entries": [entry.manifest_record() for entry in entries],
         "format_version": FORMAT_VERSION,
         "install_prefix": prefix,
@@ -1321,17 +1396,22 @@ def _manifest_bytes(
         "version": version,
     }
     return (
-        json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
+        json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        + "\n"
     ).encode("utf-8")
 
 
-def _parse_manifest(manifest_bytes: bytes) -> dict[str, object]:
+def _parse_manifest(
+    manifest_bytes: bytes, *, allow_test_identity_bypass: bool = False
+) -> dict[str, object]:
     if len(manifest_bytes) > MAX_MANIFEST_BYTES:
         raise PackagingError("manifest exceeds the absolute policy limit")
     try:
         manifest = json.loads(manifest_bytes.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
-        raise PackagingError(f"manifest is not canonical UTF-8 JSON: {error}") from error
+        raise PackagingError(
+            f"manifest is not canonical UTF-8 JSON: {error}"
+        ) from error
     if not isinstance(manifest, dict):
         raise PackagingError("manifest root must be an object")
     required_keys = {
@@ -1340,20 +1420,33 @@ def _parse_manifest(manifest_bytes: bytes) -> dict[str, object]:
         "archive_sha256",
         "artifact",
         "checksum",
-        "elf_validation",
         "entries",
         "format_version",
         "install_prefix",
         "manifest",
         "normalization",
         "policy",
+        "product_identity",
         "source_date_epoch",
         "version",
     }
     if set(manifest) != required_keys:
         raise PackagingError("manifest fields do not match the supported format")
-    if type(manifest["format_version"]) is not int or manifest["format_version"] != FORMAT_VERSION:
+    if (
+        type(manifest["format_version"]) is not int
+        or manifest["format_version"] != FORMAT_VERSION
+    ):
         raise PackagingError("manifest format version is unsupported")
+    product_identity = manifest["product_identity"]
+    if product_identity != "test-only-bypass":
+        raise PackagingError(
+            "manifest product identity is unsupported until the production contract exists"
+        )
+    if not allow_test_identity_bypass:
+        raise PackagingError(
+            "test-only product identity bypass is not accepted without the explicit test "
+            "API flag"
+        )
     architecture = manifest["architecture"]
     if not isinstance(architecture, str):
         raise PackagingError("manifest architecture must be a string")
@@ -1362,6 +1455,13 @@ def _parse_manifest(manifest_bytes: bytes) -> dict[str, object]:
     if not isinstance(version, str):
         raise PackagingError("manifest version must be a string")
     _validate_version(version)
+    match = SEMVER_RE.fullmatch(version)
+    assert match is not None
+    prerelease = match.group("prerelease") or ""
+    if "test" not in prerelease.split("."):
+        raise PackagingError(
+            "product identity bypass is restricted to test-version fixtures"
+        )
     prefix = manifest["install_prefix"]
     if not isinstance(prefix, str):
         raise PackagingError("manifest install prefix must be a string")
@@ -1389,19 +1489,9 @@ def _parse_manifest(manifest_bytes: bytes) -> dict[str, object]:
         type(limits[name]) is not int or limits[name] != expected
         for name, expected in POLICY_LIMITS.items()
     ):
-        raise PackagingError("manifest packaging policy is unsupported or has altered limits")
-    elf_validation = manifest["elf_validation"]
-    if not isinstance(elf_validation, str) or elf_validation not in {
-        "validated",
-        "test-only-bypass",
-    }:
-        raise PackagingError("manifest ELF validation status is invalid")
-    if elf_validation == "test-only-bypass":
-        match = SEMVER_RE.fullmatch(version)
-        assert match is not None
-        prerelease = match.group("prerelease") or ""
-        if "test" not in prerelease.split("."):
-            raise PackagingError("ELF validation bypass is restricted to test-version fixtures")
+        raise PackagingError(
+            "manifest packaging policy is unsupported or has altered limits"
+        )
     digest = manifest["archive_sha256"]
     if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
         raise PackagingError("manifest archive SHA-256 is invalid")
@@ -1425,7 +1515,9 @@ def _parse_manifest(manifest_bytes: bytes) -> dict[str, object]:
         "uname": "root",
     }
     normalization = manifest["normalization"]
-    if not isinstance(normalization, dict) or set(normalization) != set(expected_normalization):
+    if not isinstance(normalization, dict) or set(normalization) != set(
+        expected_normalization
+    ):
         raise PackagingError("manifest normalization fields are invalid")
     numeric_normalization = {
         "directory_mode",
@@ -1471,15 +1563,18 @@ def _parse_manifest(manifest_bytes: bytes) -> dict[str, object]:
             raise PackagingError(
                 f"archive member path exceeds the policy limit: {relative_path}"
             )
-        if (
-            previous_path is not None
-            and relative_path.encode("utf-8") <= previous_path.encode("utf-8")
-        ):
-            raise PackagingError("manifest entries are not in strict bytewise path order")
+        if previous_path is not None and relative_path.encode(
+            "utf-8"
+        ) <= previous_path.encode("utf-8"):
+            raise PackagingError(
+                "manifest entries are not in strict bytewise path order"
+            )
         previous_path = relative_path
         parent = str(PurePosixPath(relative_path).parent)
         if parent != "." and known_types.get(parent) != "directory":
-            raise PackagingError(f"manifest entry parent is not a directory: {relative_path}")
+            raise PackagingError(
+                f"manifest entry parent is not a directory: {relative_path}"
+            )
         known_types[relative_path] = kind
         expected_mode = {"directory": 0o755, "symlink": 0o777}.get(kind)
         mode = record["mode"]
@@ -1487,25 +1582,46 @@ def _parse_manifest(manifest_bytes: bytes) -> dict[str, object]:
             raise PackagingError(f"manifest mode is invalid for {relative_path}")
         if kind == "file":
             if mode not in {0o644, 0o755}:
-                raise PackagingError(f"manifest file mode is invalid for {relative_path}")
+                raise PackagingError(
+                    f"manifest file mode is invalid for {relative_path}"
+                )
             size = record["size"]
             file_digest = record["sha256"]
             if not isinstance(size, int) or isinstance(size, bool) or size < 0:
                 raise PackagingError(f"manifest size is invalid for {relative_path}")
             if size > MAX_FILE_BYTES:
-                raise PackagingError(f"manifest file exceeds the policy limit: {relative_path}")
+                raise PackagingError(
+                    f"manifest file exceeds the policy limit: {relative_path}"
+                )
             total_file_bytes += size
             if total_file_bytes > MAX_TOTAL_FILE_BYTES:
-                raise PackagingError("manifest exceeds the total file-size policy limit")
-            if not isinstance(file_digest, str) or SHA256_RE.fullmatch(file_digest) is None:
+                raise PackagingError(
+                    "manifest exceeds the total file-size policy limit"
+                )
+            if (
+                not isinstance(file_digest, str)
+                or SHA256_RE.fullmatch(file_digest) is None
+            ):
                 raise PackagingError(f"manifest SHA-256 is invalid for {relative_path}")
         elif mode != expected_mode:
             raise PackagingError(f"manifest mode is invalid for {relative_path}")
         if kind == "symlink":
             target = record["target"]
             if not isinstance(target, str):
-                raise PackagingError(f"manifest symlink target is invalid for {relative_path}")
+                raise PackagingError(
+                    f"manifest symlink target is invalid for {relative_path}"
+                )
             _validate_symlink(relative_path, target)
+    _validate_symlink_graph(
+        [
+            (
+                str(record["path"]),
+                str(record["type"]),
+                str(record["target"]) if record["type"] == "symlink" else None,
+            )
+            for record in records
+        ]
+    )
     canonical_json = json.dumps(
         manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True
     )
@@ -1552,8 +1668,15 @@ def _verify_member_metadata(
         raise PackagingError(
             f"archive member order/path mismatch: {member.name!r} != {expected_name!r}"
         )
-    if member.uid != 0 or member.gid != 0 or member.uname != "root" or member.gname != "root":
-        raise PackagingError(f"archive ownership metadata is not normalized: {member.name}")
+    if (
+        member.uid != 0
+        or member.gid != 0
+        or member.uname != "root"
+        or member.gname != "root"
+    ):
+        raise PackagingError(
+            f"archive ownership metadata is not normalized: {member.name}"
+        )
     if member.mtime != epoch:
         raise PackagingError(f"archive mtime is not normalized: {member.name}")
     if set(member.pax_headers) - {"path", "linkpath"}:
@@ -1569,11 +1692,7 @@ def _verify_member_metadata(
     member_kind = (
         "directory"
         if member.isdir()
-        else "file"
-        if member.isreg()
-        else "symlink"
-        if member.issym()
-        else "special"
+        else "file" if member.isreg() else "symlink" if member.issym() else "special"
     )
     if member_kind != kind:
         raise PackagingError(f"archive member type mismatch: {member.name}")
@@ -1605,7 +1724,9 @@ def _preflight_tar_structure(tar_path: Path) -> None:
                 if zero_blocks >= 2:
                     while remainder := stream.read(READ_SIZE):
                         if remainder.strip(b"\0"):
-                            raise PackagingError("tar has nonzero data after its end marker")
+                            raise PackagingError(
+                                "tar has nonzero data after its end marker"
+                            )
                     return
                 continue
             if zero_blocks:
@@ -1616,7 +1737,9 @@ def _preflight_tar_structure(tar_path: Path) -> None:
             try:
                 member_size = tarfile.nti(block[124:136])
             except (tarfile.InvalidHeaderError, ValueError) as error:
-                raise PackagingError(f"tar has an invalid size field: {error}") from error
+                raise PackagingError(
+                    f"tar has an invalid size field: {error}"
+                ) from error
             if member_size is None or member_size < 0:
                 raise PackagingError("tar has a negative or missing member size")
             member_type = block[156:157]
@@ -1635,7 +1758,9 @@ def _preflight_tar_structure(tar_path: Path) -> None:
                 raise PackagingError(
                     f"tar contains a forbidden physical header type: {member_type!r}"
                 )
-            padded_size = (member_size + tarfile.BLOCKSIZE - 1) & ~(tarfile.BLOCKSIZE - 1)
+            padded_size = (member_size + tarfile.BLOCKSIZE - 1) & ~(
+                tarfile.BLOCKSIZE - 1
+            )
             next_offset = stream.tell() + padded_size
             if next_offset > file_size:
                 raise PackagingError("tar member payload extends beyond the file")
@@ -1650,7 +1775,9 @@ def _extract_and_verify_tar(tar_path: Path, manifest: dict[str, object]) -> None
     expected_members = _expected_members(manifest)
     epoch = int(manifest["source_date_epoch"])
     archive_root = str(manifest["archive_root"])
-    with tempfile.TemporaryDirectory(prefix="openfusion-tar-verify-") as extraction_value:
+    with tempfile.TemporaryDirectory(
+        prefix="openfusion-tar-verify-"
+    ) as extraction_value:
         extraction_root = Path(extraction_value)
         directory_paths: list[Path] = []
         with tarfile.open(tar_path, mode="r:", encoding="utf-8") as archive:
@@ -1659,7 +1786,9 @@ def _extract_and_verify_tar(tar_path: Path, manifest: dict[str, object]) -> None
             for member in _stream_tar_members(archive):
                 member_count += 1
                 if member_count > MAX_ENTRIES + 1:
-                    raise PackagingError("archive exceeds the member-count policy limit")
+                    raise PackagingError(
+                        "archive exceeds the member-count policy limit"
+                    )
                 try:
                     expected_name, record = next(expected_iterator)
                 except StopIteration as error:
@@ -1667,9 +1796,13 @@ def _extract_and_verify_tar(tar_path: Path, manifest: dict[str, object]) -> None
                         "archive contains members absent from the manifest"
                     ) from error
                 _verify_member_metadata(member, expected_name, record, epoch)
-                output_path = extraction_root.joinpath(*PurePosixPath(member.name).parts)
+                output_path = extraction_root.joinpath(
+                    *PurePosixPath(member.name).parts
+                )
                 if not _path_is_within(output_path, extraction_root):
-                    raise PackagingError(f"archive member escapes extraction root: {member.name}")
+                    raise PackagingError(
+                        f"archive member escapes extraction root: {member.name}"
+                    )
                 if member.isdir():
                     output_path.mkdir(mode=0o700)
                     directory_paths.append(output_path)
@@ -1677,14 +1810,18 @@ def _extract_and_verify_tar(tar_path: Path, manifest: dict[str, object]) -> None
                     assert record is not None
                     source = archive.extractfile(member)
                     if source is None:
-                        raise PackagingError(f"archive member content is missing: {member.name}")
+                        raise PackagingError(
+                            f"archive member content is missing: {member.name}"
+                        )
                     digest = hashlib.sha256()
                     with output_path.open("xb") as destination:
                         while data := source.read(READ_SIZE):
                             destination.write(data)
                             digest.update(data)
                     if digest.hexdigest() != record["sha256"]:
-                        raise PackagingError(f"archive member digest mismatch: {member.name}")
+                        raise PackagingError(
+                            f"archive member digest mismatch: {member.name}"
+                        )
                     output_path.chmod(int(record["mode"]))
                     os.utime(output_path, (epoch, epoch))
                 elif member.issym():
@@ -1696,7 +1833,9 @@ def _extract_and_verify_tar(tar_path: Path, manifest: dict[str, object]) -> None
             except StopIteration:
                 pass
             else:
-                raise PackagingError("archive is missing members declared by the manifest")
+                raise PackagingError(
+                    "archive is missing members declared by the manifest"
+                )
         for directory in reversed(directory_paths):
             directory.chmod(0o755)
             os.utime(directory, (epoch, epoch))
@@ -1712,15 +1851,13 @@ def _extract_and_verify_tar(tar_path: Path, manifest: dict[str, object]) -> None
             or root_metadata.st_mtime_ns != epoch * 1_000_000_000
         ):
             raise PackagingError("extracted archive root metadata is not normalized")
-        _validate_payload_elf(
-            extracted_entries,
-            str(manifest["architecture"]),
-            manifest["elf_validation"] == "test-only-bypass",
-        )
+        _validate_payload_elf(extracted_entries, str(manifest["architecture"]))
         canonical_tar = extraction_root / "canonical.tar"
         _write_tar(canonical_tar, archive_root, extracted_entries, epoch)
         if _sha256_file(canonical_tar) != _sha256_file(tar_path):
-            raise PackagingError("decompressed tar is not in canonical deterministic form")
+            raise PackagingError(
+                "decompressed tar is not in canonical deterministic form"
+            )
 
 
 def _verify_archive_data(
@@ -1728,13 +1865,11 @@ def _verify_archive_data(
     manifest_bytes: bytes,
     zstd: Path,
     require_artifact_basename: bool,
-    allow_test_elf_bypass: bool,
+    allow_test_identity_bypass: bool,
 ) -> dict[str, object]:
-    manifest = _parse_manifest(manifest_bytes)
-    if manifest["elf_validation"] == "test-only-bypass" and not allow_test_elf_bypass:
-        raise PackagingError(
-            "test-only ELF validation bypass is not accepted without the explicit test API flag"
-        )
+    manifest = _parse_manifest(
+        manifest_bytes, allow_test_identity_bypass=allow_test_identity_bypass
+    )
     if require_artifact_basename and archive_path.name != manifest["artifact"]:
         raise PackagingError("archive filename does not match its manifest")
     archive_size = archive_path.stat().st_size
@@ -1826,9 +1961,7 @@ def _publish_archive_last(
     except Exception:
         for name, expected_identity in reversed(published):
             try:
-                current = os.stat(
-                    name, dir_fd=output_descriptor, follow_symlinks=False
-                )
+                current = os.stat(name, dir_fd=output_descriptor, follow_symlinks=False)
             except FileNotFoundError:
                 continue
             if (current.st_dev, current.st_ino) == expected_identity:
@@ -1864,7 +1997,9 @@ def _open_regular_path_once(path_value: str | Path, label: str) -> tuple[Path, i
             next_descriptor = os.open(component, directory_flags, dir_fd=current)
             os.close(current)
             current = next_descriptor
-        file_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        file_flags = (
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        )
         descriptor = os.open(components[-1], file_flags, dir_fd=current)
     except OSError as error:
         raise PackagingError(f"cannot safely open {label} {path}: {error}") from error
@@ -1910,7 +2045,10 @@ def _copy_open_file_bounded(
         destination.unlink(missing_ok=True)
         raise
     after = os.fstat(source_descriptor)
-    if Snapshot.from_stat(after) != Snapshot.from_stat(before) or total != before.st_size:
+    if (
+        Snapshot.from_stat(after) != Snapshot.from_stat(before)
+        or total != before.st_size
+    ):
         destination.unlink(missing_ok=True)
         raise PackagingError(f"{label} changed while being copied for verification")
 
@@ -1938,7 +2076,7 @@ def build_package(
     *,
     staging_is_quiescent: bool = False,
     output_is_exclusive: bool = False,
-    _test_only_allow_missing_elf: bool = False,
+    _test_only_bypass_product_identity: bool = False,
 ) -> tuple[Path, Path, Path]:
     """Build, verify, and atomically expose an archive, manifest, and checksum."""
 
@@ -1983,7 +2121,9 @@ def build_package(
             ) from error
         source_descriptor = _open_prefix_at(destdir_descriptor, prefix)
         if _directory_descriptor_is_within(output_descriptor, source_descriptor):
-            raise PackagingError("output directory must not be inside the installed prefix")
+            raise PackagingError(
+                "output directory must not be inside the installed prefix"
+            )
         for final_name in (artifact_name, manifest_name, checksum_name):
             try:
                 os.stat(final_name, dir_fd=output_descriptor, follow_symlinks=False)
@@ -1993,20 +2133,16 @@ def build_package(
                 f"refusing to overwrite existing output: {output_dir / final_name}"
             )
         with _private_output_workspace(output_descriptor) as (_, private_descriptor):
-            snapshot_path, elf_validation, source_scan = _create_private_snapshot(
+            snapshot_path, product_identity, source_scan = _create_private_snapshot(
                 source_descriptor,
                 private_descriptor,
                 epoch,
                 architecture,
                 version,
-                _test_only_allow_missing_elf,
+                _test_only_bypass_product_identity,
             )
             entries = _scan_tree(snapshot_path)
-            _validate_payload_elf(
-                entries,
-                architecture,
-                _test_only_allow_missing_elf,
-            )
+            _validate_payload_elf(entries, architecture)
 
             tar_path = _descriptor_path(private_descriptor, "payload.tar")
             _write_tar(tar_path, archive_root, entries, epoch)
@@ -2018,7 +2154,9 @@ def build_package(
             _compress(tar_path, compressed_path, zstd)
             compressed_path.chmod(0o600)
             if compressed_path.stat().st_size > MAX_ARCHIVE_BYTES:
-                raise PackagingError("compressed archive exceeds the absolute policy limit")
+                raise PackagingError(
+                    "compressed archive exceeds the absolute policy limit"
+                )
             archive_digest = _sha256_file(compressed_path)
 
             manifest_content = _manifest_bytes(
@@ -2032,7 +2170,7 @@ def build_package(
                 epoch,
                 entries,
                 archive_digest,
-                elf_validation,
+                product_identity,
             )
             manifest_path = _create_private_file(
                 private_descriptor,
@@ -2057,10 +2195,12 @@ def build_package(
                 manifest_content,
                 zstd,
                 False,
-                _test_only_allow_missing_elf,
+                _test_only_bypass_product_identity,
             )
             _require_directory_identity(destdir, destdir_descriptor, "DESTDIR")
-            _require_directory_identity(output_dir, output_descriptor, "output directory")
+            _require_directory_identity(
+                output_dir, output_descriptor, "output directory"
+            )
             reopened_source = _open_prefix_at(destdir_descriptor, prefix)
             try:
                 if Snapshot.from_stat(os.fstat(reopened_source)) != Snapshot.from_stat(
@@ -2107,7 +2247,7 @@ def verify_package(
     checksum_value: str | Path,
     zstd_value: str | None = None,
     *,
-    _test_only_allow_missing_elf: bool = False,
+    _test_only_bypass_product_identity: bool = False,
 ) -> None:
     """Verify names, checksums, tar metadata, safe extraction, and the payload manifest."""
 
@@ -2121,9 +2261,7 @@ def verify_package(
         or checksum_input.name != expected_checksum_name
     ):
         raise PackagingError("archive companion basenames are inconsistent")
-    if not (
-        archive_input.parent == manifest_input.parent == checksum_input.parent
-    ):
+    if not (archive_input.parent == manifest_input.parent == checksum_input.parent):
         raise PackagingError("archive companions must be supplied from one directory")
     zstd = _find_zstd(zstd_value)
     opened: list[int] = []
@@ -2140,7 +2278,9 @@ def verify_package(
             checksum_input, "checksum"
         )
         opened.append(checksum_source)
-        with tempfile.TemporaryDirectory(prefix="openfusion-package-inputs-") as private_value:
+        with tempfile.TemporaryDirectory(
+            prefix="openfusion-package-inputs-"
+        ) as private_value:
             private = Path(private_value)
             private.chmod(0o700)
             archive_path = private / archive_source_path.name
@@ -2169,7 +2309,10 @@ def verify_package(
             opened.clear()
 
             manifest_bytes = manifest_path.read_bytes()
-            manifest = _parse_manifest(manifest_bytes)
+            manifest = _parse_manifest(
+                manifest_bytes,
+                allow_test_identity_bypass=_test_only_bypass_product_identity,
+            )
             if (
                 manifest_path.name != manifest["manifest"]
                 or checksum_path.name != manifest["checksum"]
@@ -2185,13 +2328,15 @@ def verify_package(
                 f"{manifest_digest}  {manifest['manifest']}\n"
             ).encode("ascii")
             if checksum_path.read_bytes() != expected_checksum:
-                raise PackagingError("checksum file does not match the archive and manifest")
+                raise PackagingError(
+                    "checksum file does not match the archive and manifest"
+                )
             _verify_archive_data(
                 archive_path,
                 manifest_bytes,
                 zstd,
                 True,
-                _test_only_allow_missing_elf,
+                _test_only_bypass_product_identity,
             )
     finally:
         for descriptor in opened:
@@ -2204,7 +2349,9 @@ def _parser() -> argparse.ArgumentParser:
 
     build = subparsers.add_parser("build", help="build and verify a staged tar.zst")
     build.add_argument("--destdir", required=True, help="canonical absolute DESTDIR")
-    build.add_argument("--prefix", required=True, help="exact absolute POSIX install prefix")
+    build.add_argument(
+        "--prefix", required=True, help="exact absolute POSIX install prefix"
+    )
     build.add_argument("--version", required=True, help="semantic OpenFusion version")
     build.add_argument(
         "--architecture",
@@ -2212,7 +2359,9 @@ def _parser() -> argparse.ArgumentParser:
         choices=sorted(SUPPORTED_ARCHITECTURES),
         help="trusted target architecture, validated against staged ELF files",
     )
-    build.add_argument("--output-dir", required=True, help="canonical absolute output directory")
+    build.add_argument(
+        "--output-dir", required=True, help="canonical absolute output directory"
+    )
     build.add_argument(
         "--staging-is-quiescent",
         action="store_true",
@@ -2225,10 +2374,18 @@ def _parser() -> argparse.ArgumentParser:
     )
     build.add_argument("--zstd", help="zstd executable; defaults to PATH lookup")
 
-    verify = subparsers.add_parser("verify", help="verify a previously built staged tar.zst")
-    verify.add_argument("--archive", required=True, help="canonical absolute tar.zst path")
-    verify.add_argument("--manifest", required=True, help="canonical absolute manifest path")
-    verify.add_argument("--checksum", required=True, help="canonical absolute checksum path")
+    verify = subparsers.add_parser(
+        "verify", help="verify a previously built staged tar.zst"
+    )
+    verify.add_argument(
+        "--archive", required=True, help="canonical absolute tar.zst path"
+    )
+    verify.add_argument(
+        "--manifest", required=True, help="canonical absolute manifest path"
+    )
+    verify.add_argument(
+        "--checksum", required=True, help="canonical absolute checksum path"
+    )
     verify.add_argument("--zstd", help="zstd executable; defaults to PATH lookup")
     return parser
 
