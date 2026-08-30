@@ -426,16 +426,12 @@ jobs:
             }
           }
 
-          $output = Get-Content -Raw $stdoutLog
-          $matches = [regex]::Matches(
-            $output,
-            '(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$'
-          )
-          if (
-            $matches.Count -eq 0 -or
-            [int]$matches[$matches.Count - 1].Groups[1].Value -ne 1
-          ) {
-            throw "Expected exactly one completed GUI export test."
+          pixi run python .github/scripts/validate_unittest_summary.py `
+            $stdoutLog `
+            --expected-count 1 `
+            --label "TechDraw GUI export"
+          if ($LASTEXITCODE -ne 0) {
+            throw "TechDraw GUI export summary validation failed."
           }
 
       - name: Upload TechDraw GUI export diagnostics
@@ -546,18 +542,13 @@ jobs:
           Copy-Item -LiteralPath $applicationLog logs/freecadcmd-application.log
           if ($testExitCode -ne 0) { throw "FreeCADCmd test baseline failed." }
 
-          $output = Get-Content -Raw logs/freecadcmd-tests.log
-          $summaries = [regex]::Matches(
-            $output,
-            '(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$'
-          )
-          if ($summaries.Count -eq 0) {
-            throw "FreeCADCmd emitted no anchored unittest summary."
+          pixi run python .github/scripts/validate_unittest_summary.py `
+            logs/freecadcmd-tests.log `
+            --count-file logs/freecadcmd-test-count.txt `
+            --label FreeCADCmd
+          if ($LASTEXITCODE -ne 0) {
+            throw "FreeCADCmd summary validation failed."
           }
-          $count = [int]$summaries[$summaries.Count - 1].Groups[1].Value
-          "$count" | Set-Content -Encoding ascii logs/freecadcmd-test-count.txt
-          Write-Host "FreeCADCmd final unittest summary reported $count tests"
-          if ($count -le 0) { throw "FreeCADCmd final unittest summary reported zero tests." }
 
       - name: Inventory and run native FreeCAD GUI baseline
         timeout-minutes: 45
@@ -643,19 +634,12 @@ jobs:
           Copy-Item -LiteralPath $applicationLog logs/freecadgui-application.log
           if ($testExitCode -ne 0) { throw "FreeCAD GUI test baseline failed." }
 
-          $output = Get-Content -Raw logs/freecadgui-tests.log
-          $summaries = [regex]::Matches(
-            $output,
-            '(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$'
-          )
-          if ($summaries.Count -eq 0) {
-            throw "FreeCAD GUI emitted no anchored unittest summary."
-          }
-          $count = [int]$summaries[$summaries.Count - 1].Groups[1].Value
-          "$count" | Set-Content -Encoding ascii logs/freecadgui-test-count.txt
-          Write-Host "FreeCAD GUI final unittest summary reported $count tests"
-          if ($count -le 0) {
-            throw "FreeCAD GUI final unittest summary reported zero tests."
+          pixi run python .github/scripts/validate_unittest_summary.py `
+            logs/freecadgui-tests.log `
+            --count-file logs/freecadgui-test-count.txt `
+            --label "FreeCAD GUI"
+          if ($LASTEXITCODE -ne 0) {
+            throw "FreeCAD GUI summary validation failed."
           }
 
       - name: Record baseline diagnostics

@@ -78,6 +78,13 @@ jobs:
           fi
           pixi install --locked 2>&1 | tee logs/pixi-install.log
 
+      - name: Run CI helper unit tests
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          pixi run python tests/ci/test_validate_unittest_summary.py 2>&1 |
+            tee logs/validate-unittest-summary-unit.log
+
       - name: Configure Release build with tests
         timeout-minutes: 25
         run: |
@@ -211,21 +218,10 @@ jobs:
           test -s "$application_log"
           test -s "$output_dir/TechDrawGuiExport/OpenFusionTechDraw-full-page.svg"
           test -s "$output_dir/TechDrawGuiExport/OpenFusionTechDraw-full-page.pdf"
-          pixi run python - <<'PY'
-          import re
-          from pathlib import Path
-
-          output = Path("logs/techdraw-gui-export.log").read_text(
-              encoding="utf-8", errors="replace"
-          )
-          counts = re.findall(
-              r"(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+"
-              r"[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$",
-              output,
-          )
-          if not counts or int(counts[-1]) != 1:
-              raise SystemExit("Expected exactly one completed GUI export test")
-          PY
+          pixi run python .github/scripts/validate_unittest_summary.py \
+            "$stdout_log" \
+            --expected-count 1 \
+            --label "TechDraw GUI export"
 
       - name: Upload TechDraw GUI export diagnostics
         if: always()
@@ -302,24 +298,10 @@ jobs:
             --log-file "$profile_dir/freecad-cli.log" \
             -t 0 \
             2>&1 | tee logs/freecadcmd-tests.log
-          pixi run python - <<'PY'
-          import re
-          from pathlib import Path
-
-          output = Path("logs/freecadcmd-tests.log").read_text(encoding="utf-8", errors="replace")
-          counts = re.findall(
-              r"(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+"
-              r"[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$",
-              output,
-          )
-          if not counts:
-              raise SystemExit("FreeCADCmd test runner summary was not found")
-          count = int(counts[-1])
-          Path("logs/freecadcmd-test-count.txt").write_text(f"{count}\n", encoding="utf-8")
-          print(f"FreeCADCmd reported {count} tests")
-          if count == 0:
-              raise SystemExit("FreeCADCmd reported zero tests")
-          PY
+          pixi run python .github/scripts/validate_unittest_summary.py \
+            logs/freecadcmd-tests.log \
+            --count-file logs/freecadcmd-test-count.txt \
+            --label FreeCADCmd
 
       - name: Run FreeCAD GUI test baseline
         timeout-minutes: 60
@@ -382,24 +364,10 @@ jobs:
             echo "FreeCAD GUI tests did not produce a nonempty application log." >&2
             exit 1
           fi
-          pixi run python - <<'PY'
-          import re
-          from pathlib import Path
-
-          output = Path("logs/freecadgui-tests.log").read_text(encoding="utf-8", errors="replace")
-          counts = re.findall(
-              r"(?m)^Ran[ \t]+(\d+)[ \t]+tests?[ \t]+in[ \t]+"
-              r"[0-9]+(?:\.[0-9]+)?s[ \t]*\r?$",
-              output,
-          )
-          if not counts:
-              raise SystemExit("FreeCAD GUI test runner summary was not found")
-          count = int(counts[-1])
-          Path("logs/freecadgui-test-count.txt").write_text(f"{count}\n", encoding="utf-8")
-          print(f"FreeCAD GUI reported {count} tests")
-          if count == 0:
-              raise SystemExit("FreeCAD GUI reported zero tests")
-          PY
+          pixi run python .github/scripts/validate_unittest_summary.py \
+            logs/freecadgui-tests.log \
+            --count-file logs/freecadgui-test-count.txt \
+            --label "FreeCAD GUI"
 
       - name: Record baseline metadata
         if: always()
