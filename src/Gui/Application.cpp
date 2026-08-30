@@ -2440,7 +2440,7 @@ void setAppNameAndIcon()
 #endif
 }
 
-void tryRunEventLoop(GUISingleApplication& mainApp)
+int tryRunEventLoop(GUISingleApplication& mainApp)
 {
     std::stringstream out;
     out << App::Application::getUserCachePath() << App::Application::getExecutableName() << "_"
@@ -2459,12 +2459,14 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
         boost::interprocess::file_lock flock(filename.c_str());
         if (flock.try_lock()) {
             Base::Console().log("Init: Executing event loop…\n");
-            QApplication::exec();
+            const int exitCode = QApplication::exec();
 
-            // Qt can't handle exceptions thrown from event handlers, so we need
-            // to manually rethrow SystemExitExceptions.
-            if (mainApp.caughtException) {
-                throw Base::SystemExitException(*mainApp.caughtException.get());
+            // Qt can't allow exceptions to escape event handlers. GUIApplication::notify()
+            // records SystemExitException and asks Qt to leave the event loop with its exit
+            // code. Propagate that code directly instead of rethrowing through the Qt and
+            // shared-library boundary, which terminates the process on macOS arm64.
+            if (mainApp.caughtSystemExit) {
+                Base::Console().message("System exit\n");
             }
 
             // close the lock file, in case of a crash we can see the existing lock file
@@ -2472,6 +2474,7 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
             flock.unlock();
             lock.close();
             fi.deleteFile();
+            return exitCode;
         }
         else {
             Base::Console().error(
@@ -2480,6 +2483,7 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
                 "Attempted lock file: %s",
                 fi.filePath().c_str()
             );
+            return 1;
         }
     }
     catch (const boost::interprocess::interprocess_exception& e) {
@@ -2490,17 +2494,14 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
             msg.toUtf8().constData(),
             fi.filePath().c_str()
         );
+        return 1;
     }
 }
 
-void runEventLoop(GUISingleApplication& mainApp)
+int runEventLoop(GUISingleApplication& mainApp)
 {
     try {
-        tryRunEventLoop(mainApp);
-    }
-    catch (const Base::SystemExitException&) {
-        Base::Console().message("System exit\n");
-        throw;
+        return tryRunEventLoop(mainApp);
     }
     catch (const std::exception& e) {
         // catching nasty stuff coming out of the event loop
@@ -2517,7 +2518,7 @@ void runEventLoop(GUISingleApplication& mainApp)
 }
 }  // namespace
 
-void Application::runApplication()
+int Application::runApplication()
 {
     StartupProcess::setupApplication();
 
@@ -2568,7 +2569,7 @@ void Application::runApplication()
 
     // check if a single or multiple instances can run
     if (onlySingleInstance(mainApp)) {
-        return;
+        return 0;
     }
 
     setAppNameAndIcon();
@@ -2609,9 +2610,10 @@ void Application::runApplication()
     }
 #endif
 
-    runEventLoop(mainApp);
+    const int exitCode = runEventLoop(mainApp);
 
     Base::Console().log("Finish: Event loop left\n");
+    return exitCode;
 }
 
 bool Application::hiddenMainWindow()

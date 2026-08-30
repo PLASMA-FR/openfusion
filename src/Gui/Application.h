@@ -262,7 +262,8 @@ public:
     static void initTypes();
     static void initOpenInventor();
     static void runInitGuiScript();
-    static void runApplication();
+    /// Run the GUI event loop and return its process exit code.
+    static int runApplication();
     void tryClose(QCloseEvent* e);
     //@}
 
