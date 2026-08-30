@@ -91,3 +91,52 @@ The upstream pin may change only in a focused commit that:
 3. runs the complete baseline and OpenFusion regression suites;
 4. audits license and dependency changes;
 5. documents migrations and known incompatibilities.
+
+## Upstream remote and update policy
+
+Every maintainer checkout must keep the OpenFusion repository as `origin` and
+configure FreeCAD as a fetch-only `upstream` remote:
+
+```bash
+git remote add upstream https://github.com/FreeCAD/FreeCAD.git
+git remote set-url --push upstream DISABLED
+git remote -v
+```
+
+If `upstream` already exists, verify its fetch URL and reapply the disabled
+push URL. Never add credentials to either remote URL.
+
+An upstream update is prepared on a dedicated `upstream-review/<version>`
+branch from the current OpenFusion integration branch. Fetch tags and the
+candidate commit without changing the working branch, then verify the exact
+object that will be reviewed:
+
+```bash
+git fetch --prune --tags upstream
+git rev-parse --verify '<tag>^{commit}'
+git switch -c upstream-review/<version>
+git merge --no-commit --no-ff '<full-upstream-commit>'
+```
+
+The merge remains uncommitted until maintainers have reviewed the complete
+source and submodule diff, upstream release and security notes, dependency and
+license changes, FCStd compatibility risk, and OpenFusion-specific conflicts.
+Abort an unsuitable candidate with `git merge --abort`; do not rewrite the
+published OpenFusion history to make an upstream update appear simpler.
+
+An accepted update is submitted as a focused pull request. Its merge commit
+must retain both parents, record the old and new full upstream hashes, update
+this document and the third-party notices as needed, and link the following
+evidence:
+
+- locked Linux, Windows, macOS arm64, and macOS x86_64 builds;
+- the complete CTest, CLI, GUI, serialization, and acceptance results;
+- representative FCStd save/reopen and STEP/STL interoperability results;
+- dependency, license, CodeQL, and untrusted-input review results;
+- benchmark comparisons for startup, recompute, file loading, and memory when
+  the candidate materially changes those paths.
+
+OpenFusion fixes that are suitable for FreeCAD should be kept as independently
+reviewable commits so they can be proposed upstream. OpenFusion-only product
+presentation, branding, and packaging changes stay in this repository and
+must not be represented as FreeCAD changes.
