@@ -5,6 +5,21 @@ set(OPENFUSION_ACCEPTANCE_OUTPUT_DIR
 )
 file(MAKE_DIRECTORY "${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}")
 
+if(BUILD_GUI)
+    add_test(
+        NAME OpenFusion_GUI_SystemExit_Propagation
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/OpenFusionGuiSystemExitRegression.py"
+            --freecad $<TARGET_FILE:FreeCADMain>
+            --state-dir "${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}/GuiSystemExit"
+    )
+    set_tests_properties(OpenFusion_GUI_SystemExit_Propagation PROPERTIES
+        LABELS "acceptance;gui;lifecycle;cleanup"
+        RUN_SERIAL TRUE
+        TIMEOUT 120
+    )
+endif()
+
 add_test(
     NAME OpenFusion_Core_Acceptance
     COMMAND $<TARGET_FILE:FreeCADMainCmd>

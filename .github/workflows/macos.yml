@@ -215,6 +215,7 @@ jobs:
           required_acceptance = {
               "OpenFusion_Assembly_Acceptance",
               "OpenFusion_Core_Acceptance",
+              "OpenFusion_GUI_SystemExit_Propagation",
               "OpenFusion_TechDraw_Acceptance",
           }
           missing_acceptance = sorted(required_acceptance - names)

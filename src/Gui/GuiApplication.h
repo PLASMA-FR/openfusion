@@ -50,7 +50,7 @@ public:
      */
     bool notify(QObject* receiver, QEvent* event) override;
 
-    /// Pointer to exceptions caught in Qt event handler
+    /// SystemExit caught at the Qt event boundary, retained for its exact exit code.
     std::shared_ptr<Base::SystemExitException> caughtException;
 
 public Q_SLOTS:

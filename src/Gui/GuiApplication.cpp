@@ -105,7 +105,7 @@ bool GUIApplication::notify(QObject* receiver, QEvent* event)
     }
     catch (const Base::SystemExitException& e) {
         caughtException.reset(new Base::SystemExitException(e));
-        qApp->exit(e.getExitCode());
+        qApp->exit(static_cast<int>(caughtException->getExitCode()));
         return true;
     }
     catch (const Base::Exception& e) {
