@@ -41,27 +41,50 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 - Passed generated Part mirror Python commands as UTF-8 rather than Latin-1,
   preserving non-Latin-1 object labels on the current local integration head.
 - Preserved an exact nonzero event-loop exit code while still running GUI
-  cleanup when `Base::SystemExitException` crosses the application boundary.
+  cleanup when `Base::SystemExitException` reaches the application boundary.
 - Gave Base FileInfo fixtures process-unique paths so parallel CTest processes
   do not delete or replace each other's files.
 - Added deterministic Windows native-test runtime-path bootstrapping and five
-  helper unit tests. Real Windows runner validation remains pending.
+  helper unit tests. The native runner now proves Materials 35/35, while other
+  Windows failures remain.
+- Committed locally, but have not yet published, Qt-callback exception containment with
+  exact 0/1/7 lifecycle coverage, a finite scientific-notation unittest summary
+  parser, and corrections for the Windows FileInfo/offscreen failures exposed
+  by the first cross-platform rerun.
 
 ### Verification
 
-- On local head `403e72f24303ab6d7a91d29a35648ef2f0d2cc05`, an incremental Release build
-  completed 634/634 steps and CTest reported 1,423 enabled tests, zero failures,
-  three skips, six disabled tests, and four passing acceptance tests in 80.86
-  seconds. CLI ran 1,661 tests with 10 skips and no failures; GUI reported
-  1,759 passes.
+- On committed local tested implementation head
+  `2f7fa2c8e940759d07698442054af0d12f222125`, based on remote head
+  `51ae387b9ff3c0d1f3c894adb897717664967974`, incremental Release builds of 324
+  and then four edges passed. CTest reported 1,433 registered, 1,427 enabled,
+  zero failures, three skips, and six disabled tests in 90.11 seconds. CLI ran
+  1,661 tests with 10 skips and no failures in 153.353 seconds. A faithful
+  safe-mode GUI run reported 1,759 passes, zero failures, process exit 0, and a
+  parsed count of 1,759 in 420 seconds.
 - Focused evidence includes exact exit code 7 plus cleanup, a passing Unicode
   mirror regression, 2,000 targeted and 1,400 full-fixture FileInfo stress
-  repetitions, five passing Windows helper tests, and rendered TechDraw SVG/PDF
-  output. These are local Linux arm64 results, not Windows or macOS evidence.
-- Draft PR #28 and `integration/acceptance-ci` still point to
-  `1a27d1f46030c9e42aff67bc1d90cb5c6114ea03`; their existing red runs remain
-  current remote truth until the local commits are pushed and the matrix is
-  re-fetched.
+  repetitions, five passing Windows helper tests, rendered TechDraw SVG/PDF
+  output, 9/9 parser tests, 4/4 SystemExit classifier cases, 2/2 targeted
+  FileInfo cases, 2/2 Qt callback tests,
+  and one lifecycle CTest covering exact codes 0, 1, and 7. These are local
+  Linux arm64 results, not Windows or macOS evidence. An interrupted hidden-mode
+  diagnostic is excluded from the results.
+- The final candidate evidence also includes TechDraw GUI export 1/1 in 2.55
+  seconds with exit 0, a 13,163-byte SVG, and a 298,780-byte PDF; parser counts
+  of 1,661 for CLI and 1,759 for the faithful safe-mode GUI run; and exact GUI
+  duration `4.2e+02s`. Final review raised timeout-budget and FileInfo test-
+  suppression findings. Both were resolved: the lifecycle CTest timeout is 330
+  rather than 240 seconds, and FileInfo always executes WriteOnly while
+  documenting and asserting the Windows readable-and-writable projection
+  without skipping or changing the DACL.
+- Draft PR #28 is terminal and red at
+  `51ae387b9ff3c0d1f3c894adb897717664967974`: Linux rejected a valid scientific
+  GUI duration after 1,759 passing tests; Windows passed Materials 35/35 but had
+  two FileInfo assertions and three timeouts; macOS arm64 terminated on an
+  exception escaping a Qt callback; macOS x86_64 reported 1,759 passing GUI
+  tests but exited 1. Security failed only on the disabled Dependency Graph;
+  all three CodeQL jobs passed.
 
 ### Security
 

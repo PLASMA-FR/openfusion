@@ -9,7 +9,8 @@ PR checks or clean-installed package tests.
 
 | Field | Value |
 |---|---|
-| Commit | `403e72f24303ab6d7a91d29a35648ef2f0d2cc05` |
+| Remote commit | `51ae387b9ff3c0d1f3c894adb897717664967974` |
+| Local tested implementation head | `2f7fa2c8e940759d07698442054af0d12f222125`; committed locally, awaiting publication, and not remote CI evidence |
 | Host | Ubuntu 24.04 arm64; Neoverse-N1; 2 CPUs; 12,506,804,224 bytes RAM |
 | Environment | Pixi 0.59.0; `pixi.lock` SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc` |
 | Toolchain | Clang 21.1.0; CMake 4.2.1; Ninja 1.13.2; Python 3.11.14; Qt 6.8.3 |
@@ -24,7 +25,7 @@ PR checks or clean-installed package tests.
 | Serial FileInfo confirmation | 14/14 passed | Confirmed a cross-process fixture race rather than a deterministic functional failure |
 | Unicode mirror GUI regression | 0/1 passed; exact process exit 1 | Reproduced the Latin-1 generated-command defect |
 
-### Fixed local head
+### Published integration implementation, tested locally
 
 | Gate | Result | Time / detail |
 |---|---|---|
@@ -39,11 +40,40 @@ PR checks or clean-installed package tests.
 | CLI Python suite | 1,661 ran; 10 skipped; zero failures | 156.014 s |
 | GUI Python suite | 1,759 passed | 424 s |
 
-The remote `integration/acceptance-ci` branch and draft PR #28 still resolve to
-`1a27d1f46030c9e42aff67bc1d90cb5c6114ea03`. Existing remote conclusions are
-therefore stale with respect to these local results but remain the remote truth
-until the five commits are pushed and the full matrix is re-fetched. Windows
-native CTest and macOS arm64/x86_64 reruns are pending.
+### Committed local next head awaiting publication
+
+| Gate | Result | Time / detail |
+|---|---|---|
+| Incremental Release build | 324 edges, then a four-edge follow-up | Both passed |
+| Unittest summary parser | 9/9 passed | Accepts finite integer, decimal, and scientific durations while rejecting malformed summaries |
+| SystemExit classifier and FileInfo focus | 4/4 classifier cases plus 2/2 targeted FileInfo cases passed | FileInfo always executes WriteOnly and documents/asserts the Windows readable-and-writable projection without a skip or DACL change |
+| Qt callback tests | 2/2 passed | Callback-boundary containment |
+| GUI lifecycle CTest | 1/1 passed | Three scenarios preserve exact codes 0, 1, and 7 and execute cleanup; final review's timeout-budget finding was addressed by increasing the timeout from 240 to 330 seconds |
+| TechDraw GUI export | 1/1 passed; process exit 0 | 2.55 s; SVG 13,163 bytes; PDF 298,780 bytes |
+| Full CTest | 1,433 registered; 1,427 enabled; zero failed; three skipped; six disabled | 90.11 s |
+| CLI Python suite | 1,661 ran; 10 skipped; zero failures; parser count 1,661 | 153.353 s |
+| GUI Python suite | Faithful safe-mode run: 1,759 passed; zero failures; process exit 0; parser count 1,759 | `4.2e+02s` |
+
+An earlier hidden-mode diagnostic run was invalid and interrupted. It is not a
+product pass or failure and is not included above.
+
+### Terminal draft PR #28 evidence at remote head
+
+All four workflow runs are terminal at
+`51ae387b9ff3c0d1f3c894adb897717664967974`. All retained artifacts expire on
+2026-09-29.
+
+| Platform / run | Result | Retained artifacts |
+|---|---|---|
+| Security `33302508107` | Failed solely because Dependency Review was fail-closed with the repository Dependency Graph disabled; all three CodeQL jobs passed. | None |
+| Linux `33302508115` | GUI reported 1,759 tests and `OK`; the workflow failed because its decimal-only parser rejected the scientific-notation duration. | Baseline `9730899331`, 6,858,545 bytes, SHA-256 `b31ee677c4cdda2780757462a65bf2da88fd4be7f485536ab844fbd02e05746d`; TechDraw `9730823771`, 603,842 bytes, SHA-256 `f5c20186b09e4f04ab805e7aaa86ea96f82cc9ad9ba8cab30ae45c75595592b5` |
+| Windows `33302508110` | Failed. Materials passed 35/35 after runtime bootstrapping. FileInfo had two assertion failures; QuantitySpinBox and DlgVersionMigrator each timed out at 600 s; lifecycle timed out at 90 s. | `9731537416`, 718,526 bytes, SHA-256 `055c10d61f99453da677eac40f247456c65dd01e509c187d9d1692a6de727b58` |
+| macOS arm64 `33302508113` | Failed: uncaught `Base::SystemExitException`, process -6 instead of the requested code, and incomplete lifecycle cleanup. | `9730507223`, 534,321 bytes, SHA-256 `b2310d67d570bacb3dada5a4bf9c9c22113c3ef3b8ee3d7845a06547a37164bc` |
+| macOS x86_64 `33302508113` | GUI reported 1,759 tests and `OK`, but the process exited 1. | Baseline `9731697288`, 6,850,827 bytes, SHA-256 `fcf219297fc674ff4caa8d272f01fdd5df7c98a3be4eab3a978becdcbf7754c5`; TechDraw `9731523318`, 597,342 bytes, SHA-256 `b157fdb0172d41d1354b89d7515b5ac6a7f4b44e97a6f2bb68b87878ebed9011` |
+
+Committed local head `2f7fa2c8e940759d07698442054af0d12f222125`
+addresses the observed Qt callback, scientific-summary, Windows FileInfo, and
+offscreen failures, but it is not published. Native reruns remain mandatory.
 
 OpenFusion treats geometry correctness, document compatibility, undo/redo, and installability as release gates. Compilation alone is not acceptance evidence.
 
