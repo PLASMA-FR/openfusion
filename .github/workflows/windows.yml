@@ -228,6 +228,26 @@ jobs:
           pixi run ninja --version 2>&1 | Tee-Object -FilePath logs/ninja-version.txt
           if ($LASTEXITCODE -ne 0) { throw "Ninja version probe failed." }
 
+      - name: Register native test runtime directories
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = "Stop"
+          pixi run python tests/ci/test_windows_test_runtime.py 2>&1 |
+            Tee-Object -FilePath logs/windows-test-runtime-unit.log
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows test runtime helper unit tests failed."
+          }
+
+          pixi run python .github/scripts/prepare_windows_test_runtime.py `
+            --build-dir build/release `
+            --github-path "$env:GITHUB_PATH" `
+            --manifest logs/windows-test-runtime-paths.txt `
+            --require-artifact Materials.pyd `
+            2>&1 | Tee-Object -FilePath logs/windows-test-runtime-setup.log
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows native test runtime setup failed."
+          }
+
       - name: Discover CTest tests
         timeout-minutes: 10
         run: |
