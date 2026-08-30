@@ -86,12 +86,21 @@ Each released artifact must include:
 - a mapping to complete corresponding source where required; and
 - verified checksums and release provenance.
 
-## Unresolved installed assets
+## Quarantined and removed assets
 
-Thirty-two installed material-pattern files explicitly state `All rights
-reserved`. They are quarantined for release purposes until a redistribution
-grant is documented or they are replaced or excluded. The complete set is in
-`docs/legal/RELEASE_COMPLIANCE_AUDIT.md`.
+Thirty-two inherited material-pattern files were removed from the OpenFusion Git
+index and are quarantined from tracked source and recognized build/package
+manifests. Their embedded metadata states `All rights reserved`; downstream
+redistribution permission has not been established in the project records. This
+is not a categorical determination that permission cannot exist. The files must
+remain excluded unless a documented grant or a compatible replacement is
+reviewed. Their original path and blob identities are recorded by the source
+guard, and the complete set is listed in
+`docs/legal/RELEASE_COMPLIANCE_AUDIT.md`. The guard audits the root and
+initialized-submodule Git indexes, recognized build/package manifests, and
+small Git LFS pointer blobs. It does not inspect untracked worktree files, Git
+LFS object storage, source archives, staging trees, or final package payloads;
+artifact-level inspection remains required.
 
 ## Release status
 

@@ -3,10 +3,12 @@
 **Last verified:** 2026-08-30 UTC
 **Production-ready:** No
 **Active milestone:** M0, reproducible upstream baseline
-**Next task:** Publish locally verified candidate
-`46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa`, re-fetch the resulting integration
-head, and rerun the complete Linux, Windows, and macOS matrix without weakening
-any gate. Linux is green at the prior published head; M0 is not complete.
+**Next task:** Retrieve the exact conclusions, failed steps, logs, and artifacts
+from the active reruns at published integration head
+`fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`: Linux `33333139217`, Windows
+`33333139201`, Security `33333139224`, and macOS `33333139229`. Fix any root
+cause without weakening a gate and keep PR #28 draft until the complete native
+matrix is terminal and green. M0 is not complete.
 
 This file records resumable execution truth. A local pass is not a remote CI
 pass, an inherited FreeCAD feature is not an OpenFusion product feature, and a
@@ -17,10 +19,44 @@ built artifact is not a tested package.
 | Item | Verified value |
 |---|---|
 | FreeCAD foundation | 1.1.3, commit `145529fe741292ff0b3977a01195bf0247425794` |
-| Remote integration head | `8aebea6cc733fc4d16d79c2deacf1d2b1525489a` |
-| Local tested candidate head | `46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa`; fully green on local Linux arm64, but unpublished and not native Windows or macOS evidence |
-| Active integration PR | Draft PR #28, `integration/acceptance-ci`; Linux is green at `8aebea6cc733fc4d16d79c2deacf1d2b1525489a`, while Windows and both macOS jobs are terminal and failed |
+| Remote integration head | `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`; tree `ccfe677824336961b69843b7418adbefcf4709ad`, equal to local tested base commit `a12f145768e057839f7d8ccd2815bda21fec058f` |
+| Local tested and published tree | Local commit `a12f145768e057839f7d8ccd2815bda21fec058f`, tree `ccfe677824336961b69843b7418adbefcf4709ad`, published as integration head `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`; fully green on local Linux arm64, with native reruns active but not yet accepted |
+| Staged legal rebase candidate | Base `a12f145768e057839f7d8ccd2815bda21fec058f`; initial conflict-free rebase composition tree `ed32be93352c3536a8a3aacb762ccc5546b6957a`, exactly matching Git's three-way merge of that base with PR #15 head `26c7c3a87173a159a429b36a1d2f2e519e70ea1f`; subsequent review fixes remain staged and uncommitted |
+| Active integration PR | Draft PR #28, `integration/acceptance-ci`, head `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`; Linux, Windows, Security, and both macOS architecture gates are actively rerunning, so no new native conclusion is claimed |
 | Dependency lock | `pixi.lock`, SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc` |
+
+### Staged legal quarantine candidate
+
+The isolated worktree `/home/ubuntu/openfusion/legal-rebase-candidate` stages
+the complete PR #15 removal and quarantine hardening on integration candidate
+base `a12f145768e057839f7d8ccd2815bda21fec058f`. The initial rebase index tree
+was `ed32be93352c3536a8a3aacb762ccc5546b6957a`, exactly equal to Git's
+independently computed three-way merge tree. Review follow-ups additionally
+make a quarantined Git LFS SHA-256 sufficient for rejection even when its
+pointer declares the wrong size, report both declared and quarantined sizes,
+and add an SPDX marker to the Windows guard test. These follow-ups are staged
+but have no commit SHA or published tree.
+
+The exact deletion set is the 32 material-pattern identities recorded by the
+guard plus `package/WindowsInstaller/thumbnail/FCStdThumbnail.dll`; there are no
+other staged deletions. The pinned FreeCAD foundation recomputation matched all
+32 Git OID, SHA-256, and size tuples. The removed DLL matched SHA-256
+`cf9985aca43c116fe3565436a9da267de8b7f17ceed8c0cae000cfb40e69a1b0` and size
+176,128 bytes. After the review follow-ups, the material suite passed 22/22 in
+1.857 seconds and the thumbnail suite passed 16/16 in 5.645 seconds with
+`ResourceWarning` fatal. The live material guard passed, as did three focused
+thumbnail-binary, installer-action, and FCStd-association checks in 4.527
+seconds. Black 25.1.0 and security-workflow YAML parsing passed. Final diff,
+conflict-marker, recursive-submodule, and high-confidence secret checks also
+passed; the candidate remains unpublished pending independent review.
+
+No source archive, staging tree, installer, or package payload has been built or
+inspected from this candidate. It has not run on native Windows or macOS and is
+not evidence for the in-progress PR #28 native baseline rerun. The next legal
+step, after that baseline is green, is independent review of the final staged
+tree, a focused commit/publication without rewriting shared history, the full
+security workflow, and explicit source-archive, staging, and package-payload
+inspection.
 
 ### Published platform work at the remote head
 
@@ -39,7 +75,7 @@ runner proved that the initial SystemExit change did not contain the exception
 inside Qt callbacks. No published platform change may be called accepted from
 these failed workflows.
 
-### Locally verified follow-up candidate awaiting publication and native reruns
+### Locally verified follow-up tree now published; native reruns active
 
 | Local commit | Change |
 |---|---|
@@ -47,7 +83,8 @@ these failed workflows.
 | `9cb165fc` | Harden the BIM GUI-test teardown path against document objects deleted before deferred cleanup. |
 | `46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa` | Add deterministic Windows Qt platform-plugin discovery and propagate the platform path to native tests and lifecycle subprocesses. |
 
-The Draft/BIM and Windows Qt changes completed focused review. Direct Draft
+The Draft/BIM and Windows Qt changes completed focused review and their combined
+tree is published as `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`. Direct Draft
 regressions passed 4/4 `drafttests.test_clone_gui` and 30/30
 `drafttests.test_modification`; a composed GUI set passed 31/31 across Draft GUI
 (13), BIM Window (1), BIM Site (3), PathHelix (8), and PathHelix generator (6).
@@ -56,7 +93,9 @@ The Windows helper passed 5/5; synthetic CTest bootstrap, missing-`qwindows`
 failure, a configure harness with fake imported `Qt6::qmake`, Python AST, YAML,
 and diff checks passed. Static review found no actionable defect and confirmed
 PRE_TEST discovery, CTest environments, lifecycle subprocess propagation, and
-CI topology. No native Windows execution exists yet. The combined candidate
+CI topology. Native runs `33333139217`, `33333139201`, `33333139224`, and
+`33333139229` are active; none is accepted before its terminal evidence is
+retrieved. The combined candidate
 completed a 1,704/1,704 Release rebuild followed by a clean no-op build. The
 runtime helper passed 5/5 and the summary parser passed 9/9. CTest registered
 1,433 tests and passed all 1,427 enabled tests, with three skipped, six disabled,
@@ -64,8 +103,9 @@ and all four acceptance tests passing in 95.47 seconds. CLI ran 1,661 tests with
 10 skips and zero failures; the parser counted 1,661. A faithful safe-mode GUI
 run completed 1,763 tests with zero failures, exit 0, and parser count 1,763 in
 `4.22e+02s`. TechDraw GUI export passed 1/1 in 2.54 seconds with exit 0, a
-13,163-byte SVG, and a 298,780-byte PDF. These are local Linux arm64 results; no
-native Windows pass, macOS pass, or publication is claimed.
+13,163-byte SVG, and a 298,780-byte PDF. These are local Linux arm64 results.
+Publication is established at `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`,
+but no new native Windows or macOS pass is claimed while the reruns are active.
 
 ### Exact combined-candidate commands
 
@@ -155,7 +195,7 @@ These Linux arm64 results supported publication of the preceding platform
 changes. They are not Windows or macOS evidence. An earlier hidden-mode
 diagnostic run was invalid and interrupted and remains excluded.
 
-## Terminal GitHub Actions evidence at published head `8aebea6c`
+## Historical terminal GitHub Actions evidence at prior head `8aebea6c`
 
 All artifacts below expire on 2026-09-29.
 
@@ -171,22 +211,22 @@ All artifacts below expire on 2026-09-29.
 
 | Priority | Blocker | Current truth |
 |---|---|---|
-| P0 | Remote integration evidence | PR #28 is mixed at `8aebea6cc733fc4d16d79c2deacf1d2b1525489a`: Linux is green; Windows and both macOS jobs are red. Candidate `46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa` is fully green on local Linux arm64 but remains unpublished and lacks native Windows/macOS proof. |
-| P0 | Windows native tests | Build, runtime checks, and discovery pass, but the missing Qt platform-plugin path caused two Qt test timeouts and the lifecycle timeout. Candidate `46d2f83` is locally green and requires a real Windows rerun. |
-| P0 | macOS matrix | Both architectures pass build, CTest, TechDraw, and CLI, but deferred Draft callbacks access deleted wrappers during the GUI suite and exit 1. The combined Draft/BIM candidate is Linux-green and requires both native reruns. |
-| P0 | Dependency Review | Last CodeQL jobs were green, but Dependency Review is fail-closed while the repository Dependency Graph is disabled. CodeQL is not a replacement. |
+| P0 | Remote integration evidence | PR #28 remains draft at published head `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`. Linux run `33333139217`, Windows run `33333139201`, Security run `33333139224`, and macOS run `33333139229` are active; queued or running gates are not passes. |
+| P0 | Windows native tests | Prior evidence showed the missing Qt platform-plugin path causing two Qt test timeouts and the lifecycle timeout. The corrected tree is published, but Windows run `33333139201` must finish and its exact evidence must be retrieved before acceptance. |
+| P0 | macOS matrix | Prior evidence showed deferred Draft callbacks accessing deleted wrappers during both GUI suites. The corrected tree is published, but both architectures in macOS run `33333139229` must finish and their exact evidence must be retrieved before acceptance. |
+| P0 | Dependency Review | Security run `33333139224` is active. Dependency Review remains expected to fail closed while the repository Dependency Graph is disabled; CodeQL is not a replacement, and no conclusion is claimed before the run is terminal. |
 | P0 | Untrusted input | Audit evidence found PR #27's symlink graph escape; the stale DTD-only stack is insufficient. Release-blocker issue #24 remains unresolved. |
-| P0 | Legal / provenance | Restricted material-pattern assets, inherited identity/provenance gaps, and a prebuilt Windows thumbnail DLL remain unresolved. The legal audit is NO-GO. |
+| P0 | Legal / provenance | The staged, unpublished legal candidate removes the 32 restricted patterns and inherited thumbnail DLL from tracked source and recognized manifests. Published integration still contains them, and provenance, cleared replacements, complete notices, source-archive inspection, staging inspection, and final package-payload inspection remain unresolved. The legal audit is NO-GO. |
 | P0 | Packaging | No required package has passed clean install, acceptance, upgrade/uninstall, checksum, SBOM, or downloaded-release verification. |
 | P1 | Product architecture | No OpenFusion product classes exist under `src/`. The workspace shell, selector, command palette, context surface, Project presentation, and functional graph-backed timeline are not implemented. |
 
 ## Resume sequence
 
-1. Publish the three locally verified focused commits through candidate `46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa` to `integration/acceptance-ci` without rewriting shared history.
-2. Re-fetch the branch and PR #28 and record the exact new SHA; do not treat local Linux evidence as a native platform pass.
-3. Rerun Windows and both macOS architectures; rerun Linux as part of the complete matrix before accepting M0.
-4. Retrieve every job result, exact failed step, log, and artifact; do not summarize a queued or skipped gate as passed.
-5. Fix root causes and repeat until green, or document the exact external setting blocker.
+1. Retrieve Linux run `33333139217`, Windows run `33333139201`, Security run `33333139224`, and both architectures from macOS run `33333139229` at published head `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`.
+2. Record every terminal job result, exact failed step, log, and artifact; do not summarize a queued, running, cancelled, or skipped gate as passed.
+3. Fix root causes and repeat the complete affected native matrix without weakening any gate; keep PR #28 draft.
+4. Document the disabled Dependency Graph as the exact external setting blocker if Dependency Review again fails closed; do not substitute CodeQL.
+5. After the reproducible native baseline is green, independently review and publish the staged legal quarantine candidate, then run its security and artifact-level gates.
 6. Only then select the next roadmap slice. Highest priority remains safety, correctness, and baseline integrity before UI work.
 
 ## Commit update rule
