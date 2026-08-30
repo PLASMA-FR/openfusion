@@ -190,6 +190,32 @@ SystemExitException::SystemExitException()
     _exitCode = errCode;
 }
 
+SystemExitException::SystemExitException(long exitCode)
+    : _exitCode(exitCode)
+{
+    setMessage("System exit");
+}
+
+SystemExitException::~SystemExitException() noexcept = default;
+
+bool Base::getSystemExitCode(std::exception_ptr exception, long& exitCode) noexcept
+{
+    if (!exception) {
+        return false;
+    }
+
+    try {
+        std::rethrow_exception(exception);
+    }
+    catch (const SystemExitException& error) {
+        exitCode = error.getExitCode();
+        return true;
+    }
+    catch (...) {
+        return false;
+    }
+}
+
 // ---------------------------------------------------------
 
 // Fixes #0000831: python print causes File descriptor error on windows

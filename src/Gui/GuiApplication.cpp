@@ -31,11 +31,13 @@
 # include <unistd.h>
 #endif
 
+#include <mutex>
 #include <sstream>
 #include <QAbstractSpinBox>
 #include <QByteArray>
 #include <QComboBox>
 #include <QTextStream>
+#include <QThread>
 #include <QFileInfo>
 #include <QFileOpenEvent>
 #include <QSessionManager>
@@ -58,9 +60,104 @@
 
 using namespace Gui;
 
+namespace
+{
+struct CaughtSystemExitState
+{
+    std::mutex mutex;
+    Gui::GUIApplication* application = nullptr;
+    bool hasExitCode = false;
+    long exitCode = 0;
+};
+
+CaughtSystemExitState& caughtSystemExitState()
+{
+    static CaughtSystemExitState state;
+    return state;
+}
+
+void resetCaughtSystemExitState(Gui::GUIApplication* application) noexcept
+{
+    try {
+        auto& state = caughtSystemExitState();
+        const std::lock_guard guard(state.mutex);
+        state.application = application;
+        state.hasExitCode = false;
+        state.exitCode = 0;
+    }
+    catch (...) {
+    }
+}
+
+void clearCaughtSystemExitState(const Gui::GUIApplication* application) noexcept
+{
+    try {
+        auto& state = caughtSystemExitState();
+        const std::lock_guard guard(state.mutex);
+        if (state.application == application) {
+            state.application = nullptr;
+            state.hasExitCode = false;
+            state.exitCode = 0;
+        }
+    }
+    catch (...) {
+    }
+}
+
+bool recordCaughtSystemExitCode(
+    Gui::GUIApplication* application,
+    long requestedCode,
+    long& authoritativeCode
+) noexcept
+{
+    try {
+        auto& state = caughtSystemExitState();
+        const std::lock_guard guard(state.mutex);
+        if (state.application != application) {
+            return false;
+        }
+        if (!state.hasExitCode) {
+            state.exitCode = requestedCode;
+            state.hasExitCode = true;
+        }
+        authoritativeCode = state.exitCode;
+        return true;
+    }
+    catch (...) {
+        return false;
+    }
+}
+
+bool readCaughtSystemExitCode(const Gui::GUIApplication* application, long& exitCode) noexcept
+{
+    try {
+        auto& state = caughtSystemExitState();
+        const std::lock_guard guard(state.mutex);
+        if (state.application != application || !state.hasExitCode) {
+            return false;
+        }
+        exitCode = state.exitCode;
+        return true;
+    }
+    catch (...) {
+        return false;
+    }
+}
+
+void reportSystemExitFailure(const char* reason) noexcept
+{
+    try {
+        Base::Console().error("Failed to handle SystemExit: %s\n", reason);
+    }
+    catch (...) {
+    }
+}
+}  // namespace
+
 GUIApplication::GUIApplication(int& argc, char** argv)
     : GUIApplicationNativeEventAware(argc, argv)
 {
+    resetCaughtSystemExitState(this);
     connect(
         this,
         &GUIApplication::commitDataRequest,
@@ -73,7 +170,69 @@ GUIApplication::GUIApplication(int& argc, char** argv)
 #endif
 }
 
-GUIApplication::~GUIApplication() = default;
+GUIApplication::~GUIApplication()
+{
+    clearCaughtSystemExitState(this);
+}
+
+bool GUIApplication::getCaughtSystemExitCode(long& exitCode) const noexcept
+{
+    return readCaughtSystemExitCode(this, exitCode);
+}
+
+bool GUIApplication::requestSystemExit(std::exception_ptr exception) noexcept
+{
+    long requestedCode = 0;
+    if (!Base::getSystemExitCode(exception, requestedCode)) {
+        return false;
+    }
+
+    long authoritativeCode = requestedCode;
+    if (!recordCaughtSystemExitCode(this, requestedCode, authoritativeCode)) {
+        reportSystemExitFailure("could not record the requested exit code");
+        return false;
+    }
+
+    const auto applyExit = [this]() noexcept -> bool {
+        long exitCode = 0;
+        if (!getCaughtSystemExitCode(exitCode)) {
+            reportSystemExitFailure("the recorded exit code was unavailable on the GUI thread");
+            QCoreApplication::exit(1);
+            return false;
+        }
+
+        try {
+            if (!caughtException) {
+                caughtException = std::make_shared<Base::SystemExitException>(exitCode);
+            }
+        }
+        catch (...) {
+            // The primitive code remains authoritative if retaining a copy fails.
+        }
+
+        QCoreApplication::exit(static_cast<int>(exitCode));
+        return true;
+    };
+
+    if (QThread::currentThread() == thread()) {
+        return applyExit();
+    }
+
+    try {
+        const auto queuedExit = [applyExit]() noexcept {
+            (void)applyExit();
+        };
+        if (!QMetaObject::invokeMethod(this, queuedExit, Qt::QueuedConnection)) {
+            reportSystemExitFailure("could not queue the request on the GUI thread");
+            return false;
+        }
+    }
+    catch (...) {
+        reportSystemExitFailure("queuing the request raised an exception");
+        return false;
+    }
+    return true;
+}
 
 bool GUIApplication::notify(QObject* receiver, QEvent* event)
 {
@@ -103,32 +262,37 @@ bool GUIApplication::notify(QObject* receiver, QEvent* event)
             return QApplication::notify(receiver, event);
         }
     }
-    catch (const Base::SystemExitException& e) {
-        caughtException.reset(new Base::SystemExitException(e));
-        qApp->exit(static_cast<int>(caughtException->getExitCode()));
-        return true;
-    }
-    catch (const Base::Exception& e) {
-        Base::Console().error(
-            "Unhandled Base::Exception caught in GUIApplication::notify.\n"
-            "The error message is: %s\n%s",
-            e.what(),
-            exceptionWarning
-        );
-    }
-    catch (const std::exception& e) {
-        Base::Console().error(
-            "Unhandled std::exception caught in GUIApplication::notify.\n"
-            "The error message is: %s\n%s",
-            e.what(),
-            exceptionWarning
-        );
-    }
     catch (...) {
-        Base::Console().error(
-            "Unhandled unknown exception caught in GUIApplication::notify.\n%s",
-            exceptionWarning
-        );
+        const std::exception_ptr exception = std::current_exception();
+        if (requestSystemExit(exception)) {
+            return true;
+        }
+
+        try {
+            std::rethrow_exception(exception);
+        }
+        catch (const Base::Exception& e) {
+            Base::Console().error(
+                "Unhandled Base::Exception caught in GUIApplication::notify.\n"
+                "The error message is: %s\n%s",
+                e.what(),
+                exceptionWarning
+            );
+        }
+        catch (const std::exception& e) {
+            Base::Console().error(
+                "Unhandled std::exception caught in GUIApplication::notify.\n"
+                "The error message is: %s\n%s",
+                e.what(),
+                exceptionWarning
+            );
+        }
+        catch (...) {
+            Base::Console().error(
+                "Unhandled unknown exception caught in GUIApplication::notify.\n%s",
+                exceptionWarning
+            );
+        }
     }
 
     // Print some more information to the log file (if active) to ease bug fixing

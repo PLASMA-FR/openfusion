@@ -50,6 +50,11 @@ public:
      */
     bool notify(QObject* receiver, QEvent* event) override;
 
+    /// Classify and request an orderly exit without allowing an exception through Qt.
+    bool requestSystemExit(std::exception_ptr exception) noexcept;
+    /// Return the first SystemExit code recorded for this application instance.
+    bool getCaughtSystemExitCode(long& exitCode) const noexcept;
+
     /// SystemExit caught at the Qt event boundary, retained for its exact exit code.
     std::shared_ptr<Base::SystemExitException> caughtException;
 

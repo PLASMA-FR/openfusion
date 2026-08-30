@@ -360,12 +360,15 @@ int main(int argc, char** argv)
     std::cerr.rdbuf(oldcerr);
 
     // Destruction phase ===========================================================
-    Base::Console().log("%s terminating...\n", App::Application::Config()["ExeName"].c_str());
+    const std::string executableName = App::Application::Config()["ExeName"];
+    Base::Console().log("%s terminating...\n", executableName.c_str());
 
     // cleans up
     App::Application::destruct();
 
-    Base::Console().log("%s completely terminated\n", App::Application::Config()["ExeName"].c_str());
+    // Application::destruct() detaches the console observers, including the file logger.
+    // Use the restored standard stream for the final post-destruction marker.
+    std::clog << executableName << " completely terminated" << std::endl;
 
     return applicationExitCode;
 }

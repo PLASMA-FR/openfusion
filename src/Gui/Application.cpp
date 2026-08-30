@@ -2501,8 +2501,9 @@ int tryRunEventLoop(GUISingleApplication& mainApp)
             // GUIApplication::notify() cannot allow SystemExit to escape a Qt callback. Use the
             // captured exception as the authoritative source so another Qt exit request cannot
             // replace the Python exit code before the event loop stops.
-            if (mainApp.caughtException) {
-                return static_cast<int>(mainApp.caughtException->getExitCode());
+            long caughtSystemExitCode = 0;
+            if (mainApp.getCaughtSystemExitCode(caughtSystemExitCode)) {
+                return static_cast<int>(caughtSystemExitCode);
             }
             return exitCode;
         }
@@ -2558,9 +2559,13 @@ int Application::runApplicationWithExitCode()
     try {
         return runApplicationImpl(false);
     }
-    catch (const Base::SystemExitException& e) {
-        Base::Console().message("System exit\n");
-        return static_cast<int>(e.getExitCode());
+    catch (...) {
+        long exitCode = 0;
+        if (Base::getSystemExitCode(std::current_exception(), exitCode)) {
+            Base::Console().message("System exit\n");
+            return static_cast<int>(exitCode);
+        }
+        throw;
     }
 }
 
@@ -2660,9 +2665,10 @@ int Application::runApplicationImpl(bool rethrowSystemExit)
 
     Base::Console().log("Finish: Event loop left\n");
 
-    if (rethrowSystemExit && mainApp.caughtException) {
+    long caughtSystemExitCode = 0;
+    if (rethrowSystemExit && mainApp.getCaughtSystemExitCode(caughtSystemExitCode)) {
         Base::Console().message("System exit\n");
-        throw Base::SystemExitException(*mainApp.caughtException);
+        throw Base::SystemExitException(caughtSystemExitCode);
     }
 
     return exitCode;

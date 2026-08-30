@@ -13,12 +13,17 @@ import subprocess
 import sys
 
 
-EXPECTED_EXIT_CODE = 7
+POSITIONAL_MODE = "positional"
+INTERNAL_MODE = "internal"
+INTERNAL_SUCCESS_MODE = "internal-success"
+POSITIONAL_EXIT_CODE = 7
+INTERNAL_EXIT_CODE = 1
+INTERNAL_SUCCESS_EXIT_CODE = 0
 CHILD_MODE_ENV = "OPENFUSION_GUI_SYSTEM_EXIT_CHILD"
 STATE_DIR_ENV = "OPENFUSION_GUI_SYSTEM_EXIT_STATE_DIR"
 
 
-def _run_in_freecad() -> None:
+def observe_gui_runtime(scenario: str) -> None:
     import FreeCAD
     import FreeCADGui
 
@@ -38,7 +43,6 @@ def _run_in_freecad() -> None:
             "GUI SystemExit regression did not run inside the Qt event loop"
         )
 
-    pid = os.getpid()
     executable_name = FreeCAD.ConfigGet("ExeName")
     cache_dir = Path(FreeCAD.getUserCachePath())
     lock_candidates = sorted(
@@ -51,14 +55,14 @@ def _run_in_freecad() -> None:
             "Expected exactly one GUI process lock in "
             f"{cache_dir}, found: {[str(path) for path in lock_candidates]}"
         )
-    lock_path = lock_candidates[0]
 
     observation = {
         "cache_dir": str(cache_dir),
         "event_loop_active": event_loop_active,
         "executable_name": executable_name,
-        "lock_path": str(lock_path),
-        "pid": pid,
+        "lock_path": str(lock_candidates[0]),
+        "pid": os.getpid(),
+        "scenario": scenario,
     }
     observation_path = state_dir / "observation.json"
     temporary_path = state_dir / "observation.json.tmp"
@@ -67,8 +71,12 @@ def _run_in_freecad() -> None:
         encoding="utf-8",
     )
     os.replace(temporary_path, observation_path)
-    print("OpenFusion GUI SystemExit callback raising exit code 7", flush=True)
-    raise SystemExit(EXPECTED_EXIT_CODE)
+
+
+def _run_positional_child() -> None:
+    observe_gui_runtime(POSITIONAL_MODE)
+    print("OpenFusion GUI positional callback raising SystemExit(7)", flush=True)
+    raise SystemExit(POSITIONAL_EXIT_CODE)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -78,13 +86,13 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _run_driver() -> int:
-    args = _parse_args()
-    freecad = args.freecad.resolve()
-    state_dir = args.state_dir.resolve()
-
-    if state_dir.exists():
-        shutil.rmtree(state_dir)
+def _run_scenario(
+    freecad: Path,
+    root_state_dir: Path,
+    scenario: str,
+    expected_exit_code: int,
+) -> list[str]:
+    state_dir = root_state_dir / scenario
     state_dir.mkdir(parents=True)
 
     home_dir = state_dir / "home"
@@ -98,13 +106,11 @@ def _run_driver() -> int:
     console_log = state_dir / "console.log"
     observation_path = state_dir / "observation.json"
     finalized_marker = state_dir / "python-finalized.txt"
-    user_config = profile_dir / "user.cfg"
-    system_config = profile_dir / "system.cfg"
 
     environment = os.environ.copy()
     environment.update(
         {
-            CHILD_MODE_ENV: "1",
+            CHILD_MODE_ENV: scenario,
             STATE_DIR_ENV: str(state_dir),
             "FREECAD_USER_DATA": str(data_dir),
             "FREECAD_USER_HOME": str(home_dir),
@@ -118,13 +124,30 @@ def _run_driver() -> int:
         str(freecad),
         "--hidden",
         "--user-cfg",
-        str(user_config),
+        str(profile_dir / "user.cfg"),
         "--system-cfg",
-        str(system_config),
+        str(profile_dir / "system.cfg"),
         "--log-file",
         str(application_log),
-        str(Path(__file__).resolve()),
     ]
+    if scenario == POSITIONAL_MODE:
+        command.append(str(Path(__file__).resolve()))
+    else:
+        test_case = (
+            "OpenFusionGuiIntentionalSuccess.IntentionalInternalSuccess."
+            "test_success_exit_code"
+            if scenario == INTERNAL_SUCCESS_MODE
+            else "OpenFusionGuiIntentionalFailure.IntentionalInternalFailure."
+            "test_failure_exit_code"
+        )
+        command.extend(
+            [
+                "--python-path",
+                str(Path(__file__).resolve().parent),
+                "--run-test",
+                test_case,
+            ]
+        )
 
     try:
         completed = subprocess.run(
@@ -145,69 +168,100 @@ def _run_driver() -> int:
         if isinstance(console_output, bytes):
             console_output = console_output.decode("utf-8", errors="replace")
         console_log.write_text(console_output, encoding="utf-8")
-        print("FreeCAD GUI SystemExit regression timed out", file=sys.stderr)
-        return 1
+        return [f"{scenario}: FreeCAD GUI lifecycle regression timed out"]
 
     console_log.write_text(console_output, encoding="utf-8")
     failures: list[str] = []
-    if return_code != EXPECTED_EXIT_CODE:
+    if return_code != expected_exit_code:
         failures.append(
-            f"FreeCAD returned {return_code}; expected exact exit code {EXPECTED_EXIT_CODE}"
+            f"{scenario}: FreeCAD returned {return_code}; "
+            f"expected exact exit code {expected_exit_code}"
         )
 
     observation: dict[str, object] = {}
     if not observation_path.is_file():
-        failures.append("FreeCAD did not write the SystemExit callback observation")
+        failures.append(f"{scenario}: callback observation was not written")
     else:
         try:
             observation = json.loads(observation_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
-            failures.append(f"Cannot read callback observation: {error}")
+            failures.append(f"{scenario}: cannot read callback observation: {error}")
 
     if observation:
+        if observation.get("scenario") != scenario:
+            failures.append(f"{scenario}: callback recorded the wrong scenario")
         if observation.get("event_loop_active") is not True:
             failures.append(
-                "SystemExit callback did not observe the active Qt event loop"
+                f"{scenario}: callback did not observe the active event loop"
             )
 
         observed_cache = Path(str(observation.get("cache_dir", "")))
         observed_lock = Path(str(observation.get("lock_path", "")))
         if not observed_cache.is_dir():
             failures.append(
-                f"Persistent cache directory was unexpectedly removed: {observed_cache}"
+                f"{scenario}: persistent cache directory was removed: {observed_cache}"
             )
         if observed_lock.exists():
             failures.append(
-                f"GUI process lock remained after shutdown: {observed_lock}"
+                f"{scenario}: GUI process lock remained after shutdown: {observed_lock}"
             )
 
     if not finalized_marker.is_file():
-        failures.append("Embedded Python was not finalized during application cleanup")
+        failures.append(f"{scenario}: embedded Python was not finalized")
 
     if not application_log.is_file():
-        failures.append("FreeCAD did not write its application log")
+        failures.append(f"{scenario}: FreeCAD did not write its application log")
     else:
         application_output = application_log.read_text(
             encoding="utf-8", errors="replace"
         )
         if "Finish: Event loop left" not in application_output:
-            failures.append("Application log does not show a normal event-loop return")
+            failures.append(f"{scenario}: event loop did not return normally")
         if " terminating..." not in application_output:
-            failures.append("Application log does not show normal teardown starting")
+            failures.append(f"{scenario}: normal teardown did not start")
 
+    if " completely terminated" not in console_output:
+        failures.append(f"{scenario}: normal teardown did not complete")
+
+    if failures and console_output:
+        failures.append(f"{scenario}: FreeCAD output follows:\n{console_output}")
+    return failures
+
+
+def _run_driver() -> int:
+    args = _parse_args()
+    freecad = args.freecad.resolve()
+    state_dir = args.state_dir.resolve()
+
+    if state_dir.exists():
+        shutil.rmtree(state_dir)
+    state_dir.mkdir(parents=True)
+
+    failures = _run_scenario(freecad, state_dir, POSITIONAL_MODE, POSITIONAL_EXIT_CODE)
+    failures.extend(
+        _run_scenario(
+            freecad,
+            state_dir,
+            INTERNAL_SUCCESS_MODE,
+            INTERNAL_SUCCESS_EXIT_CODE,
+        )
+    )
+    failures.extend(
+        _run_scenario(freecad, state_dir, INTERNAL_MODE, INTERNAL_EXIT_CODE)
+    )
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)
-        if console_output:
-            print("--- FreeCAD output ---", file=sys.stderr)
-            print(console_output, file=sys.stderr)
         return 1
 
-    print("FreeCAD GUI propagated SystemExit(7) and completed lock/interpreter cleanup")
+    print(
+        "FreeCAD GUI preserved positional SystemExit(7), internal test success exit 0, "
+        "internal test failure exit 1, and completed lock/interpreter cleanup"
+    )
     return 0
 
 
-if os.environ.get(CHILD_MODE_ENV) == "1":
-    _run_in_freecad()
+if os.environ.get(CHILD_MODE_ENV) == POSITIONAL_MODE:
+    _run_positional_child()
 elif __name__ == "__main__":
     raise SystemExit(_run_driver())
