@@ -149,6 +149,24 @@ if(BUILD_TEST
     add_subdirectory(acceptance)
 endif()
 
+if(WIN32)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/WindowsTestRuntimePath.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/WindowsTestRuntimePath.cmake"
+        @ONLY
+    )
+
+    # PRE_TEST discovery executes the test binary while CTest is reading its
+    # include files.  Register the build-tree runtime PATH bootstrap first so
+    # discovery and the subsequently registered tests inherit the same paths.
+    set_property(
+        DIRECTORY
+        APPEND
+        PROPERTY TEST_INCLUDE_FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/WindowsTestRuntimePath.cmake"
+    )
+endif()
+
 include(GoogleTest)
 set(CMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE PRE_TEST)
 

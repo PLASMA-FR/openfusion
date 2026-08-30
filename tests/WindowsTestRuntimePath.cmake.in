@@ -1,0 +1,237 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+# This configured script runs inside CTest before GoogleTest PRE_TEST
+# discovery.  Windows does not search sibling Mod directories when resolving
+# the native dependencies of the test executables in the build-tree bin.
+
+set(_openfusion_build_directory "@CMAKE_BINARY_DIR@")
+set(_openfusion_binary_directory "${_openfusion_build_directory}/bin")
+set(_openfusion_module_directory "${_openfusion_build_directory}/Mod")
+set(_openfusion_known_configurations "@CMAKE_CONFIGURATION_TYPES@")
+set(_openfusion_selected_configuration "")
+
+if(DEFINED CTEST_CONFIGURATION_TYPE)
+    set(_openfusion_selected_configuration "${CTEST_CONFIGURATION_TYPE}")
+endif()
+
+if(_openfusion_known_configurations
+   AND _openfusion_selected_configuration STREQUAL "")
+    message(FATAL_ERROR
+        "Windows native test runtime setup requires ctest -C <configuration> "
+        "for this multi-config build tree"
+    )
+endif()
+
+if(_openfusion_known_configurations)
+    list(FIND
+        _openfusion_known_configurations
+        "${_openfusion_selected_configuration}"
+        _openfusion_configuration_index
+    )
+    if(_openfusion_configuration_index EQUAL -1)
+        message(FATAL_ERROR
+            "CTest selected unknown build configuration: "
+            "${_openfusion_selected_configuration}"
+        )
+    endif()
+endif()
+
+if(NOT IS_DIRECTORY "${_openfusion_binary_directory}")
+    message(FATAL_ERROR
+        "Windows native test runtime is missing the build-tree bin directory: "
+        "${_openfusion_binary_directory}"
+    )
+endif()
+
+if(NOT IS_DIRECTORY "${_openfusion_module_directory}")
+    message(FATAL_ERROR
+        "Windows native test runtime is missing the build-tree module directory: "
+        "${_openfusion_module_directory}"
+    )
+endif()
+
+file(REAL_PATH
+    "${_openfusion_module_directory}"
+    _openfusion_resolved_module_directory
+)
+
+set(_openfusion_runtime_directories)
+set(_openfusion_binary_artifacts)
+
+if(NOT _openfusion_selected_configuration STREQUAL "")
+    set(
+        _openfusion_configuration_binary_directory
+        "${_openfusion_binary_directory}/${_openfusion_selected_configuration}"
+    )
+    if(IS_DIRECTORY "${_openfusion_configuration_binary_directory}")
+        list(APPEND
+            _openfusion_runtime_directories
+            "${_openfusion_configuration_binary_directory}"
+        )
+        file(GLOB
+            _openfusion_configuration_binary_artifacts
+            LIST_DIRECTORIES FALSE
+            "${_openfusion_configuration_binary_directory}/*.dll"
+            "${_openfusion_configuration_binary_directory}/*.pyd"
+        )
+        list(APPEND
+            _openfusion_binary_artifacts
+            ${_openfusion_configuration_binary_artifacts}
+        )
+    endif()
+endif()
+
+list(APPEND _openfusion_runtime_directories "${_openfusion_binary_directory}")
+file(GLOB
+    _openfusion_base_binary_artifacts
+    LIST_DIRECTORIES FALSE
+    "${_openfusion_binary_directory}/*.dll"
+    "${_openfusion_binary_directory}/*.pyd"
+)
+list(APPEND _openfusion_binary_artifacts ${_openfusion_base_binary_artifacts})
+
+if(NOT _openfusion_binary_artifacts)
+    message(FATAL_ERROR
+        "Windows native test runtime found no DLL or PYD artifacts in the "
+        "selected build-tree bin layout"
+    )
+endif()
+
+file(GLOB_RECURSE
+    _openfusion_module_artifacts
+    LIST_DIRECTORIES FALSE
+    "${_openfusion_module_directory}/*.dll"
+    "${_openfusion_module_directory}/*.pyd"
+)
+list(SORT _openfusion_module_artifacts)
+
+if(NOT _openfusion_module_artifacts)
+    message(FATAL_ERROR
+        "Windows native test runtime found no DLL or PYD artifacts below: "
+        "${_openfusion_module_directory}"
+    )
+endif()
+
+set(_openfusion_module_runtime_directories)
+foreach(_openfusion_module_artifact IN LISTS _openfusion_module_artifacts)
+    file(REAL_PATH
+        "${_openfusion_module_artifact}"
+        _openfusion_resolved_module_artifact
+    )
+    file(RELATIVE_PATH
+        _openfusion_relative_module_artifact
+        "${_openfusion_resolved_module_directory}"
+        "${_openfusion_resolved_module_artifact}"
+    )
+    string(REPLACE
+        "\\"
+        "/"
+        _openfusion_relative_module_artifact
+        "${_openfusion_relative_module_artifact}"
+    )
+
+    if(_openfusion_relative_module_artifact STREQUAL ".."
+       OR _openfusion_relative_module_artifact MATCHES "^\\.\\./")
+        message(FATAL_ERROR
+            "Windows native runtime artifact resolves outside the build-tree "
+            "module directory: ${_openfusion_module_artifact}"
+        )
+    endif()
+
+    get_filename_component(
+        _openfusion_module_artifact_directory
+        "${_openfusion_resolved_module_artifact}"
+        DIRECTORY
+    )
+    file(RELATIVE_PATH
+        _openfusion_relative_module_artifact_directory
+        "${_openfusion_resolved_module_directory}"
+        "${_openfusion_module_artifact_directory}"
+    )
+    string(REPLACE
+        "\\"
+        "/"
+        _openfusion_relative_module_artifact_directory
+        "${_openfusion_relative_module_artifact_directory}"
+    )
+    string(REPLACE
+        "/"
+        ";"
+        _openfusion_module_artifact_components
+        "${_openfusion_relative_module_artifact_directory}"
+    )
+
+    set(_openfusion_use_module_artifact TRUE)
+    foreach(_openfusion_known_configuration IN LISTS _openfusion_known_configurations)
+        list(FIND
+            _openfusion_module_artifact_components
+            "${_openfusion_known_configuration}"
+            _openfusion_artifact_configuration_index
+        )
+        if(NOT _openfusion_artifact_configuration_index EQUAL -1
+           AND NOT _openfusion_known_configuration STREQUAL
+               _openfusion_selected_configuration)
+            set(_openfusion_use_module_artifact FALSE)
+            break()
+        endif()
+    endforeach()
+
+    if(_openfusion_use_module_artifact)
+        list(APPEND
+            _openfusion_module_runtime_directories
+            "${_openfusion_module_artifact_directory}"
+        )
+    endif()
+endforeach()
+
+list(REMOVE_DUPLICATES _openfusion_module_runtime_directories)
+list(SORT _openfusion_module_runtime_directories)
+
+if(NOT _openfusion_module_runtime_directories)
+    message(FATAL_ERROR
+        "Windows native test runtime found no DLL or PYD directories for the "
+        "selected CTest configuration: ${_openfusion_selected_configuration}"
+    )
+endif()
+
+list(APPEND
+    _openfusion_runtime_directories
+    ${_openfusion_module_runtime_directories}
+)
+list(REMOVE_DUPLICATES _openfusion_runtime_directories)
+
+set(_openfusion_native_runtime_directories)
+foreach(_openfusion_runtime_directory IN LISTS _openfusion_runtime_directories)
+    file(TO_NATIVE_PATH
+        "${_openfusion_runtime_directory}"
+        _openfusion_native_runtime_directory
+    )
+    list(APPEND
+        _openfusion_native_runtime_directories
+        "${_openfusion_native_runtime_directory}"
+    )
+endforeach()
+
+set(
+    _openfusion_runtime_manifest
+    "${CMAKE_CURRENT_LIST_DIR}/windows-native-test-runtime-paths.txt"
+)
+file(WRITE "${_openfusion_runtime_manifest}" "")
+foreach(_openfusion_native_runtime_directory
+        IN LISTS _openfusion_native_runtime_directories)
+    file(APPEND
+        "${_openfusion_runtime_manifest}"
+        "${_openfusion_native_runtime_directory}\n"
+    )
+endforeach()
+
+list(JOIN
+    _openfusion_native_runtime_directories
+    ";"
+    _openfusion_native_runtime_path
+)
+if(DEFINED ENV{PATH} AND NOT "$ENV{PATH}" STREQUAL "")
+    set(ENV{PATH} "${_openfusion_native_runtime_path};$ENV{PATH}")
+else()
+    set(ENV{PATH} "${_openfusion_native_runtime_path}")
+endif()
