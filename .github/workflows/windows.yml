@@ -228,6 +228,116 @@ jobs:
           pixi run ninja --version 2>&1 | Tee-Object -FilePath logs/ninja-version.txt
           if ($LASTEXITCODE -ne 0) { throw "Ninja version probe failed." }
 
+      - name: Verify CTest-native test runtime discovery
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $moduleRoot = (Resolve-Path -LiteralPath build/release/Mod).Path
+          $moduleRoot = $moduleRoot.TrimEnd([char[]]@('\', '/'))
+          $modulePrefix = $moduleRoot + [IO.Path]::DirectorySeparatorChar
+          $preconfiguredModulePaths = @(
+            $env:PATH -split [IO.Path]::PathSeparator |
+              ForEach-Object {
+                if (-not [string]::IsNullOrWhiteSpace($_)) {
+                  try {
+                    [IO.Path]::GetFullPath($_).TrimEnd([char[]]@('\', '/'))
+                  } catch {}
+                }
+              } |
+              Where-Object {
+                $_ -ieq $moduleRoot -or
+                  $_.StartsWith(
+                    $modulePrefix,
+                    [StringComparison]::OrdinalIgnoreCase
+                  )
+              }
+          )
+          if ($preconfiguredModulePaths.Count -ne 0) {
+            throw (
+              "Build-tree module directories were already present on PATH " +
+              "before the native CTest probe: " +
+              ($preconfiguredModulePaths -join ", ")
+            )
+          }
+
+          $discovery = @(
+            pixi run ctest --test-dir build/release --show-only=json-v1
+          )
+          if ($LASTEXITCODE -ne 0) {
+            throw "CTest-native GoogleTest discovery failed."
+          }
+          $discovery | Set-Content -Encoding utf8 `
+            logs/ctest-native-runtime-discovery.json
+
+          $report = Get-Content -Raw `
+            logs/ctest-native-runtime-discovery.json | ConvertFrom-Json
+          if ($report.tests -isnot [System.Array]) {
+            throw "CTest-native discovery JSON did not contain a tests array."
+          }
+          $materialTests = @(
+            $report.tests | Where-Object {
+              (@($_.command) -join " ") -match `
+                '(?i)Material_tests_run(?:\.exe)?'
+            }
+          )
+          if ($materialTests.Count -eq 0) {
+            throw "CTest-native discovery did not register Material tests."
+          }
+
+          $manifest = Join-Path $PWD `
+            "build/release/tests/windows-native-test-runtime-paths.txt"
+          if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+            throw "CTest-native runtime manifest was not generated: $manifest"
+          }
+          $manifestPaths = @(
+            Get-Content -LiteralPath $manifest |
+              Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+              ForEach-Object {
+                [IO.Path]::GetFullPath($_).TrimEnd([char[]]@('\', '/'))
+              }
+          )
+          $binaryRoot = (Resolve-Path -LiteralPath build/release/bin).Path
+          $binaryRoot = $binaryRoot.TrimEnd([char[]]@('\', '/'))
+          $materialRoot = (
+            Resolve-Path -LiteralPath build/release/Mod/Material
+          ).Path.TrimEnd([char[]]@('\', '/'))
+          if ($manifestPaths -notcontains $binaryRoot) {
+            throw "CTest-native runtime manifest omitted the build bin directory."
+          }
+          if ($manifestPaths -notcontains $materialRoot) {
+            throw "CTest-native runtime manifest omitted the Material directory."
+          }
+
+          Copy-Item -LiteralPath $manifest `
+            logs/ctest-native-runtime-paths.txt
+          @(
+            "discovered_tests=$(@($report.tests).Count)",
+            "material_tests=$($materialTests.Count)",
+            "runtime_directories=$($manifestPaths.Count)"
+          ) | Set-Content -Encoding ascii `
+            logs/ctest-native-runtime-summary.txt
+
+      - name: Register native test runtime directories
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = "Stop"
+          pixi run python tests/ci/test_windows_test_runtime.py 2>&1 |
+            Tee-Object -FilePath logs/windows-test-runtime-unit.log
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows test runtime helper unit tests failed."
+          }
+
+          pixi run python .github/scripts/prepare_windows_test_runtime.py `
+            --build-dir build/release `
+            --github-path "$env:GITHUB_PATH" `
+            --manifest logs/windows-test-runtime-paths.txt `
+            --require-artifact Materials.pyd `
+            2>&1 | Tee-Object -FilePath logs/windows-test-runtime-setup.log
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows native test runtime setup failed."
+          }
+
       - name: Discover CTest tests
         timeout-minutes: 10
         run: |
@@ -245,6 +355,7 @@ jobs:
           $requiredAcceptance = @(
             "OpenFusion_Assembly_Acceptance",
             "OpenFusion_Core_Acceptance",
+            "OpenFusion_GUI_SystemExit_Propagation",
             "OpenFusion_TechDraw_Acceptance"
           )
           $missingAcceptance = @(
