@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+name: Linux packaging policy
+
+"on":
+  workflow_dispatch:
+  merge_group:
+    types:
+      - checks_requested
+  pull_request:
+    paths:
+      - ".github/workflows/linux-packaging-policy.yml"
+      - "PACKAGING.md"
+      - "packaging/linux/**"
+      - "tests/openfusion/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/linux-packaging-policy.yml"
+      - "PACKAGING.md"
+      - "packaging/linux/**"
+      - "tests/openfusion/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-packaging-policy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic-tarball:
+    name: Deterministic tarball policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require packaging toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v python3
+          python3 --version
+          command -v zstd
+          zstd --version
+
+      - name: Run deterministic tarball policy suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.openfusion.test_linux_tarball
