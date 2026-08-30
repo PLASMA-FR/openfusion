@@ -55,6 +55,13 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   focused Draft/BIM deleted-wrapper guards and deterministic Windows Qt
   platform-plugin discovery through candidate
   `46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa`.
+- Published those Draft/BIM/Windows corrections as integration head
+  `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`.
+- Corrected the SectionCut GUI regression so it uses a visible source object
+  and proves the real dock opens, exposes its Close button, and is deleted.
+  The tested local commit `c120c0dd2e07b6eb38a2df43bbc5535a157fbba2`
+  is published as connector-created commit
+  `11abf724213c6309ecd32f5c14507c68e5bd43fd`; its native rerun remains pending.
 
 ### Verification
 
@@ -97,6 +104,14 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   faithful safe-mode GUI tests with zero failures and exit 0; and TechDraw GUI
   export 1/1 with the expected 13,163-byte SVG and 298,780-byte PDF. These are
   local Linux arm64 results, not publication or native Windows/macOS evidence.
+- At published head `fa0f3b6`, Linux run `33333139217` passed 1,427 enabled
+  CTests, 1,661 CLI tests, and 1,763 GUI tests. macOS arm64 run `33333139229`
+  passed build, CTest, TechDraw, and CLI; its application log reported 1,763 GUI
+  tests and `OK`, but the process exited 1 on the invalid SectionCut regression.
+- The SectionCut implementation, locally tested as `c120c0d` and published as
+  `11abf72`, passed a 358-edge rebuild and clean
+  repeat, focused 1/1 in 0.585 seconds, current `TestPartGui` 13/13 in 3.23
+  seconds, and the full 1,763-test GUI suite with exit 0 in 423 seconds.
 
 ### Security
 

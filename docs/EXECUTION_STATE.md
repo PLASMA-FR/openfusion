@@ -3,10 +3,11 @@
 **Last verified:** 2026-08-30 UTC
 **Production-ready:** No
 **Active milestone:** M0, reproducible upstream baseline
-**Next task:** Publish locally verified candidate
-`46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa`, re-fetch the resulting integration
-head, and rerun the complete Linux, Windows, and macOS matrix without weakening
-any gate. Linux is green at the prior published head; M0 is not complete.
+**Next task:** Re-fetch the resulting integration branch and PR #28 head after
+this documentation update, record its exact state-update SHA/tree in the PR
+comment, and run/retrieve Linux, Windows, macOS arm64, macOS x86_64, and Security.
+Preserve the terminal results from the still-active `fa0f3b6` Windows and macOS
+x86_64 jobs when they complete.
 
 This file records resumable execution truth. A local pass is not a remote CI
 pass, an inherited FreeCAD feature is not an OpenFusion product feature, and a
@@ -17,9 +18,9 @@ built artifact is not a tested package.
 | Item | Verified value |
 |---|---|
 | FreeCAD foundation | 1.1.3, commit `145529fe741292ff0b3977a01195bf0247425794` |
-| Remote integration head | `8aebea6cc733fc4d16d79c2deacf1d2b1525489a` |
-| Local tested candidate head | `46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa`; fully green on local Linux arm64, but unpublished and not native Windows or macOS evidence |
-| Active integration PR | Draft PR #28, `integration/acceptance-ci`; Linux is green at `8aebea6cc733fc4d16d79c2deacf1d2b1525489a`, while Windows and both macOS jobs are terminal and failed |
+| Published SectionCut implementation | `11abf724213c6309ecd32f5c14507c68e5bd43fd`, tree `72cb369ca34bcdac7d7aa7fe73105a883997218a`; connector-created from locally tested `c120c0dd2e07b6eb38a2df43bbc5535a157fbba2` |
+| Integration state update | SectionCut implementation `11abf72` is the published base and this documentation update accompanies it on integration. This file does not predict its own commit SHA; the exact resulting head belongs in the verified PR comment after connector re-fetch |
+| Active integration PR | Draft PR #28, `integration/acceptance-ci`; latest terminal/active native evidence remains at `fa0f3b6`: Linux green, macOS arm64 GUI process exit 1 after a 1,763-test `OK` application log, Windows/macOS x86_64 still active. No native rerun exists yet for `11abf72` |
 | Dependency lock | `pixi.lock`, SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc` |
 
 ### Published platform work at the remote head
@@ -39,7 +40,7 @@ runner proved that the initial SystemExit change did not contain the exception
 inside Qt callbacks. No published platform change may be called accepted from
 these failed workflows.
 
-### Locally verified follow-up candidate awaiting publication and native reruns
+### Published correction head `fa0f3b6` and local verification
 
 | Local commit | Change |
 |---|---|
@@ -65,7 +66,34 @@ and all four acceptance tests passing in 95.47 seconds. CLI ran 1,661 tests with
 run completed 1,763 tests with zero failures, exit 0, and parser count 1,763 in
 `4.22e+02s`. TechDraw GUI export passed 1/1 in 2.54 seconds with exit 0, a
 13,163-byte SVG, and a 298,780-byte PDF. These are local Linux arm64 results; no
-native Windows pass, macOS pass, or publication is claimed.
+native Windows or macOS pass is claimed for this local evidence. The exact tree
+was subsequently published as `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`.
+
+### Published SectionCut implementation awaiting native rerun
+
+Connector-created commit `11abf724213c6309ecd32f5c14507c68e5bd43fd`, tree
+`72cb369ca34bcdac7d7aa7fe73105a883997218a`, maps the reviewed local commit
+`c120c0dd2e07b6eb38a2df43bbc5535a157fbba2` and changes one test file. The prior
+SectionCut regression placed its only box in a compound,
+hid that box, and could accept a missing dock or the wrong case instead of
+proving the command opened and closed the actual Section Cut dock. The reviewed
+replacement uses a visible source object and asserts the dock, button box,
+Close button, and deferred deletion lifecycle.
+
+The affected Release rebuild passed 358/358 edges and the repeat build was a
+clean no-op. The focused regression passed 1/1 in 0.585 seconds; current
+`TestPartGui` passed 13/13 in 3.23 seconds; and the faithful safe-mode full GUI
+suite passed 1,763/1,763 with exit 0 in 423 seconds and no deferred exception.
+This is local Linux arm64 evidence only. The implementation is published as an
+ancestor of this state update, but its native macOS rerun remains pending.
+
+```bash
+LIBGL_ALWAYS_SOFTWARE=1 QT_QPA_PLATFORM=xcb timeout 600s \
+  pixi run xvfb-run -a -s "-screen 0 1920x1080x24" \
+  build/release/bin/FreeCAD --safe-mode \
+  --user-cfg <profile>/user.cfg --system-cfg <profile>/system.cfg \
+  --log-file <log> -t TestPartGui.SectionCutTestCases.testOpenDialog
+```
 
 ### Exact combined-candidate commands
 
@@ -155,25 +183,25 @@ These Linux arm64 results supported publication of the preceding platform
 changes. They are not Windows or macOS evidence. An earlier hidden-mode
 diagnostic run was invalid and interrupted and remains excluded.
 
-## Terminal GitHub Actions evidence at published head `8aebea6c`
+## Latest GitHub Actions evidence at published head `fa0f3b6`
 
 All artifacts below expire on 2026-09-29.
 
 | Workflow run | Terminal result | Artifacts |
 |---|---|---|
-| Linux `33315700516` | **Passed.** Release build completed; CTest passed 1,427/1,427 enabled tests in 65.01 s; TechDraw GUI export passed; CLI ran 1,661 tests with 10 skips and no failures in 106.942 s; GUI ran 1,759 tests with no failures in `2.67e+02s`. | Baseline `9734764667`, 6,880,803 bytes, SHA-256 `1342f4fdfc0d61878bf0e8d649fd8e1d47c602836f343d8c8bbbe659b020668d`; TechDraw `9734681765`, 603,858 bytes, SHA-256 `89a533a6ae773bd4dad1389a78604f20e002fefb2f38d5ec1e58d8da8735240c` |
-| Windows `33315700534` | **Failed.** The 6,757-edge Release build, native-output/runtime checks, and discovery passed. CTest passed 1,426 of 1,429 enabled tests: QuantitySpinBox and DlgVersionMigrator timed out at 600.01 s, and GUI lifecycle failed after its internal 270 s timeout. Diagnostics identify the missing Qt platform-plugin runtime path. Later CLI/GUI gates were skipped. | Baseline `9735287481`, 725,548 bytes, SHA-256 `5afd1fcb190154af00827a7e8513a7ce03f08e196750d89094b6cfed9c68819f` |
-| macOS arm64, run `33315700529` | **Failed at GUI.** Build passed; CTest passed 1,427/1,427 in 98.20 s; TechDraw passed; CLI ran 1,661 tests with 10 skips and no failures in 102.744 s. Deferred Draft callbacks then accessed deleted wrappers and the GUI process exited 1. | Baseline `9734798119`, 6,867,117 bytes, SHA-256 `6aea205942cc253eba22179d57d2cfd4e3846c8beeef283a5ad4ee7644ed7838`; TechDraw `9734714900`, 597,312 bytes, SHA-256 `710134587a57303ccb9cc8b6d79758817f509cf01928fa16896b4d8b3dd5a5bd` |
-| macOS x86_64, run `33315700529` | **Failed at GUI.** Build passed; CTest passed 1,427/1,427 in 281.98 s; TechDraw passed; CLI ran 1,661 tests with 10 skips and no failures in 155.187 s. The same deferred Draft deleted-wrapper failures caused GUI exit 1. | Baseline `9735846989`, 6,872,107 bytes, SHA-256 `da1d4097afea87224668587caf1eea6f52526570ee60065518005f91074061d3`; TechDraw `9735654821`, 597,368 bytes, SHA-256 `7e1225b8aeee89e87e7dd78cae98f5a34a529a0f14cef527e0701c7560cf4256` |
-| Security `33315700537` | **Failed only at Dependency Review.** CodeQL actions, C/C++, and Python all passed. Dependency Review remained fail-closed because the repository Dependency Graph is disabled. | None |
+| Linux `33333139217` | **Passed.** Release build, 1,427/1,427 enabled CTests, TechDraw GUI export, 1,661 CLI tests, and the expanded 1,763-test GUI suite all passed. | Baseline `9739849026`, 6,879,588 bytes, SHA-256 `49a908d9394bb77be62d23beccffe66e5f87b67489d411011e8b04b3ceab3a2e`; TechDraw `9739761364`, 603,854 bytes, SHA-256 `9689e1cb5ffd7cb3d1da694ebab73fc9e239a39d5326b8b58954d1cf423d2c03` |
+| macOS arm64, run `33333139229` | **Failed at GUI process exit.** Build, 1,427 enabled CTests, TechDraw, and 1,661 CLI tests passed. The application log reported 1,763 GUI tests and `OK`, but the process exited 1. Triage traced the only new exception to the invalid SectionCut regression setup and its weak dock assertion. | Baseline `9739523215`, 6,870,210 bytes, SHA-256 `a88a0a51f8c260555a852c2d8e5a3c8e5aa6f5ea70dbf39442feb9b96a49cd94`; TechDraw `9739432731`, 597,323 bytes, SHA-256 `e8ff30a63b8b7bf41b8ba8d544107bfaa3fa154045952c4c315802081fd38307` |
+| macOS x86_64, run `33333139229` | **In progress.** Configure passed and the Release build is active. No later gate or artifact is claimed. | None yet |
+| Windows `33333139201` | **In progress.** Configure passed and the Release build is active. No native-output, discovery, CTest, CLI, GUI, or artifact result is claimed. | None yet |
+| Security `33333139224` | **Failed only at Dependency Review.** CodeQL actions, C/C++, and Python all passed. Dependency Review remained fail-closed because the repository Dependency Graph is disabled. | None |
 
 ## Active blockers
 
 | Priority | Blocker | Current truth |
 |---|---|---|
-| P0 | Remote integration evidence | PR #28 is mixed at `8aebea6cc733fc4d16d79c2deacf1d2b1525489a`: Linux is green; Windows and both macOS jobs are red. Candidate `46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa` is fully green on local Linux arm64 but remains unpublished and lacks native Windows/macOS proof. |
-| P0 | Windows native tests | Build, runtime checks, and discovery pass, but the missing Qt platform-plugin path caused two Qt test timeouts and the lifecycle timeout. Candidate `46d2f83` is locally green and requires a real Windows rerun. |
-| P0 | macOS matrix | Both architectures pass build, CTest, TechDraw, and CLI, but deferred Draft callbacks access deleted wrappers during the GUI suite and exit 1. The combined Draft/BIM candidate is Linux-green and requires both native reruns. |
+| P0 | Remote integration evidence | PR #28's latest native evidence is mixed at `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`: Linux is green; macOS arm64 exits 1 after a 1,763-test `OK` GUI log; Windows and macOS x86_64 are still active. SectionCut implementation `11abf72` is published and Linux-green, but its native rerun is pending. |
+| P0 | Windows native tests | Run `33333139201` is still building. The Qt platform-plugin correction has no completed native Windows evidence yet. |
+| P0 | macOS matrix | arm64 passes build, CTest, TechDraw, and CLI but exits 1 after the GUI application log reports 1,763 tests and `OK`; x86_64 is still building. The locally green SectionCut correction requires native reruns. |
 | P0 | Dependency Review | Last CodeQL jobs were green, but Dependency Review is fail-closed while the repository Dependency Graph is disabled. CodeQL is not a replacement. |
 | P0 | Untrusted input | Audit evidence found PR #27's symlink graph escape; the stale DTD-only stack is insufficient. Release-blocker issue #24 remains unresolved. |
 | P0 | Legal / provenance | Restricted material-pattern assets, inherited identity/provenance gaps, and a prebuilt Windows thumbnail DLL remain unresolved. The legal audit is NO-GO. |
@@ -182,9 +210,9 @@ All artifacts below expire on 2026-09-29.
 
 ## Resume sequence
 
-1. Publish the three locally verified focused commits through candidate `46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa` to `integration/acceptance-ci` without rewriting shared history.
-2. Re-fetch the branch and PR #28 and record the exact new SHA; do not treat local Linux evidence as a native platform pass.
-3. Rerun Windows and both macOS architectures; rerun Linux as part of the complete matrix before accepting M0.
+1. Preserve the terminal results and artifacts from active Windows `33333139201` and macOS x86_64 `33333139229` when they complete.
+2. Re-fetch the resulting integration branch and PR #28 head and record the exact state-update SHA/tree in the PR comment.
+3. Run and retrieve Linux, Windows, macOS arm64, macOS x86_64, and Security at that verified head before accepting M0.
 4. Retrieve every job result, exact failed step, log, and artifact; do not summarize a queued or skipped gate as passed.
 5. Fix root causes and repeat until green, or document the exact external setting blocker.
 6. Only then select the next roadmap slice. Highest priority remains safety, correctness, and baseline integrity before UI work.
