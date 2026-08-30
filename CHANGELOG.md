@@ -47,21 +47,22 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 - Added deterministic Windows native-test runtime-path bootstrapping and five
   helper unit tests. The native runner now proves Materials 35/35, while other
   Windows failures remain.
-- Committed locally, but have not yet published, Qt-callback exception containment with
-  exact 0/1/7 lifecycle coverage, a finite scientific-notation unittest summary
-  parser, and corrections for the Windows FileInfo/offscreen failures exposed
-  by the first cross-platform rerun.
+- Published Qt-callback exception containment with exact 0/1/7 lifecycle
+  coverage, a finite scientific-notation unittest summary parser, and the
+  Windows FileInfo/offscreen corrections through integration head
+  `8aebea6cc733fc4d16d79c2deacf1d2b1525489a`.
+- Prepared and fully verified on local Linux arm64, but have not yet published,
+  focused Draft/BIM deleted-wrapper guards and deterministic Windows Qt
+  platform-plugin discovery through candidate
+  `46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa`.
 
 ### Verification
 
-- On committed local tested implementation head
-  `2f7fa2c8e940759d07698442054af0d12f222125`, based on remote head
-  `51ae387b9ff3c0d1f3c894adb897717664967974`, incremental Release builds of 324
-  and then four edges passed. CTest reported 1,433 registered, 1,427 enabled,
-  zero failures, three skips, and six disabled tests in 90.11 seconds. CLI ran
-  1,661 tests with 10 skips and no failures in 153.353 seconds. A faithful
-  safe-mode GUI run reported 1,759 passes, zero failures, process exit 0, and a
-  parsed count of 1,759 in 420 seconds.
+- Published integration head `8aebea6cc733fc4d16d79c2deacf1d2b1525489a`
+  passed the complete Linux workflow: 1,427/1,427 enabled CTests, TechDraw GUI
+  export, 1,661 CLI tests with 10 skips, and 1,759 GUI tests. The retained
+  baseline artifact is `9734764667` with SHA-256
+  `1342f4fdfc0d61878bf0e8d649fd8e1d47c602836f343d8c8bbbe659b020668d`.
 - Focused evidence includes exact exit code 7 plus cleanup, a passing Unicode
   mirror regression, 2,000 targeted and 1,400 full-fixture FileInfo stress
   repetitions, five passing Windows helper tests, rendered TechDraw SVG/PDF
@@ -78,13 +79,24 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   rather than 240 seconds, and FileInfo always executes WriteOnly while
   documenting and asserting the Windows readable-and-writable projection
   without skipping or changing the DACL.
-- Draft PR #28 is terminal and red at
-  `51ae387b9ff3c0d1f3c894adb897717664967974`: Linux rejected a valid scientific
-  GUI duration after 1,759 passing tests; Windows passed Materials 35/35 but had
-  two FileInfo assertions and three timeouts; macOS arm64 terminated on an
-  exception escaping a Qt callback; macOS x86_64 reported 1,759 passing GUI
-  tests but exited 1. Security failed only on the disabled Dependency Graph;
-  all three CodeQL jobs passed.
+- Draft PR #28 remains mixed at `8aebea6cc733fc4d16d79c2deacf1d2b1525489a`:
+  Linux is fully green; Windows builds and discovers tests but lacks the Qt
+  platform-plugin runtime path and fails two Qt tests plus GUI lifecycle;
+  macOS arm64 and x86_64 pass build, CTest, TechDraw, and CLI before deferred
+  Draft deleted-wrapper callbacks make the GUI process exit 1. Security fails
+  only at Dependency Review while the Dependency Graph is disabled; all three
+  CodeQL jobs pass. The local `46d2f83` follow-up is not published and has no
+  native Windows or macOS result.
+- Focused unpublished-candidate evidence passed Draft 4/4 and 30/30, a composed
+  Draft/BIM/Path GUI set 31/31, ArchSite save/reopen 1/1, and the existing
+  Windows runtime helper 5/5. Synthetic Windows bootstrap, missing-plugin, and
+  imported-qmake harnesses also passed, but no native Windows result exists.
+- The combined candidate completed a 1,704/1,704 Release rebuild and clean
+  no-op build; runtime helper 5/5; summary parser 9/9; 1,427/1,427 enabled
+  CTests with all four acceptance tests; 1,661 CLI tests with 10 skips; 1,763
+  faithful safe-mode GUI tests with zero failures and exit 0; and TechDraw GUI
+  export 1/1 with the expected 13,163-byte SVG and 298,780-byte PDF. These are
+  local Linux arm64 results, not publication or native Windows/macOS evidence.
 
 ### Security
 
@@ -93,8 +105,9 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 ### Known limitations
 
 - No OpenFusion feature milestone or binary release has been completed.
-- Baseline builds, tests, package installation, and platform support remain
-  unverified; see [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+- The cross-platform baseline and installed-package acceptance remain
+  unverified; the published Linux source baseline is green. See
+  [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Releases
 

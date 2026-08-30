@@ -4,17 +4,18 @@
 
 | Area | Exact current state | Exit condition |
 |---|---|---|
-| Remote baseline | Draft PR #28 and `integration/acceptance-ci` are terminal and red at `51ae387b9ff3c0d1f3c894adb897717664967974`. Fully green next-head evidence belongs to committed local tested head `2f7fa2c8e940759d07698442054af0d12f222125` and is not GitHub Actions evidence. | Publish the focused commits without rewriting shared history, re-fetch the exact head, and retrieve every rerun conclusion, log, and artifact. |
-| Windows | Native runtime bootstrapping is proven by Materials 35/35. The run still failed on two FileInfo assertions, 600-second QuantitySpinBox and DlgVersionMigrator timeouts, and a 90-second lifecycle timeout. | A real Windows Release runner completes every discovered native and GUI/offscreen test without ad hoc DLL copying, assertion failures, or timeouts. |
-| macOS | arm64 terminated at -6 when `Base::SystemExitException` escaped a Qt callback; x86_64 reported 1,759 GUI tests `OK` but exited 1. The containment candidate is locally green only. | Both macOS jobs build and complete CTest, TechDraw, CLI, and GUI gates with exact exit propagation and cleanup. |
+| Remote baseline | Draft PR #28 is mixed at published head `8aebea6cc733fc4d16d79c2deacf1d2b1525489a`: Linux is fully green; Windows and both macOS jobs are terminal and failed. Candidate `46d2f83e6980c5a3aa4a9a84e0f4c0bd9d5b06fa` is fully green on local Linux arm64 but unpublished and lacks native Windows/macOS proof. | Publish the locally verified focused work without rewriting shared history, then retrieve every rerun conclusion, log, and artifact. |
+| Windows | The 6,757-edge build, runtime checks, and discovery pass. CTest passes 1,426/1,429 enabled tests, but the absent Qt platform-plugin path causes QuantitySpinBox and DlgVersionMigrator to time out at 600.01 seconds and GUI lifecycle to hit its 270-second internal timeout. | A real Windows Release runner validates candidate `46d2f83` and completes every discovered native and GUI test without ad hoc DLL copying or timeout. |
+| macOS | Both architectures pass build, 1,427/1,427 enabled CTests, TechDraw, and 1,661 CLI tests with 10 skips. Deferred Draft callbacks access deleted object wrappers during the GUI suite and both processes exit 1. | Both macOS jobs validate the combined Linux-green Draft/BIM guards and complete the GUI gate without deleted-wrapper exceptions. |
 | Dependency Review | The last CodeQL jobs were green, but Dependency Review remains fail-closed because the repository Dependency Graph is disabled. CodeQL is not a substitute. | Enable the authorized repository setting and obtain a passing Dependency Review run; retain complementary locked-dependency and SBOM auditing. |
 | Security | Audit evidence found a symlink graph escape in PR #27, and the stale DTD-only hardening stack is insufficient for the complete untrusted FCStd/XML/archive threat model. Release-blocker issue #24 remains open. | Close the complete extraction, entity, path, temporary-file, and parser acceptance criteria with regression evidence. |
 | Legal and assets | Restricted material-pattern assets, inherited identity/provenance gaps, and a prebuilt Windows thumbnail DLL remain in the integration surface. | Remove or replace restricted/unverifiable material, establish provenance, rebuild permissible binaries from reviewed source, and complete shipped notices. |
 | Product | There are still no OpenFusion product classes under `src/`; the workspace shell, command palette, contextual actions, Project presentation, and functional timeline are not implemented. | Implement real, tested workflows in roadmap order; inherited FreeCAD capability and visible controls do not close these gaps. |
 | Packaging and release | Required clean-installed packages, checksums, SBOMs, signing/notarization evidence, release tag, and verified GitHub Release are absent. | Pass every package and release gate; unavailable credentials remain explicit pre-production blockers. |
 
-The committed local Linux arm64 head is materially improved but unpublished and
-is not a production-readiness claim. If one platform remains externally blocked,
+Linux is green at the published integration head and the combined candidate is
+green locally on Linux arm64, but unpublished local evidence is not a native
+platform pass or a production-readiness claim. If one platform remains externally blocked,
 work may continue elsewhere, but M0 cannot advance on failed or inferred
 evidence.
 
@@ -30,20 +31,20 @@ until its build and workflow evidence is recorded.
 
 ## Foundation blockers
 
-- The current published matrix is red. Linux rejected a valid scientific GUI
-  duration after the suite reported 1,759 tests and `OK`; Windows has two
-  FileInfo assertions and three GUI/offscreen timeouts; macOS arm64 terminates
-  on an exception escaping a Qt callback; macOS x86_64 exits 1 after reporting
-  1,759 GUI tests and `OK`.
+- The published matrix is mixed. Linux passes every baseline gate. Windows
+  lacks the Qt platform-plugin runtime path and fails two Qt tests plus GUI
+  lifecycle. Both macOS architectures fail the GUI suite on deferred Draft
+  callbacks that access deleted wrappers after their documents are closed.
 - Repository submodules must be initialized recursively before a complete
   build; no submodule-free source package has been validated.
 - Current binaries and many user-facing identifiers still use FreeCAD names.
   They are transitional development outputs, not OpenFusion release artifacts.
 - No OpenFusion-branded AppImage, `tar.zst`, DEB, RPM, Windows installer, or
   macOS DMG has been produced and clean-install tested.
-- Linux, Windows, and macOS support claims remain unverified. Signing and
-  notarization credentials and hardware-specific viewport coverage are not
-  established.
+- Cross-platform Windows/macOS and installed-package support remain unverified.
+  The Linux source baseline is verified, but no Linux package has passed clean
+  installation. Signing/notarization credentials and hardware-specific viewport
+  coverage are not established.
 - The dependency, bundled-asset, and third-party-license inventory is
   incomplete. No OpenFusion binary may be released until redistribution terms,
   notices, and shipped license texts are audited.
