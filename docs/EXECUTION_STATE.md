@@ -17,7 +17,7 @@ is not a production release or clean-machine support claim.
 |---|---|
 | Foundation | FreeCAD 1.1.3, `145529fe741292ff0b3977a01195bf0247425794` |
 | Published integration head | `3f54ec58a6475141e0357101c355a51aefaab5ca`, tree `a80748e4c8243d858ccaf73e8bd64601e5605550` |
-| Local reviewed source head | `4e9eff50caa7e6e5bd9acfbc68dde848aec3e1da`, tree `ae09f4378486ffaf99bbd99c15a26fa942edf4c0`, plus this truth update |
+| Local reviewed source head | `ee2bc68be74109efd830839e24fbca6f61cbb8b2`, tree `f1de931870e58d89c12910a8894f55010808276c`, plus this truth update |
 | Branch / PR | `integration/acceptance-ci`; draft PR #28; connector-created update SHA intentionally not predicted |
 | Dependency lock | `pixi.lock`, SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc` |
 | External setting blocker | Issue #32: repository Dependency Graph is disabled |
@@ -59,7 +59,7 @@ Ninja 1.13.2, Python 3.11.14, Qt 6.8.3, locked Pixi environment.
 | GUI suite | 1,776 ran; zero failures; parser count 1,776; exact exit 0 and complete teardown; 426 s. |
 | Final MDI lifecycle | Six process scenarios, including 64 repeatedly maximized live subwindows, passed in 23.95 s with ordered owned-UI, MainWindow, application, Python-finalization, lock-cleanup and process markers. |
 | Headless identity | GUI and CLI report exact configured OpenFusion versions without loading QPA; option grammar regression passed. |
-| Packaging / legal | Packaging 80/80, thumbnail source quarantine 19/19, material quarantine 22/22, dependency audit 30/30, live 32-identity guard, Actionlint/YAML/diff/secret checks passed. |
+| Packaging / legal | Packaging 80/80, thumbnail source quarantine 19/19, material quarantine 24/24, dependency audit 30/30, live 32-identity guard, Actionlint/YAML/diff/secret checks passed. The reviewed policy exemption is exact-path and exact-SHA-bound. |
 
 ## Verified Linux development artifact
 

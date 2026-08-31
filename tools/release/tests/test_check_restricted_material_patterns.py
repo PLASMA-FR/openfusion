@@ -17,6 +17,8 @@ RELEASE_TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_TOOLS))
 
 from check_restricted_material_patterns import (  # noqa: E402
+    LEGAL_QUARANTINE_POLICY_PATH,
+    LEGAL_QUARANTINE_POLICY_SHA256,
     LFS_POINTER,
     MATERIAL_SOURCE_PREFIX,
     MAX_INSPECTED_BLOB_SIZE,
@@ -27,6 +29,8 @@ from check_restricted_material_patterns import (  # noqa: E402
     _InspectionError,
     find_violations,
 )
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class RestrictedMaterialPatternsTest(unittest.TestCase):
@@ -107,6 +111,29 @@ class RestrictedMaterialPatternsTest(unittest.TestCase):
         self._write("packaging/materials.list", "assets/materials/allowed.FCMAT\n")
         self._write("src/Mod/Material/CMakeLists.txt", "# no quarantined patterns\n")
         self.assertEqual([], find_violations(self.repo_root))
+
+    def test_exact_reviewed_legal_quarantine_policy_is_not_a_reference(self) -> None:
+        policy = (PROJECT_ROOT / LEGAL_QUARANTINE_POLICY_PATH).read_bytes()
+        self.assertEqual(
+            LEGAL_QUARANTINE_POLICY_SHA256,
+            hashlib.sha256(policy).hexdigest(),
+        )
+        self._write_bytes(LEGAL_QUARANTINE_POLICY_PATH, policy)
+        self.assertEqual([], find_violations(self.repo_root))
+
+    def test_modified_legal_quarantine_policy_fails_closed(self) -> None:
+        self._write(LEGAL_QUARANTINE_POLICY_PATH, '{"format_version":1}\n')
+        violations = find_violations(self.repo_root)
+        self.assertTrue(
+            any(
+                violation.startswith(
+                    "reviewed legal quarantine policy has an unexpected "
+                    "content identity: packaging/linux/legal_quarantine.json"
+                )
+                for violation in violations
+            ),
+            violations,
+        )
 
     def test_known_path_is_rejected_case_insensitively(self) -> None:
         restricted = RESTRICTED_PATTERN_PATHS[0]

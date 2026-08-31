@@ -15,12 +15,13 @@ CMake 4.2.1, Python 3.11.14, and Qt 6.8.3:
 | GUI | 1,776 tests; zero failures; parser count 1,776; exit 0 and complete teardown; 426 s. |
 | TechDraw GUI | 1/1 in 2.62 s; SVG 13,163 bytes; PDF 297,380 bytes. |
 | Windows helper/graphics | 31/31. |
-| Packaging / legal / dependency | Packaging 80/80; material 22/22; thumbnail 19/19; dependency 30/30; live guard, deterministic real-lock audit and final development payload legal scan passed. |
+| Packaging / legal / dependency | Packaging 80/80; material 24/24; thumbnail 19/19; dependency 30/30; live guard, deterministic real-lock audit and final development payload legal scan passed. |
 
 These local results do not replace native macOS or production clean-machine
-proof. The reviewed source head before this truth update is
-`4e9eff50caa7e6e5bd9acfbc68dde848aec3e1da`, tree
-`ae09f4378486ffaf99bbd99c15a26fa942edf4c0`. The verified development tar path and digests are recorded in
+proof. The current reviewed source head before this truth update is
+`ee2bc68be74109efd830839e24fbca6f61cbb8b2`, tree
+`f1de931870e58d89c12910a8894f55010808276c`. The verified development tar remains bound to its exact source
+`4e9eff50caa7e6e5bd9acfbc68dde848aec3e1da`; its path and digests are recorded in
 `docs/EXECUTION_STATE.md`.
 
 ## Historical verified local integration evidence (2026-08-30)

@@ -192,6 +192,10 @@ RESTRICTED_PATTERN_BLOBS = {
 RESTRICTED_PATTERN_PATHS = tuple(RESTRICTED_PATTERN_BLOBS)
 MATERIAL_SOURCE_PREFIX = "src/Mod/Material/"
 PATTERN_ROOT = Path("src/Mod/Material/Resources/Materials/Patterns")
+LEGAL_QUARANTINE_POLICY_PATH = "packaging/linux/legal_quarantine.json"
+LEGAL_QUARANTINE_POLICY_SHA256 = (
+    "4dd36d5954b3ae05759842f2b1e2cc24c68a1826131b9a5dbc75de9330704603"
+)
 RESTRICTED_METADATA = re.compile(
     r"^\s*[\"']?License[\"']?\s*[:=]\s*[\"']?All\s+rights\s+reserved" r"(?:[\"']|\s|$)",
     re.IGNORECASE | re.MULTILINE,
@@ -741,6 +745,14 @@ def _audit_blobs(
                             f"FCMat metadata: {entry.relative}"
                         )
                     if is_manifest:
+                        if entry.relative == LEGAL_QUARANTINE_POLICY_PATH:
+                            if digest != LEGAL_QUARANTINE_POLICY_SHA256:
+                                violations.append(
+                                    "reviewed legal quarantine policy has an "
+                                    "unexpected content identity: "
+                                    f"{entry.relative} (sha256={digest})"
+                                )
+                            continue
                         for original, identities in reference_sets.items():
                             for identity in identities:
                                 if identity.casefold() in normalized:
