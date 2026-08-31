@@ -3,10 +3,11 @@
 **Last verified:** 2026-08-31 UTC
 **Production-ready:** No
 **Active milestone:** M0, reproducible upstream baseline
-**Next task:** Re-fetch the resulting integration branch and PR #28 head after
-this retained-state update, record its exact state-update SHA/tree in the PR
-comment, and run/retrieve Linux, Windows, macOS arm64, macOS x86_64, and Security.
-Do not predict the documentation commit SHA or infer native proof from Linux.
+**Next task:** Re-fetch the integration branch and PR #28 after publishing the
+bounded teardown diagnostics, record the exact head/tree in the PR comment, and
+run/retrieve Linux, Windows, macOS arm64, macOS x86_64, and Security. Use that
+native evidence to finish the Windows OpenGL and macOS teardown root causes;
+do not predict this documentation commit SHA or infer native proof from Linux.
 
 This file records resumable execution truth. A local pass is not a remote CI
 pass, an inherited FreeCAD feature is not an OpenFusion product feature, and a
@@ -17,10 +18,10 @@ built artifact is not a tested package.
 | Item | Verified value |
 |---|---|
 | FreeCAD foundation | 1.1.3, commit `145529fe741292ff0b3977a01195bf0247425794` |
-| Published integration base | `021591fa24907546691ab9f1fd5650fa94055bd4`, tree `522e24bcf200596eab736536253b9e069f469095` |
-| Connector-created retained-state implementation | Exit-state diagnostics `23a82e5033c0f6111c5a7266aa4ba3f7de8d5cff`, tree `fcacaca7`; hostile-fixture isolation `01ed5b671f5aadabdcaec1b23b092e5c1e15520e`, tree `2bf833a6`; GUI-thread diagnostic gating `77dc9527f937f7d7f8e28f7eae65ee281cf12cad`, tree `8eaa06cc`; Windows cross-step Qt environment export `b022722d50e463dd4d4aefbeedd2c5e340670d5a`, tree `6a1e0206` |
+| Published integration evidence base | `3f961895a3eb0017ee94201395a2c8782ddad1e5`, tree `30fadacae4d212c852053dd4c58f2a542b656c3c` |
+| Connector-created diagnostic implementation | Bounded teardown diagnostics `6edc44ee874e3242605f73d6a76bacca06e2733d`, tree `d2f486b388b5ec97b003a1ed279165a9210028ca`; earlier retained-state chain `23a82e5` / `01ed5b6` / `77dc952`; Windows cross-step Qt export `b022722` |
 | Integration state update | The verified implementation chain is the base accompanying this documentation update on integration. This file does not predict its own commit SHA; the exact resulting head belongs in the verified PR comment after connector re-fetch |
-| Active integration PR | Draft PR #28, `integration/acceptance-ci`; at `021591f`, Linux is green, both macOS architectures exit 1 after 1,769-test `OK` application logs without the required retained-state diagnostic, Windows passes every CTest but its later TechDraw process cannot find qwindows, and Security fails only on disabled Dependency Graph. No native rerun exists yet for `b022722` |
+| Active integration PR | Draft PR #28, `integration/acceptance-ci`; at `3f961895`, Linux is fully green, both macOS architectures pass every pre-GUI gate and log 1,769 GUI tests `OK` before teardown exits 1, Windows passes build/CTest/TechDraw/CLI but reports 59 full-GUI OpenGL/access-violation errors, and Security fails only on disabled Dependency Graph. Native teardown diagnostics `6edc44e` accompany this update and require rerun |
 | Dependency lock | `pixi.lock`, SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc` |
 
 ### Published platform work at the remote head
@@ -280,7 +281,19 @@ These Linux arm64 results supported publication of the preceding platform
 changes. They are not Windows or macOS evidence. An earlier hidden-mode
 diagnostic run was invalid and interrupted and remains excluded.
 
-## GitHub Actions evidence at published head `021591f`
+## GitHub Actions evidence at published head `3f961895`
+
+All assigned runs are terminal. Artifacts expire on 2026-09-30.
+
+| Workflow run | Terminal result | Artifacts |
+|---|---|---|
+| Linux `33363811020` | **Passed.** Build, 1,427/1,427 enabled CTests, TechDraw, 1,667 CLI tests with 10 skips, and 1,769 GUI tests all passed with orderly teardown. | Baseline `9750186214`, 6,900,671 bytes, SHA-256 `531ed6a131dab28e2b898039a5ce59932524d518eb706fced7a5b2efbcac8972`; TechDraw `9750003836`, 601,429 bytes, SHA-256 `c431237a65cadb0c1ef5786b5bf260e12dff7c8387af7e393e8bafc1a9c15a77` |
+| Windows `33363810971` | **Failed only at the full GUI gate.** Build, runtime helper 15/15, all 1,429 enabled CTests, lifecycle, TechDraw, and 1,667 CLI tests passed. Full GUI ran 1,769 tests but produced 59 errors after OpenGL 1.1 context and `QOpenGLWidget` framebuffer failures led to access violations. | Baseline `9752389917`, 7,236,106 bytes, SHA-256 `e3961e1ce8e859283e10f0a1e08e118da13d810021725788384f59b8c3fd880b`; TechDraw `9752179141`, 682,320 bytes, SHA-256 `94d71dce24d1a64b2842b6828e771fb4241e8a38b94e7423ccfcb27e8326cad6` |
+| macOS arm64 `33363811070` | **Failed only during full-GUI teardown.** Build, 1,427 CTests, TechDraw, and 1,667 CLI tests passed. The application log recorded all 1,769 GUI tests `OK`, requested/raw/stored/selected exit code 0, and event-loop return before process exit 1. | Baseline `9750200075`, 6,888,450 bytes, SHA-256 `85a31a42d726ed04b2371139e60d120a0363e368b315f05b8cc4fabe32675f53`; TechDraw `9750017210`, 594,535 bytes, SHA-256 `ea15f430614070d90603c88f47fabc144218b50c0575c603552b53428f1f4f1b` |
+| macOS x86_64 `33363811070` | **Failed only during full-GUI teardown.** Build, all 1,427 enabled CTests, TechDraw, and 1,667 CLI tests passed; the full GUI process exited 1 after the suite completed without a failed unittest result. | Baseline `9752565135`, 6,892,847 bytes, SHA-256 `a4c582af8afcb5ae8ffeafb5b7eab940ff429ec3a4cabc8d4f0c09c83dc66c6e`; TechDraw `9752126729`, 594,550 bytes, SHA-256 `e3965a5a8c149d881f97ba483972a0d2e511bcf7a373bf3642e767546f0cf94a` |
+| Security `33363810919` | **Failed only at Dependency Review.** CodeQL actions, C/C++, and Python passed; Dependency Review is unsupported until Dependency Graph is enabled. | None |
+
+## Historical GitHub Actions evidence at head `021591f`
 
 Actions checked out and tested PR merge commit
 `64bc9a7d39f077156ed00fac4fca85cc46ea5604`. Connector comparison proves it is
@@ -303,9 +316,9 @@ All artifacts below expire on 2026-09-30.
 
 | Priority | Blocker | Current truth |
 |---|---|---|
-| P0 | Remote integration evidence | At `021591f`, Linux is green; both macOS architectures exit 1 after 1,769-test `OK` logs without a retained-state diagnostic; Windows passes all 1,429 enabled CTests but later TechDraw lacks qwindows and times out. Combined implementation through `b022722` is locally green but has no native rerun. |
-| P0 | Windows native tests | Build, runtime discovery, native Qt tests, lifecycle, and all 1,429 enabled CTests are proven. The later TechDraw step lacks CTest-scoped Qt variables and times out after qwindows lookup fails. Cross-step `GITHUB_ENV` export `b022722` requires a real Windows rerun through TechDraw, CLI, and GUI. |
-| P0 | macOS matrix | Both architectures pass build, CTest, TechDraw, and CLI, then report 1,769 GUI tests and `OK` but exit 1 without the diagnostic needed to identify the hidden exception or normal teardown. Both require the retained-state rerun. |
+| P0 | Remote integration evidence | At `3f961895`, Linux is green; Windows fails only its full GUI gate with 59 OpenGL/access-violation errors; both macOS architectures exit 1 during teardown after successful 1,769-test application logs. Diagnostic commit `6edc44e` is Linux-green locally and requires native rerun. |
+| P0 | Windows native tests | Build, runtime discovery, native Qt tests, lifecycle, all 1,429 enabled CTests, TechDraw, and CLI are proven. The full GUI gate must complete without the OpenGL 1.1 framebuffer failures and access violations; tests remain fail-closed. |
+| P0 | macOS matrix | Both architectures pass build, CTest, TechDraw, CLI, and the unittest result itself, then exit 1 while unwinding the main window. Bounded destructor/catch/top-level-widget diagnostics `6edc44e` require native rerun before a teardown correction is accepted. |
 | P0 | Dependency Review | Last CodeQL jobs were green, but Dependency Review is fail-closed while the repository Dependency Graph is disabled. CodeQL is not a replacement. |
 | P0 | Untrusted input | Audit evidence found PR #27's symlink graph escape; the stale DTD-only stack is insufficient. Release-blocker issue #24 remains unresolved. |
 | P0 | Legal / provenance | Restricted material-pattern assets, inherited identity/provenance gaps, and a prebuilt Windows thumbnail DLL remain unresolved. The legal audit is NO-GO. |

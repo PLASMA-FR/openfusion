@@ -173,6 +173,15 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   cross the workflow-step boundary; CLI and GUI were skipped.
 - The cross-step helper update passed 15/15 unit tests, Black, syntax, workflow
   YAML, and diff checks locally.
+- At published head `3f961895`, Linux passed every gate. Windows passed build,
+  helper 15/15, all 1,429 enabled CTests, TechDraw, and 1,667 CLI tests before
+  the full 1,769-test GUI suite reported 59 OpenGL/access-violation errors. Both
+  macOS architectures passed every pre-GUI gate and completed 1,769 GUI tests
+  `OK`, then exited 1 while unwinding the GUI application.
+- Added bounded Internal-only MainWindow destructor/catch diagnostics and a
+  sanitized 128-record/32-KiB top-level-widget inventory in `6edc44e`. Local
+  validation passed helper 13/13, 1,429/1,429 enabled CTests, and 1,776/1,776
+  GUI tests with exit 0 and complete teardown. Native reruns remain required.
 
 ### Security
 

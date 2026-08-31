@@ -4,17 +4,17 @@
 
 | Area | Exact current state | Exit condition |
 |---|---|---|
-| Remote baseline | At published head `021591fa24907546691ab9f1fd5650fa94055bd4`, Linux is fully green; both macOS architectures exit 1 after 1,769-test `OK` logs without retained state or normal teardown; Windows passes all CTests but its later TechDraw step cannot find qwindows and times out. Combined implementation through `b022722` accompanies this update but has no native rerun. | Re-fetch the resulting branch/PR head, record its exact state-update SHA/tree in the PR comment, and retrieve every fresh matrix conclusion, log, and artifact. |
-| Windows | Build, runtime helper 5/5, 23-directory/46-artifact registration, discovery, native Qt tests, lifecycle, and all 1,429 enabled CTests pass. CTest-scoped Qt variables do not reach the next TechDraw process, which cannot find qwindows and times out after 10 minutes; CLI/GUI are skipped. | A real Windows runner validates cross-step export `b022722` and completes TechDraw, CLI, and GUI after the already-green CTest gate. |
-| macOS | Both architectures pass build, 1,427 enabled CTests, TechDraw, and 1,667 CLI tests. Their application logs report 1,769 GUI tests and `OK`, but both processes exit 1 without the retained-state diagnostic or orderly teardown; x86_64 also records normal event-loop return before the failure. | Both macOS jobs validate `77dc952`, retain bounded diagnostic state when needed, and complete the GUI gate with process exit 0 and orderly teardown. |
+| Remote baseline | At published head `3f961895a3eb0017ee94201395a2c8782ddad1e5`, Linux is fully green. Windows passes build, CTest, TechDraw, and CLI but its 1,769-test GUI suite has 59 OpenGL/access-violation errors. Both macOS architectures complete the GUI unittest result successfully and then exit 1 during teardown. | Publish/re-fetch teardown diagnostics `6edc44e`, record the exact state-update SHA/tree, and retrieve every fresh matrix conclusion, log, and artifact. |
+| Windows | Build, runtime helper 15/15, registration/discovery, lifecycle, all 1,429 enabled CTests, TechDraw, and 1,667 CLI tests pass. Full GUI runs all 1,769 tests but OpenGL 1.1/QOpenGLWidget framebuffer failures lead to 59 access-violation errors. | The real Windows runner completes the unchanged full GUI gate without context failures, access violations, or skipped tests. |
+| macOS | Both architectures pass build, 1,427 enabled CTests, TechDraw, and 1,667 CLI tests. Their application logs report 1,769 GUI tests and `OK`, requested/raw/stored/selected code 0, and event-loop return, but process teardown exits 1. | Native diagnostics identify the exact MainWindow unwind failure and both jobs exit 0 with orderly teardown. |
 | Dependency Review | The last CodeQL jobs were green, but Dependency Review remains fail-closed because the repository Dependency Graph is disabled. CodeQL is not a substitute. | Enable the authorized repository setting and obtain a passing Dependency Review run; retain complementary locked-dependency and SBOM auditing. |
 | Security | Audit evidence found a symlink graph escape in PR #27, and the stale DTD-only hardening stack is insufficient for the complete untrusted FCStd/XML/archive threat model. Release-blocker issue #24 remains open. | Close the complete extraction, entity, path, temporary-file, and parser acceptance criteria with regression evidence. |
 | Legal and assets | Restricted material-pattern assets, inherited identity/provenance gaps, and a prebuilt Windows thumbnail DLL remain in the integration surface. | Remove or replace restricted/unverifiable material, establish provenance, rebuild permissible binaries from reviewed source, and complete shipped notices. |
 | Product | There are still no OpenFusion product classes under `src/`; the workspace shell, command palette, contextual actions, Project presentation, and functional timeline are not implemented. | Implement real, tested workflows in roadmap order; inherited FreeCAD capability and visible controls do not close these gaps. |
 | Packaging and release | Required clean-installed packages, checksums, SBOMs, signing/notarization evidence, release tag, and verified GitHub Release are absent. | Pass every package and release gate; unavailable credentials remain explicit pre-production blockers. |
 
-Linux is green at published head `021591f`; diagnostic/propagation implementation
-through `b022722` is green locally on Linux arm64, but local evidence is not a native
+Linux is green at published head `3f961895`; bounded teardown diagnostics
+`6edc44e` are green locally on Linux arm64, but local evidence is not a native
 platform pass or a production-readiness claim. If one platform remains externally blocked,
 work may continue elsewhere, but M0 cannot advance on failed or inferred
 evidence.
@@ -40,9 +40,9 @@ until its build and workflow evidence is recorded.
 ## Foundation blockers
 
 - The published matrix is mixed. Linux passes every baseline gate. Windows
-  lacks the Qt platform-plugin runtime path and fails two Qt tests plus GUI
-  lifecycle. Both macOS architectures fail the GUI suite on deferred Draft
-  callbacks that access deleted wrappers after their documents are closed.
+  reaches full GUI but reports 59 OpenGL/access-violation errors. Both macOS
+  architectures complete all GUI unittests successfully and then fail during
+  MainWindow/application teardown.
 - Repository submodules must be initialized recursively before a complete
   build; no submodule-free source package has been validated.
 - Current binaries and many user-facing identifiers still use FreeCAD names.
