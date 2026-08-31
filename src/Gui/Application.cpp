@@ -44,6 +44,7 @@
 #include <QStyleFactory>
 
 #include <QLoggingCategory>
+#include <cstdio>
 #include <cstdlib>
 #include <fmt/format.h>
 #include <list>
@@ -75,6 +76,7 @@
 #include "PreferencePages/DlgSettingsCacheDirectory.h"
 #include "DocumentPy.h"
 #include "DocumentRecovery.h"
+#include "DiagnosticUtils.h"
 #include "EditorView.h"
 #include "ExpressionBindingPy.h"
 #include "FileDialog.h"
@@ -2476,6 +2478,56 @@ private:
     bool removeFile = false;
 };
 
+bool applicationExitDiagnosticsEnabled() noexcept
+{
+    try {
+        const auto& config = App::Application::Config();
+        const auto runMode = config.find("RunMode");
+        if (runMode != config.end() && runMode->second == "Internal") {
+            return true;
+        }
+    }
+    catch (...) {
+    }
+    return std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") != nullptr;
+}
+
+void reportRunApplicationException(const char* category, const char* message) noexcept
+{
+    if (!applicationExitDiagnosticsEnabled()) {
+        return;
+    }
+
+    try {
+        const std::string sanitized = Gui::Detail::sanitizeDiagnosticText(message);
+        try {
+            Base::Console().error(
+                "runApplicationWithExitCode catch: category=%s message=\"%s\"\n",
+                category,
+                sanitized.c_str()
+            );
+        }
+        catch (...) {
+        }
+        std::fprintf(
+            stderr,
+            "OpenFusion lifecycle: stage=run-application-catch category=%s message=\"%s\"\n",
+            category,
+            sanitized.c_str()
+        );
+        std::fflush(stderr);
+        return;
+    }
+    catch (...) {
+    }
+    std::fprintf(
+        stderr,
+        "OpenFusion lifecycle: stage=run-application-catch category=%s message=\"unavailable\"\n",
+        category
+    );
+    std::fflush(stderr);
+}
+
 void reportEventLoopReturn(
     int rawExitCode,
     bool hasStoredExitCode,
@@ -2484,18 +2536,8 @@ void reportEventLoopReturn(
 ) noexcept
 {
     // Detailed exit arbitration is retained only for internal/lifecycle diagnostics.
-    try {
-        const auto& config = App::Application::Config();
-        const auto runMode = config.find("RunMode");
-        const bool internalMode = runMode != config.end() && runMode->second == "Internal";
-        if (!internalMode && std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") == nullptr) {
-            return;
-        }
-    }
-    catch (...) {
-        if (std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") == nullptr) {
-            return;
-        }
+    if (!applicationExitDiagnosticsEnabled()) {
+        return;
     }
 
     try {
@@ -2597,12 +2639,26 @@ int Application::runApplicationWithExitCode()
         return runApplicationImpl(false);
     }
     catch (...) {
+        const std::exception_ptr exception = std::current_exception();
         long exitCode = 0;
-        if (Base::getSystemExitCode(std::current_exception(), exitCode)) {
+        if (Base::getSystemExitCode(exception, exitCode)) {
             Base::Console().message("System exit\n");
             return static_cast<int>(exitCode);
         }
-        throw;
+
+        try {
+            std::rethrow_exception(exception);
+        }
+        catch (const Base::Exception& error) {
+            reportRunApplicationException("base", error.what());
+        }
+        catch (const std::exception& error) {
+            reportRunApplicationException("std", error.what());
+        }
+        catch (...) {
+            reportRunApplicationException("unknown", "unavailable");
+        }
+        std::rethrow_exception(exception);
     }
 }
 

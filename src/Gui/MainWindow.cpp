@@ -64,6 +64,8 @@
 #endif
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <App/Application.h>
@@ -135,6 +137,35 @@ using namespace std;
 
 
 MainWindow* MainWindow::instance = nullptr;
+
+namespace
+{
+bool mainWindowTeardownDiagnosticsEnabled() noexcept
+{
+    static const bool enabled = []() noexcept {
+        try {
+            const auto& config = App::Application::Config();
+            const auto runMode = config.find("RunMode");
+            if (runMode != config.end() && runMode->second == "Internal") {
+                return true;
+            }
+        }
+        catch (...) {
+        }
+        return std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") != nullptr;
+    }();
+    return enabled;
+}
+
+void reportMainWindowDestructionStage(const char* stage) noexcept
+{
+    if (!mainWindowTeardownDiagnosticsEnabled()) {
+        return;
+    }
+    std::fprintf(stderr, "OpenFusion lifecycle: stage=%s\n", stage);
+    std::fflush(stderr);
+}
+}  // namespace
 
 namespace Gui
 {
@@ -498,9 +529,11 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags f)
 
 MainWindow::~MainWindow()
 {
+    reportMainWindowDestructionStage("main-window-destruct-body-begin");
     delete d->status;
     delete d;
     instance = nullptr;
+    reportMainWindowDestructionStage("main-window-destruct-body-end");
 }
 
 MainWindow* MainWindow::getInstance()
@@ -1747,7 +1780,13 @@ void MainWindow::delayedStartup()
                                  "result = GuiTestRunner.run_test_with_diagnostics(\n"
                                  "    QtUnitGui.runTest,\n"
                                  "    fallback=FreeCAD.Console.PrintError,\n"
-                                 ")\n";
+                                 ")\n"
+                                 "if (\n"
+                                 "    result\n"
+                                 "    and FreeCAD.ConfigGet(\"ExitTests\") == \"yes\"\n"
+                                 "    and GuiTestRunner.is_full_gui_test_selection(testCase)\n"
+                                 "):\n"
+                                 "    GuiTestRunner.report_top_level_widgets()\n";
                 if (App::Application::Config()["ExitTests"] == "yes") {
                     command += "sys.exit(0 if result else 1)";
                 }

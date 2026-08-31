@@ -4,8 +4,16 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
-from GuiTestRunner import run_test_with_diagnostics
+import GuiTestRunner
+from GuiTestRunner import (
+    format_top_level_widget_inventory,
+    is_full_gui_test_selection,
+    report_top_level_widgets,
+    run_test_with_diagnostics,
+    sanitize_log_field,
+)
 
 
 class _RecordingStream:
@@ -51,7 +59,136 @@ class _HiddenRunnerFailure(RuntimeError):
     pass
 
 
+class _MetaObject:
+    def __init__(self, class_name: str) -> None:
+        self.class_name = class_name
+
+    def className(self) -> str:
+        return self.class_name
+
+
+class _Widget:
+    def __init__(
+        self, class_name: str, object_name: str, title: str, visible: bool
+    ) -> None:
+        self.meta = _MetaObject(class_name)
+        self.object_name = object_name
+        self.title = title
+        self.visible = visible
+
+    def metaObject(self) -> _MetaObject:
+        return self.meta
+
+    def objectName(self) -> str:
+        return self.object_name
+
+    def windowTitle(self) -> str:
+        return self.title
+
+    def isVisible(self) -> bool:
+        return self.visible
+
+
+class _DeletedWidget:
+    def __getattribute__(self, _name: str):
+        raise RuntimeError("wrapped C++ object was deleted")
+
+
 class GuiTestRunnerDiagnosticsTests(unittest.TestCase):
+    def test_full_gui_selection_accepts_canonical_and_command_line_names(self) -> None:
+        self.assertTrue(is_full_gui_test_selection("TestApp.All"))
+        self.assertTrue(is_full_gui_test_selection("0"))
+        self.assertFalse(is_full_gui_test_selection("TestPartGui"))
+
+    def test_log_field_sanitizer_escapes_controls_and_bounds_input(self) -> None:
+        value = '\t\x1b\x00\u0085\u2028\u2029"\\' + "a" * 300
+        sanitized = sanitize_log_field(value)
+
+        self.assertTrue(
+            sanitized.startswith('\\u0009\\u001b\\u0000\\u0085\\u2028\\u2029\\"\\\\')
+        )
+        self.assertTrue(sanitized.endswith("..."))
+        self.assertNotIn("\x00", sanitized)
+        self.assertLessEqual(len(sanitized), 310)
+
+    def test_widget_inventory_is_sorted_escaped_and_pointer_free(self) -> None:
+        main = _Widget("MainWindow", "main", "OpenFusion", True)
+        dialog = _Widget("QDialog", 'bad\n"name', "title\x1b", False)
+
+        inventory = format_top_level_widget_inventory([dialog, main], main)
+
+        self.assertTrue(
+            inventory.startswith(
+                "OpenFusion top-level widget inventory: total=2 emitted=2 omitted=0 truncated=no\n"
+            )
+        )
+        self.assertIn('object="bad\\u000a\\"name"', inventory)
+        self.assertIn('title="title\\u001b"', inventory)
+        self.assertIn("visible=yes main=yes delete_pending=unavailable", inventory)
+        self.assertNotIn("0x", inventory)
+
+    def test_widget_inventory_guards_deleted_wrappers(self) -> None:
+        inventory = format_top_level_widget_inventory([_DeletedWidget()], object())
+
+        self.assertIn('class="<unavailable>"', inventory)
+        self.assertIn('object="<unavailable>"', inventory)
+        self.assertIn('title="<unavailable>"', inventory)
+        self.assertIn("visible=unavailable", inventory)
+
+    def test_widget_inventory_caps_records_and_total_bytes(self) -> None:
+        widgets = [
+            _Widget("QDialog", f"widget-{index}", "界" * 300, bool(index % 2))
+            for index in range(180)
+        ]
+
+        inventory = format_top_level_widget_inventory(widgets, object())
+        header = inventory.splitlines()[0]
+        fields = dict(field.split("=", 1) for field in header.split(": ", 1)[1].split())
+
+        self.assertEqual(fields["total"], "180")
+        self.assertEqual(fields["truncated"], "yes")
+        self.assertGreater(int(fields["omitted"]), 0)
+        self.assertLessEqual(int(fields["emitted"]), 128)
+        self.assertLessEqual(len(inventory.encode("utf-8")), 32 * 1024)
+
+    def test_widget_inventory_survives_default_mirror_lookup_failure(self) -> None:
+        output = _RecordingStream()
+        widget = _Widget("QDialog", "dialog", "Diagnostic", True)
+
+        with mock.patch.object(
+            GuiTestRunner,
+            "_default_inventory_mirror",
+            side_effect=RuntimeError("mirror unavailable"),
+        ):
+            report_top_level_widgets(
+                main_window=object(),
+                widgets=[widget],
+                stderr=output,
+            )
+
+        self.assertIn(
+            "total=1 emitted=1 omitted=0 truncated=no", "".join(output.contents)
+        )
+
+    def test_widget_inventory_mirrors_unavailable_acquisition(self) -> None:
+        output = _RecordingStream()
+        mirror: list[str] = []
+
+        report_top_level_widgets(
+            main_window=object(),
+            widgets=object(),
+            stderr=output,
+            mirror=mirror.append,
+        )
+
+        self.assertEqual(
+            "".join(output.contents),
+            "OpenFusion top-level widget inventory: unavailable\n",
+        )
+        self.assertEqual(
+            mirror, ["OpenFusion top-level widget inventory: unavailable\n"]
+        )
+
     def test_non_system_exception_keeps_identity_and_full_traceback(self) -> None:
         output = _RecordingStream()
         errors = _RecordingStream()

@@ -288,6 +288,8 @@ def _run_scenario(
             failures.append(f"{scenario}: event loop did not return normally")
         if " terminating..." not in application_output:
             failures.append(f"{scenario}: normal teardown did not start")
+        if "runApplicationWithExitCode catch:" in application_output:
+            failures.append(f"{scenario}: unexpected runApplicationWithExitCode catch")
 
         if scenario == DIAGNOSTIC_MODE:
             expected_event_loop_state = "GUI event loop return: raw=1 stored_present=no stored_code=0 selected=1"
@@ -353,11 +355,17 @@ def _run_scenario(
         "app-destruct-begin",
         "app-destruct-complete",
         "main-return",
+        "main-window-destruct-body-begin",
+        "main-window-destruct-body-end",
     )
     for stage in expected_lifecycle_stages:
-        marker = f"OpenFusion lifecycle: stage={stage} exit_code={expected_exit_code}"
+        marker = f"OpenFusion lifecycle: stage={stage}"
+        if not stage.startswith("main-window-"):
+            marker += f" exit_code={expected_exit_code}"
         if marker not in console_output:
             failures.append(f"{scenario}: missing main lifecycle stage {stage}")
+    if "OpenFusion lifecycle: stage=run-application-catch" in console_output:
+        failures.append(f"{scenario}: unexpected raw runApplication catch marker")
 
     if failures and console_output:
         failures.append(f"{scenario}: FreeCAD output follows:\n{console_output}")
