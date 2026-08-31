@@ -12,14 +12,20 @@ import argparse
 import base64
 from collections import deque
 import contextlib
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows imports this module only for its legal scanner.
+    fcntl = None  # type: ignore[assignment]
 import functools
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import resource
+try:
+    import resource
+except ImportError:  # Windows imports this module only for its legal scanner.
+    resource = None  # type: ignore[assignment]
 import secrets
 import shutil
 import stat

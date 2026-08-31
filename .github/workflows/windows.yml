@@ -769,6 +769,220 @@ jobs:
             throw "FreeCAD GUI summary validation failed."
           }
 
+      - name: Build and verify unsigned Windows portable package
+        timeout-minutes: 120
+        run: |
+          $ErrorActionPreference = "Stop"
+          $revision = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($revision -notmatch '^[0-9a-f]{40}$') {
+            throw "Git returned an invalid source revision: '$revision'."
+          }
+          $epoch = (git show -s --format=%ct HEAD).Trim()
+          if ($epoch -notmatch '^[0-9]+$') {
+            throw "Git returned an invalid source timestamp: '$epoch'."
+          }
+          $version = "1.1.3-dev.$($revision.Substring(0, 12))"
+          $condaPrefix = (Resolve-Path -LiteralPath ".pixi/envs/default").Path
+          $packageCache = Join-Path $env:RUNNER_TEMP `
+            "openfusion-conda-archives-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $installRoot = Join-Path $env:RUNNER_TEMP `
+            "openfusion-windows-install-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $extractRoot = Join-Path $env:RUNNER_TEMP `
+            "openfusion-windows-extract-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          Remove-Item -LiteralPath $installRoot, $extractRoot, $packageCache -Recurse -Force `
+            -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force artifacts/windows | Out-Null
+
+          pixi run python packaging/windows/create_portable_bundle.py fetch-cache `
+            --lock-file pixi.lock `
+            --package-cache $packageCache `
+            2>&1 | Tee-Object -FilePath logs/windows-portable-package-cache.log
+          if ($LASTEXITCODE -ne 0) { throw "Locked Conda archive prefetch failed." }
+
+          pixi run cmake --install build/release --prefix $installRoot `
+            2>&1 | Tee-Object -FilePath logs/windows-portable-install.log
+          if ($LASTEXITCODE -ne 0) { throw "Windows portable install staging failed." }
+
+          pixi run python packaging/windows/create_portable_bundle.py create `
+            --install-root $installRoot `
+            --conda-prefix $condaPrefix `
+            --qt-plugin-manifest build/release/tests/windows-native-test-qt-plugin-paths.txt `
+            --lock-file pixi.lock `
+            --package-cache $packageCache `
+            --license-file COPYING `
+            --notice-file NOTICE.md `
+            --output-dir artifacts/windows `
+            --version $version `
+            --source-revision $revision `
+            --source-date-epoch $epoch `
+            2>&1 | Tee-Object -FilePath logs/windows-portable-create.log
+          if ($LASTEXITCODE -ne 0) { throw "Windows portable package creation failed." }
+
+          $archive = Join-Path $PWD `
+            "artifacts/windows/OpenFusion-$version-Windows-x86_64-unsigned.zip"
+          $manifest = "$archive.manifest.json"
+          $checksum = "$archive.sha256"
+          $lockSha256 = (Get-FileHash -Algorithm SHA256 pixi.lock).Hash.ToLowerInvariant()
+          pixi run python packaging/windows/create_portable_bundle.py verify `
+            --archive $archive `
+            --manifest $manifest `
+            --checksum $checksum `
+            --expected-version $version `
+            --expected-source-revision $revision `
+            --expected-lock-sha256 $lockSha256 `
+            2>&1 | Tee-Object -FilePath logs/windows-portable-verify.log
+          if ($LASTEXITCODE -ne 0) { throw "Windows portable package verification failed." }
+
+          Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot
+          $packageRoot = Join-Path $extractRoot "OpenFusion-$version-Windows-x86_64"
+          $packagedCli = Join-Path $packageRoot "OpenFusionCmd.cmd"
+          $packagedGui = Join-Path $packageRoot "OpenFusion.cmd"
+          $packagedPython = Join-Path $packageRoot "OpenFusionPython.cmd"
+          foreach ($launcher in @($packagedCli, $packagedGui, $packagedPython)) {
+            if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
+              throw "Extracted portable package omitted launcher: $launcher"
+            }
+          }
+          $env:CONDA_PREFIX = $null
+          $env:PYTHONHOME = $null
+          $env:PYTHONPATH = $null
+          $env:QT_PLUGIN_PATH = $null
+          $env:QT_QPA_PLATFORM_PLUGIN_PATH = $null
+          $env:QT_OPENGL = $null
+          $env:OPENSSL_CONF = $null
+          $env:SSL_CERT_FILE = $null
+          $env:OPENSSL_MODULES = $null
+          $env:OPENFUSION_PORTABLE_ROOT = $null
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $identity = @(& $packagedCli --safe-mode --version 2>&1)
+          $identity | Set-Content -Encoding utf8 logs/windows-portable-identity.log
+          if ($LASTEXITCODE -ne 0) {
+            throw "Extracted OpenFusionCmd.exe failed with exit code $LASTEXITCODE."
+          }
+          $firstLine = @($identity | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })[0]
+          if ($firstLine -notmatch '^OpenFusion\b') {
+            throw "Packaged command identity is not canonical OpenFusion: '$firstLine'."
+          }
+
+          $pythonProbe = @'
+import _ssl
+import os
+from pathlib import Path
+import ssl
+import sys
+from PySide6 import QtCore, QtWidgets
+root = Path(os.environ["OPENFUSION_PORTABLE_ROOT"]).resolve()
+for value, label in ((sys.executable, "python"), (_ssl.__file__, "_ssl"), (QtCore.__file__, "QtCore")):
+    resolved = Path(value).resolve()
+    if not resolved.is_relative_to(root):
+        raise RuntimeError(f"{label} escaped package: {resolved}")
+if Path(os.environ["OPENSSL_CONF"]).resolve() != root / "ssl" / "openssl.cnf":
+    raise RuntimeError("OpenSSL configuration is not package-relative")
+ssl.create_default_context()
+application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+widget = QtWidgets.QWidget()
+widget.show()
+application.processEvents()
+if root / "plugins" not in [Path(value).resolve() for value in QtCore.QCoreApplication.libraryPaths()]:
+    raise RuntimeError("Qt did not load the package-relative plugin root")
+widget.close()
+print(f"python={sys.version.split()[0]} openssl={ssl.OPENSSL_VERSION} qt={QtCore.qVersion()}")
+'@
+          $pythonProbePath = Join-Path $extractRoot "portable-runtime-probe.py"
+          $pythonProbe | Set-Content -LiteralPath $pythonProbePath -Encoding utf8
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $pythonEvidence = @(& $packagedPython -I $pythonProbePath 2>&1)
+          $pythonEvidence | Set-Content -Encoding utf8 logs/windows-portable-python-qt-ssl.log
+          if ($LASTEXITCODE -ne 0) {
+            throw "Extracted Python/OpenSSL/Qt probe failed with exit code $LASTEXITCODE."
+          }
+
+          $portableOutput = Join-Path $extractRoot "acceptance-output"
+          $portableProfile = Join-Path $extractRoot "acceptance-profile"
+          New-Item -ItemType Directory -Force $portableOutput, $portableProfile | Out-Null
+          $env:OPENFUSION_ACCEPTANCE_OUTPUT_DIR = $portableOutput
+          $portableApplicationLog = Join-Path $portableOutput "OpenFusionPortableGui.log"
+          & $packagedGui `
+            --safe-mode `
+            --user-cfg (Join-Path $portableProfile "user.cfg") `
+            --system-cfg (Join-Path $portableProfile "system.cfg") `
+            --log-file $portableApplicationLog `
+            --python-path (Join-Path $PWD "tests/acceptance") `
+            --run-test OpenFusionPortableWindowsAcceptance `
+            2>&1 | Tee-Object -FilePath logs/windows-portable-gui-acceptance.log
+          $portableGuiExitCode = $LASTEXITCODE
+          if ($portableGuiExitCode -ne 0) {
+            throw "Extracted OpenFusion GUI acceptance failed with exit code $portableGuiExitCode."
+          }
+          foreach ($requiredOutput in @(
+            $portableApplicationLog,
+            (Join-Path $portableOutput "OpenFusionPortableWindowsAcceptance.json"),
+            (Join-Path $portableOutput "OpenFusionPortableRoundTrip.FCStd")
+          )) {
+            if (-not (Test-Path -LiteralPath $requiredOutput -PathType Leaf) -or
+                (Get-Item -LiteralPath $requiredOutput).Length -eq 0) {
+              throw "Portable acceptance output is missing or empty: $requiredOutput"
+            }
+          }
+          & $packagedPython .github/scripts/validate_unittest_summary.py `
+            logs/windows-portable-gui-acceptance.log `
+            --expected-count 1 `
+            --label "Windows portable GUI"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Portable GUI unittest summary validation failed."
+          }
+
+          $env:QT_QPA_PLATFORM = $null
+          $desktopOutput = Join-Path $extractRoot "desktop-opengl-output"
+          $desktopProfile = Join-Path $extractRoot "desktop-opengl-profile"
+          New-Item -ItemType Directory -Force $desktopOutput, $desktopProfile | Out-Null
+          $renderer = Join-Path $packageRoot "bin/opengl32.dll"
+          $env:OPENFUSION_STAGED_OPENGL_PATH = $renderer
+          $env:OPENFUSION_STAGED_OPENGL_SHA256 = `
+            (Get-FileHash -Algorithm SHA256 $renderer).Hash.ToLowerInvariant()
+          $env:OPENFUSION_STAGED_OPENGL_PACKAGE = "authenticated locked qt6-main archive"
+          $env:OPENFUSION_ACCEPTANCE_OUTPUT_DIR = $desktopOutput
+          $desktopApplicationLog = Join-Path $desktopOutput "OpenFusionPortableDesktop.log"
+          & $packagedGui `
+            --safe-mode `
+            --user-cfg (Join-Path $desktopProfile "user.cfg") `
+            --system-cfg (Join-Path $desktopProfile "system.cfg") `
+            --log-file $desktopApplicationLog `
+            --python-path (Join-Path $PWD "tests/acceptance") `
+            --run-test OpenFusionWindowsOpenGLAcceptance `
+            2>&1 | Tee-Object -FilePath logs/windows-portable-desktop-opengl.log
+          $desktopExitCode = $LASTEXITCODE
+          if ($desktopExitCode -ne 0) {
+            throw "Portable qwindows/OpenGL acceptance failed with exit code $desktopExitCode."
+          }
+          $desktopEvidence = Join-Path $desktopOutput "WindowsOpenGLRuntime.json"
+          foreach ($requiredOutput in @($desktopApplicationLog, $desktopEvidence)) {
+            if (-not (Test-Path -LiteralPath $requiredOutput -PathType Leaf) -or
+                (Get-Item -LiteralPath $requiredOutput).Length -eq 0) {
+              throw "Portable desktop/OpenGL evidence is missing: $requiredOutput"
+            }
+          }
+          & $packagedPython .github/scripts/validate_unittest_summary.py `
+            logs/windows-portable-desktop-opengl.log `
+            --expected-count 1 `
+            --label "Windows portable qwindows/OpenGL"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Portable qwindows/OpenGL summary validation failed."
+          }
+
+      - name: Upload unsigned Windows portable package
+        timeout-minutes: 20
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: OpenFusion-Windows-x86_64-portable-unsigned-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/windows/OpenFusion-*-Windows-x86_64-unsigned.zip
+            artifacts/windows/OpenFusion-*-Windows-x86_64-unsigned.zip.manifest.json
+            artifacts/windows/OpenFusion-*-Windows-x86_64-unsigned.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
       - name: Record baseline diagnostics
         if: always()
         timeout-minutes: 5

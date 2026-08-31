@@ -54,6 +54,7 @@ class OpenFusionWindowsOpenGLAcceptanceTest(unittest.TestCase):
         expected_digest = os.environ["OPENFUSION_STAGED_OPENGL_SHA256"].casefold()
         package = os.environ["OPENFUSION_STAGED_OPENGL_PACKAGE"]
         self.assertEqual(os.environ.get("QT_OPENGL"), "desktop")
+        self.assertEqual(QtGui.QGuiApplication.platformName().casefold(), "windows")
 
         surface = QtGui.QOffscreenSurface()
         surface.setFormat(QtGui.QSurfaceFormat.defaultFormat())
@@ -106,6 +107,7 @@ class OpenFusionWindowsOpenGLAcceptanceTest(unittest.TestCase):
             "loaded_sha256": loaded_digest,
             "opengl32sw_loaded": False,
             "package": package,
+            "platform": QtGui.QGuiApplication.platformName(),
             "qt_opengl": os.environ["QT_OPENGL"],
             "renderer": renderer,
             "version": version,
