@@ -18,6 +18,16 @@ if(BUILD_GUI)
         TIMEOUT 30
     )
     add_test(
+        NAME OpenFusion_GUI_HeadlessVersionCleanup
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_OpenFusionGuiHeadlessVersion.py"
+    )
+    set_tests_properties(OpenFusion_GUI_HeadlessVersionCleanup PROPERTIES
+        LABELS "acceptance;gui;lifecycle;identity;cleanup"
+        TIMEOUT 30
+        ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    add_test(
         NAME OpenFusion_GUI_SystemExit_Propagation
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/OpenFusionGuiSystemExitRegression.py"
