@@ -1278,6 +1278,22 @@ def _raise_report(report: ClosureReport) -> None:
     raise ClosureError(f"Linux runtime closure verification failed:\n{detail}")
 
 
+def _canonical_runtime_mode(mode: int, kind: str, relative: str) -> int:
+    actual = stat.S_IMODE(mode)
+    if actual & 0o7000:
+        raise ClosureError(f"privileged mode in runtime payload: {relative}")
+    if kind == "file":
+        if actual in (0o644, 0o444):
+            return 0o644
+        if actual in (0o755, 0o555):
+            return 0o755
+    elif kind == "directory" and actual in (0o755, 0o555):
+        return 0o755
+    raise ClosureError(
+        f"noncanonical {kind} mode in runtime payload: {relative} ({actual:o})"
+    )
+
+
 def _validate_manifest_file(
     root: Path, root_descriptor: int, record: object
 ) -> str:
@@ -1370,7 +1386,10 @@ def _validate_manifest_file(
             size, digest = _hash_regular(descriptor)
             if size != record["size"] or digest != record["sha256"]:
                 raise ClosureError(f"runtime manifest file identity mismatch: {relative}")
-            if stat.S_IMODE(metadata.st_mode) != record["mode"]:
+            normalized_mode = _canonical_runtime_mode(
+                metadata.st_mode, "file", relative
+            )
+            if normalized_mode != record["mode"]:
                 raise ClosureError(f"runtime manifest file mode mismatch: {relative}")
         finally:
             os.close(descriptor)
@@ -1400,7 +1419,9 @@ def _managed_tree_entries(root: Path, roots: Sequence[str]) -> list[dict[str, ob
         append_record(
             relative,
             {
-                "mode": stat.S_IMODE(before.st_mode),
+                "mode": _canonical_runtime_mode(
+                    before.st_mode, "directory", relative
+                ),
                 "type": "directory",
             },
         )
@@ -1445,7 +1466,9 @@ def _managed_tree_entries(root: Path, roots: Sequence[str]) -> list[dict[str, ob
                 append_record(
                     child_relative,
                     {
-                        "mode": stat.S_IMODE(metadata.st_mode),
+                        "mode": _canonical_runtime_mode(
+                            metadata.st_mode, "file", child_relative
+                        ),
                         "sha256": digest,
                         "size": size,
                         "type": "file",

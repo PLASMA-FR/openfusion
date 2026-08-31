@@ -462,6 +462,49 @@ class RuntimeClosureTests(unittest.TestCase):
         assert plugin_info is not None
         self.assertEqual((), plugin_info.rpath)
         self.assertEqual(("$ORIGIN/../../..",), plugin_info.runpath)
+
+        managed_directories = []
+        for record in manifest["files"]:
+            if record["type"] == "file":
+                (stage / record["path"]).chmod(
+                    0o555 if record["mode"] == 0o755 else 0o444
+                )
+        for record in manifest["managed_entries"]:
+            if record["type"] == "directory":
+                directory = stage / record["path"]
+                directory.chmod(0o555)
+                managed_directories.append(directory)
+        self.assertEqual(
+            (), closure.verify_runtime_closure(stage, "x86_64").issues
+        )
+        for directory in managed_directories:
+            directory.chmod(0o755)
+
+        mode_record = next(
+            record
+            for record in manifest["files"]
+            if record["type"] == "file" and record["mode"] == 0o644
+        )
+        mode_path = stage / mode_record["path"]
+        for bad_mode in (0o666, 0o777, 0o4755, 0o700, 0o744):
+            with self.subTest(file_mode=oct(bad_mode)):
+                mode_path.chmod(bad_mode)
+                with self.assertRaisesRegex(
+                    closure.ClosureError, "noncanonical|privileged"
+                ):
+                    closure.verify_runtime_closure(stage, "x86_64")
+        mode_path.chmod(0o644)
+
+        directory_mode_path = managed_directories[0]
+        for bad_mode in (0o777, 0o700):
+            with self.subTest(directory_mode=oct(bad_mode)):
+                directory_mode_path.chmod(bad_mode)
+                with self.assertRaisesRegex(
+                    closure.ClosureError, "noncanonical directory mode"
+                ):
+                    closure.verify_runtime_closure(stage, "x86_64")
+        directory_mode_path.chmod(0o755)
+
         with self.assertRaisesRegex(closure.ClosureError, "does not match signed"):
             closure.verify_runtime_closure(
                 stage,
@@ -475,8 +518,9 @@ class RuntimeClosureTests(unittest.TestCase):
                 extra = managed_root / f"unmanifested-{kind}"
                 if kind == "file":
                     extra.write_bytes(b"extra")
+                    extra.chmod(0o644)
                 elif kind == "directory":
-                    extra.mkdir()
+                    extra.mkdir(mode=0o755)
                 else:
                     os.symlink("encodings", extra)
                 with self.assertRaisesRegex(
