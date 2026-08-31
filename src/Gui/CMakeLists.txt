@@ -1332,6 +1332,7 @@ SET(Workbench_SRCS
     OverlayManager.h
     OverlayWidgets.h
     MenuManager.h
+    MenuManagerCleanup.h
     ToolBarAreaWidget.h
     ToolBarManager.h
     ToolBoxManager.h

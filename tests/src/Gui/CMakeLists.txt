@@ -26,6 +26,7 @@ endif()
 # Qt tests
 setup_qt_test(QuantitySpinBox)
 setup_qt_test(CommandPalette)
+setup_qt_test(MenuManager)
 setup_qt_test(WorkspaceSelector)
 
 target_link_libraries(Gui_tests_run PRIVATE

@@ -27,13 +27,13 @@
 
 
 #include "MenuManager.h"
+#include "MenuManagerCleanup.h"
 #include "Application.h"
 #include "Command.h"
 #include "MainWindow.h"
 
 
 using namespace Gui;
-
 
 MenuItem::MenuItem() = default;
 
@@ -221,7 +221,7 @@ void MenuManager::setup(MenuItem* menuItems) const
     //
     // Clearing the menu bar, and recreate it every time when switching
     // workbench with only the active actions can solve this problem.
-    menuBar->clear();
+    MenuManagerInternal::clearOwnedWorkbenchMenus(menuBar);
 
     QList<QAction*> actions = menuBar->actions();
     for (auto& item : menuItems->getItems()) {
@@ -231,13 +231,16 @@ void MenuManager::setup(MenuItem* menuItems) const
             // There must be not more than one separator in the menu bar, so
             // we can safely remove it if available and append it at the end
             if (item->command() == "Separator") {
-                action = menuBar->addSeparator();
+                action = MenuManagerInternal::addOwnedWorkbenchSeparator(menuBar);
                 action->setObjectName(QLatin1String("Separator"));
             }
             else {
                 // create a new menu
                 std::string menuName = item->command();
-                QMenu* menu = menuBar->addMenu(QApplication::translate("Workbench", menuName.c_str()));
+                QMenu* menu = MenuManagerInternal::addOwnedWorkbenchMenu(
+                    menuBar,
+                    QApplication::translate("Workbench", menuName.c_str())
+                );
                 action = menu->menuAction();
                 menu->setObjectName(QString::fromLatin1(menuName.c_str()));
                 action->setObjectName(QString::fromLatin1(menuName.c_str()));
