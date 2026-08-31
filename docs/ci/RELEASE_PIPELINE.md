@@ -183,6 +183,12 @@ installer, signature, or notarization ticket has been produced.
 - artifact size is nonzero, plausible, and below 2 GiB;
 - malware and secret scans report no release-blocking findings;
 - expected license, notice, version, and build-manifest files are present;
+- the installed OpenFusion GUI and CLI bytes match a canonical Ed25519-signed
+  identity bound to the exact SemVer, source revision, Pixi lock digest,
+  descriptor-hashed build/OpenSSL provenance, epoch, strict aliases, packaging
+  policy, and complete normalized payload tree; verification requires expected
+  coordinates and a reviewed repository-allow-listed public key, and never
+  executes an untrusted staged binary;
 - no private keys, tokens, temporary keychains, PDBs intended to remain
   private, build caches, or absolute build paths are present;
 - packaged command-line launch succeeds in safe mode;

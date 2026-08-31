@@ -26,11 +26,11 @@ INHERITED_PROVIDER_SHA256 = (
     "cf9985aca43c116fe3565436a9da267de8b7f17ceed8c0cae000cfb40e69a1b0"
 )
 FORBIDDEN_INSTALLER_TEXT = {
-    "FCStdThumbnail": "inherited provider filename or component name",
+    "FCStdThumbnail.dll": "inherited provider filename or component name",
     "FILES_THUMBS": "inherited provider input directory",
     "{4BBBEAB5-BE00-41F4-A209-FE838660B9B1}": "inherited provider CLSID",
     "{E357FCCD-A995-4576-B01F-234630154E96}": "thumbnail-handler interface",
-    "RegDLL": "COM DLL registration directive",
+    "RegDLL ": "COM DLL registration directive",
 }
 REGULAR_BLOB_MODES = {"100644", "100755"}
 SYMLINK_MODE = "120000"
@@ -44,6 +44,9 @@ BLOB_STREAM_CHUNK_BYTES = 64 * 1024
 FORBIDDEN_INSTALLER_TEXT_BYTES = {
     fragment: fragment.encode("ascii").upper() for fragment in FORBIDDEN_INSTALLER_TEXT
 }
+REGDLL_FRAGMENT = "RegDLL "
+REGDLL_PREFIX_BYTES = b"REGDLL"
+ASCII_WHITESPACE_BYTES = frozenset(b" \t\r\n")
 FORBIDDEN_TEXT_OVERLAP_BYTES = (
     max(len(pattern) for pattern in FORBIDDEN_INSTALLER_TEXT_BYTES.values()) - 1
 )
@@ -229,7 +232,24 @@ def inspect_blob_stream(stream, size, scan_forbidden_text=False):
         if scan_forbidden_text:
             uppercase_window = uppercase_overlap + chunk.upper()
             for fragment, pattern in FORBIDDEN_INSTALLER_TEXT_BYTES.items():
-                if pattern in uppercase_window:
+                if fragment == REGDLL_FRAGMENT:
+                    prefix_start = 0
+                    while True:
+                        prefix_start = uppercase_window.find(
+                            REGDLL_PREFIX_BYTES, prefix_start
+                        )
+                        if prefix_start < 0:
+                            break
+                        suffix_index = prefix_start + len(REGDLL_PREFIX_BYTES)
+                        if (
+                            suffix_index < len(uppercase_window)
+                            and uppercase_window[suffix_index]
+                            in ASCII_WHITESPACE_BYTES
+                        ):
+                            matched_fragments.add(fragment)
+                            break
+                        prefix_start = suffix_index
+                elif pattern in uppercase_window:
                     matched_fragments.add(fragment)
             uppercase_overlap = uppercase_window[-FORBIDDEN_TEXT_OVERLAP_BYTES:]
 
@@ -758,10 +778,42 @@ class ThumbnailProviderQuarantineTest(unittest.TestCase):
         found = {
             (path, fragment.upper()) for path, fragment, _description in references
         }
-        self.assertIn((registration_entry.path, "REGDLL"), found)
+        self.assertIn((registration_entry.path, "REGDLL "), found)
         self.assertIn(
             (manifest_entry.path, "{4BBBEAB5-BE00-41F4-A209-FE838660B9B1}"),
             found,
+        )
+
+    def test_regdll_guard_requires_ascii_whitespace_and_spans_chunks(self):
+        entry = self.synthetic_entry("package/WindowsInstaller/setup/provider.nsi")
+        prefixes = (b"RegDLL ", b"RegDLL\t", b"RegDLL\r", b"RegDLL\n")
+        for prefix in prefixes:
+            references = forbidden_installer_text_references(
+                index_blob_groups=(((entry,), prefix + b'"provider.dll"\n'),)
+            )
+            self.assertIn(
+                (entry.path, "REGDLL "),
+                {(path, fragment.upper()) for path, fragment, _ in references},
+            )
+
+        split_payload = (
+            b"x" * (BLOB_STREAM_CHUNK_BYTES - len(b"Reg"))
+            + b'RegDLL\t"provider.dll"\n'
+        )
+        split_references = forbidden_installer_text_references(
+            index_blob_groups=(((entry,), split_payload),)
+        )
+        self.assertIn(
+            (entry.path, "REGDLL "),
+            {(path, fragment.upper()) for path, fragment, _ in split_references},
+        )
+
+        bare_references = forbidden_installer_text_references(
+            index_blob_groups=(((entry,), b"binary-symbol-RegDLL-without-argument"),)
+        )
+        self.assertNotIn(
+            (entry.path, "REGDLL "),
+            {(path, fragment.upper()) for path, fragment, _ in bare_references},
         )
 
     def test_installer_scope_is_case_insensitive_for_windows_paths(self):
@@ -776,7 +828,7 @@ class ThumbnailProviderQuarantineTest(unittest.TestCase):
         )
 
         self.assertIn(
-            (registration_entry.path, "REGDLL"),
+            (registration_entry.path, "REGDLL "),
             {(path, fragment.upper()) for path, fragment, _ in references},
         )
 
@@ -798,7 +850,7 @@ class ThumbnailProviderQuarantineTest(unittest.TestCase):
         )
 
         found = {(path, fragment.upper()) for path, fragment, _ in references}
-        self.assertIn((extensionless_entry.path, "REGDLL"), found)
+        self.assertIn((extensionless_entry.path, "REGDLL "), found)
         self.assertIn(
             (include_entry.path, "{4BBBEAB5-BE00-41F4-A209-FE838660B9B1}"),
             found,
@@ -814,7 +866,7 @@ class ThumbnailProviderQuarantineTest(unittest.TestCase):
         )
 
         self.assertIn(
-            (hidden_entry.path, "REGDLL"),
+            (hidden_entry.path, "REGDLL "),
             {(path, fragment.upper()) for path, fragment, _ in references},
         )
 
@@ -940,7 +992,7 @@ class ThumbnailProviderQuarantineTest(unittest.TestCase):
         )
         self.assertEqual(expected_matches, matches)
         self.assertIn(
-            (child_path / registration, "REGDLL"),
+            (child_path / registration, "REGDLL "),
             {(path, fragment.upper()) for path, fragment, _ in references},
         )
 
@@ -1034,7 +1086,7 @@ class ThumbnailProviderQuarantineTest(unittest.TestCase):
 
         self.assertEqual([binary_path], blob_matches)
         self.assertIn(
-            (registration_path, "REGDLL"),
+            (registration_path, "REGDLL "),
             {(path, fragment.upper()) for path, fragment, _ in text_references},
         )
 

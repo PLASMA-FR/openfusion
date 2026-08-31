@@ -4,17 +4,17 @@
 
 | Area | Exact current state | Exit condition |
 |---|---|---|
-| Remote baseline | Published diagnostic head `bf4f3e2` is running; the last terminal head `3f961895` has Linux green, Windows full-GUI OpenGL failures, and both macOS architectures failing only during post-`OK` teardown. Local candidate `860670be43` plus this update contains reviewed root-cause fixes and complete local Linux build-tree evidence, not native or package proof. | Publish/re-fetch the final connector head/tree and retrieve every fresh matrix conclusion, log, and artifact. |
-| Windows | The locked Qt package ships Mesa while the GPU-less runner exposed system OpenGL 1.1. Candidate `9cffb16ddc` stages one app-local locked renderer, forces Qt desktop resolution to it, verifies Pixi/Conda ownership and loaded module/hash/context, and validates logs before failure propagation. | Real Windows completes the unchanged 1,776-test GUI gate with the positive renderer probe and no context/access-violation signatures. |
-| macOS | Both architectures previously selected exit 0 after all GUI tests, then re-entered `MainWindow` through `QMdiArea::subWindowActivated` after derived state destruction. Candidate `cd0ac8d110` disconnects that exact signal first and adds six live MDI children to lifecycle coverage. | Both native architectures exit 0 with MainWindow/application/process teardown markers. |
-| Dependency Review | The last CodeQL jobs were green, but Dependency Review remains fail-closed because the repository Dependency Graph is disabled. CodeQL is not a substitute. | Enable the authorized repository setting and obtain a passing Dependency Review run; retain complementary locked-dependency and SBOM auditing. |
+| Remote baseline | At published head `3f54ec58`, Linux and Windows pass every gate. Both macOS architectures pass 1,776 GUI tests and fail only below the MainWindow destructor body. Local source `4e9eff50` adds the reviewed explicit owned-MDI destruction fix and package identity/legal work; native rerun is pending. | Publish/re-fetch the new head and retrieve every fresh matrix conclusion, log and artifact. |
+| Windows | Native Windows is green: app-local locked Mesa, exact loaded module/hash/context, 1,432 CTests, TechDraw, CLI 1,674 and GUI 1,776 all pass with clean graphics logs. | Preserve this result on subsequent heads and close the residual MSVC warning separately. |
+| macOS | Signal disconnect alone was insufficient. Qt base teardown began after `MainWindow` freed private state. The local fix takes/deletes the owned QMdiArea while the derived object and `d` remain valid; a 64-maximized-subwindow process regression passes locally. | Both native architectures exit 0 with owned-UI, MainWindow, application and process teardown markers. |
+| Dependency Review | All complementary Security jobs are green, but Dependency Review remains fail-closed because repository Dependency Graph is disabled; tracked as issue #32. | Enable the setting and obtain a passing Dependency Review run; CodeQL/lock audit are not substitutes. |
 | Security | Audit evidence found a symlink graph escape in PR #27, and the stale DTD-only hardening stack is insufficient for the complete untrusted FCStd/XML/archive threat model. Release-blocker issue #24 remains open. | Close the complete extraction, entity, path, temporary-file, and parser acceptance criteria with regression evidence. |
-| Legal and assets | The integration candidate removes all 32 restricted pattern assets and `FCStdThumbnail.dll` from tracked source and recognized manifests, with material and thumbnail quarantine guards green. Final source-archive, staging-tree, LFS-object-store, and package-payload inspection remains pending. | Inspect every produced source and package payload, replace user-facing capability only with cleared assets and reviewed source, and complete shipped notices. |
+| Legal and assets | The 32 restricted patterns and inherited thumbnail DLL are removed. Source/index guards and the verified development tar's streaming final-payload legal scan pass, including wide/chunk/path/LFS evasions and exact shipped notices. Source archives, external LFS storage and production payload review remain. | Inspect production source/package artifacts, provide cleared replacements and complete shipped notices. |
 | Product | Native `Std_CommandPalette` now provides real Ctrl+K command search with fuzzy/token ranking, recency, disabled-state enforcement, focus/keyboard/accessibility behavior, and single activation. Workspace selector/context strip, Project presentation, and functional timeline remain absent. | Implement remaining real, tested workflows in roadmap order; inherited capability and visible controls do not close them. |
-| Packaging and release | Deterministic Linux packaging policy is integrated and 53/53 focused tests pass, but production output is fail-closed until authenticated executable identity exists. Required clean-installed packages, final checksums/SBOMs, signing/notarization, tag, and verified Release are absent. | Establish identity and pass every final package/install/release gate; unavailable credentials remain explicit blockers. |
+| Packaging and release | A signed full-tree Linux development tar is verified at source `4e9eff50`; packaging 80/80 and legal/source guards pass. It is development-only and retains a locked-Pixi fallback RUNPATH. Production SPKI/key custody, dependency bundling, clean-machine lifecycle, runtime SBOM, signing/notarization, tag and Release are absent. | Pass every production package/install/release gate; unavailable credentials remain explicit blockers. |
 
-Linux is green at terminal head `3f961895`; the combined candidate is green
-locally on Linux arm64 through 1,430 CTests, 1,674 CLI, and 1,776 GUI tests, but local evidence is not a native
+Linux and Windows are green at terminal head `3f54ec58`; the new candidate is
+green locally through 1,431 CTests, 1,674 CLI, 1,776 GUI and final development-package verification, but local evidence is not native macOS or production-package
 platform pass or a production-readiness claim. If one platform remains externally blocked,
 work may continue elsewhere, but M0 cannot advance on failed or inferred
 evidence.
@@ -39,14 +39,15 @@ until its build and workflow evidence is recorded.
 
 ## Foundation blockers
 
-- The last terminal matrix is mixed. Linux passes every baseline gate. Reviewed
-  Windows renderer and macOS teardown fixes require the final native rerun.
+- The last terminal matrix is mixed. Linux and Windows pass every baseline gate;
+  both macOS architectures require the explicit owned-MDI teardown rerun.
 - Repository submodules must be initialized recursively before a complete
   build; no submodule-free source package has been validated.
 - Current binaries and many user-facing identifiers still use FreeCAD names.
   They are transitional development outputs, not OpenFusion release artifacts.
-- No OpenFusion-branded AppImage, `tar.zst`, DEB, RPM, Windows installer, or
-  macOS DMG has been produced and clean-install tested.
+- A development-only OpenFusion `tar.zst` exists and passes build-host
+  verification. No production AppImage, `tar.zst`, DEB, RPM, Windows installer,
+  or macOS DMG has passed clean-machine installation and lifecycle testing.
 - Cross-platform Windows/macOS and installed-package support remain unverified.
   The Linux source baseline is verified, but no Linux package has passed clean
   installation. Signing/notarization credentials and hardware-specific viewport

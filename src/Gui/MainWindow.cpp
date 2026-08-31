@@ -536,6 +536,15 @@ MainWindow::~MainWindow()
     if (d->mdiArea) {
         disconnect(d->mdiArea, &QMdiArea::subWindowActivated, this, &MainWindow::onWindowActivated);
     }
+    // Destroy the owned MDI hierarchy while the most-derived MainWindow and its
+    // private state are still valid. QMdiSubWindow teardown must detach its
+    // maximized controls and event filter from our menu bar before QWidget marks
+    // this window as being in its base destructor.
+    reportMainWindowDestructionStage("main-window-owned-ui-destruct-begin");
+    QWidget* ownedCentralWidget = takeCentralWidget();
+    d->mdiArea = nullptr;
+    delete ownedCentralWidget;
+    reportMainWindowDestructionStage("main-window-owned-ui-destruct-end");
     delete d->status;
     delete d;
     instance = nullptr;

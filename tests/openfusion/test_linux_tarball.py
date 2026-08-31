@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -27,6 +28,17 @@ SCRIPT = (
 WORKFLOW = (
     Path(__file__).parents[2] / ".github" / "workflows" / "linux-packaging-policy.yml"
 )
+MAIN_CMAKE = Path(__file__).parents[2] / "src" / "Main" / "CMakeLists.txt"
+RESTRICTED_PATTERN_GUARD = (
+    Path(__file__).parents[2] / "tools" / "release" / "check_restricted_material_patterns.py"
+)
+THUMBNAIL_GUARD = (
+    Path(__file__).parents[2]
+    / "package"
+    / "WindowsInstaller"
+    / "tests"
+    / "test_thumbnail_provider_quarantine.py"
+)
 SPEC = importlib.util.spec_from_file_location("openfusion_linux_tarball", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 tarball = importlib.util.module_from_spec(SPEC)
@@ -34,22 +46,332 @@ sys.modules[SPEC.name] = tarball
 SPEC.loader.exec_module(tarball)
 
 
-class PurePolicyTests(unittest.TestCase):
+VERSION = "0.1.0-dev.1"
+SOURCE_REVISION = "1" * 40
+SOURCE_DATE_EPOCH = 1_700_000_000
+
+
+def valid_elf(marker: bytes) -> bytes:
+    header = bytearray(64)
+    header[:4] = b"\x7fELF"
+    header[4] = 2
+    header[5] = 1
+    header[6] = 1
+    header[16:18] = (2).to_bytes(2, "little")
+    header[18:20] = (62).to_bytes(2, "little")
+    header[20:24] = (1).to_bytes(4, "little")
+    return bytes(header) + marker + b"\x00$ORIGIN/../lib\x00"
+
+
+class SignedIdentityMixin:
+    @classmethod
+    def setUpClass(cls) -> None:
+        super_method = getattr(super(), "setUpClass", None)
+        if super_method is not None:
+            super_method()
+        openssl = shutil.which("openssl")
+        if openssl is None:
+            raise AssertionError("openssl is required; signed identity tests cannot be skipped")
+        cls.openssl = Path(openssl).resolve()
+        cls.key_directory = tempfile.TemporaryDirectory(prefix="openfusion-identity-key-")
+        key_root = Path(cls.key_directory.name).resolve()
+        cls.private_key = key_root / "identity-private.pem"
+        cls.public_key = key_root / "identity-public.pem"
+        subprocess.run(
+            [
+                str(cls.openssl),
+                "genpkey",
+                "-algorithm",
+                "ED25519",
+                "-out",
+                str(cls.private_key),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            [
+                str(cls.openssl),
+                "pkey",
+                "-in",
+                str(cls.private_key),
+                "-pubout",
+                "-out",
+                str(cls.public_key),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        cls.key_sha256 = hashlib.sha256(
+            tarball._public_key_der(cls.public_key, cls.openssl)
+        ).hexdigest()
+        cls.openssl_sha256 = tarball._sha256_regular_path_bounded(
+            cls.openssl, "test openssl", tarball.MAX_FILE_BYTES
+        )
+        cls.openssl_version = tarball._run_openssl(
+            [str(cls.openssl), "version"], "test version query"
+        ).decode("utf-8").strip()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.key_directory.cleanup()
+        super_method = getattr(super(), "tearDownClass", None)
+        if super_method is not None:
+            super_method()
+
+    def provenance(
+        self,
+        lock_digest: str,
+        version: str = VERSION,
+        cmake_cache_sha256: str = "2" * 64,
+    ) -> dict[str, object]:
+        return {
+            "build_type": "Release",
+            "builder": "openfusion-policy-test",
+            "cmake_cache_sha256": cmake_cache_sha256,
+            "compiler": "Clang 21.1.0",
+            "dependency_lock_sha256": lock_digest,
+            "format_version": tarball.BUILD_PROVENANCE_FORMAT_VERSION,
+            "generator": "Ninja",
+            "openssl_sha256": self.openssl_sha256,
+            "openssl_version": self.openssl_version,
+            "source_date_epoch": SOURCE_DATE_EPOCH,
+            "source_revision": SOURCE_REVISION,
+            "version": version,
+        }
+
+    def signed_payload(
+        self,
+        *,
+        version: str = VERSION,
+        gui_digest: str = "3" * 64,
+        cli_digest: str = "4" * 64,
+        gui_size: int = 101,
+        cli_size: int = 102,
+        lock_digest: str = "5" * 64,
+        payload_tree: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        return {
+            "architecture": "x86_64",
+            "build_provenance": self.provenance(lock_digest, version),
+            "dependency_lock": {"path": "pixi.lock", "sha256": lock_digest},
+            "executables": {
+                "cli": {
+                    "compatibility_path": tarball.COMPATIBILITY_EXECUTABLES["cli"],
+                    "path": tarball.CANONICAL_EXECUTABLES["cli"],
+                    "sha256": cli_digest,
+                    "size": cli_size,
+                },
+                "gui": {
+                    "compatibility_path": tarball.COMPATIBILITY_EXECUTABLES["gui"],
+                    "path": tarball.CANONICAL_EXECUTABLES["gui"],
+                    "sha256": gui_digest,
+                    "size": gui_size,
+                },
+            },
+            "format_version": tarball.IDENTITY_FORMAT_VERSION,
+            "install_prefix": "/opt/openfusion",
+            "platform": "linux",
+            "product": "OpenFusion",
+            "payload_tree": payload_tree
+            or {
+                "domain": tarball.PAYLOAD_TREE_DOMAIN[:-1].decode("ascii"),
+                "entry_count": 1,
+                "policy_sha256": "6" * 64,
+                "sha256": "7" * 64,
+                "total_file_bytes": 1,
+            },
+            "release_channel": "development",
+            "source_date_epoch": SOURCE_DATE_EPOCH,
+            "source_revision": SOURCE_REVISION,
+            "version": version,
+        }
+
+    def sign_payload(self, payload: dict[str, object]) -> dict[str, object]:
+        return tarball._sign_identity_payload(payload, self.private_key, self.openssl)
+
+    def resign_manifest_identity(self, manifest: dict[str, object]) -> None:
+        records = manifest["entries"]
+        assert isinstance(records, list)
+        payload_records = [
+            record
+            for record in records
+            if record["path"] != tarball.IDENTITY_RELATIVE_PATH
+        ]
+        policy_bytes = tarball._canonical_json_bytes(
+            {"limits": tarball.POLICY_LIMITS, "version": tarball.POLICY_VERSION}
+        )
+        records_bytes = tarball._canonical_json_bytes(payload_records)
+        digest = hashlib.sha256()
+        digest.update(tarball.PAYLOAD_TREE_DOMAIN)
+        digest.update(policy_bytes)
+        digest.update(records_bytes)
+        tree = {
+            "domain": tarball.PAYLOAD_TREE_DOMAIN[:-1].decode("ascii"),
+            "entry_count": len(payload_records),
+            "policy_sha256": hashlib.sha256(policy_bytes).hexdigest(),
+            "sha256": digest.hexdigest(),
+            "total_file_bytes": sum(
+                int(record["size"])
+                for record in payload_records
+                if record["type"] == "file"
+            ),
+        }
+        old_envelope = manifest["product_identity"]
+        assert isinstance(old_envelope, dict)
+        payload = json.loads(json.dumps(old_envelope["payload"]))
+        payload["payload_tree"] = tree
+        envelope = self.sign_payload(payload)
+        manifest["product_identity"] = envelope
+        content = tarball._identity_envelope_bytes(envelope)
+        identity_record = next(
+            record
+            for record in records
+            if record["path"] == tarball.IDENTITY_RELATIVE_PATH
+        )
+        identity_record["size"] = len(content)
+        identity_record["sha256"] = hashlib.sha256(content).hexdigest()
+
+    def expected_lock_sha256(self) -> str:
+        return getattr(self, "lock_digest", "5" * 64)
+
+    def parse_manifest(self, content: bytes, *_legacy: object) -> dict[str, object]:
+        return tarball._parse_manifest(
+            content,
+            self.public_key,
+            self.openssl,
+            self.key_sha256,
+            "development",
+            VERSION,
+            "x86_64",
+            "/opt/openfusion",
+            SOURCE_REVISION,
+            self.expected_lock_sha256(),
+        )
+
+    def verify_identity_envelope(
+        self, envelope: object, *_legacy: object
+    ) -> dict[str, object]:
+        return tarball._verify_identity_envelope(
+            envelope,
+            self.public_key,
+            self.openssl,
+            self.key_sha256,
+            "development",
+        )
+
+    def verify_package(
+        self,
+        archive: Path | str,
+        manifest: Path | str,
+        checksum: Path | str,
+        trusted_public_key: Path | str | None = None,
+        *_legacy: object,
+    ) -> None:
+        tarball.verify_package(
+            archive,
+            manifest,
+            checksum,
+            trusted_public_key or self.public_key,
+            self.key_sha256,
+            "development",
+            VERSION,
+            "x86_64",
+            "/opt/openfusion",
+            SOURCE_REVISION,
+            self.expected_lock_sha256(),
+        )
+
+    def build_package(
+        self,
+        destdir: Path,
+        prefix: str,
+        version: str,
+        architecture: str,
+        output: Path,
+        epoch: int,
+        identity: Path,
+        trusted_public_key: Path,
+        **kwargs: object,
+    ) -> tuple[Path, Path, Path]:
+        return tarball.build_package(
+            destdir,
+            prefix,
+            version,
+            architecture,
+            output,
+            epoch,
+            identity,
+            trusted_public_key,
+            self.key_sha256,
+            "development",
+            SOURCE_REVISION,
+            self.expected_lock_sha256(),
+            **kwargs,
+        )
+
+    def create_identity(
+        self,
+        destdir: Path,
+        prefix: str,
+        version: str,
+        architecture: str,
+        channel: str,
+        lock_file: Path,
+        provenance_file: Path,
+        signing_key: Path,
+        output: Path,
+        openssl: str,
+    ) -> Path:
+        return tarball.create_identity(
+            destdir,
+            prefix,
+            version,
+            architecture,
+            channel,
+            lock_file,
+            provenance_file,
+            self.cmake_cache_file,
+            signing_key,
+            output,
+            openssl,
+        )
+
+
+class PurePolicyTests(SignedIdentityMixin, unittest.TestCase):
     def _minimal_manifest(self) -> dict[str, object]:
-        version = "0.1.0-test.1"
+        version = VERSION
         architecture = "x86_64"
         root = f"openfusion-{version}-linux-{architecture}"
         artifact = f"{root}.tar.zst"
         snapshot = tarball.Snapshot(1, 1, stat.S_IFREG | 0o644, 0, 0, 0, 1)
-        entry = tarball.Entry(
-            "file",
-            Path("/unused"),
-            "file",
-            0o644,
-            0,
-            hashlib.sha256(b"").hexdigest(),
-            None,
-            snapshot,
+        entries = [
+            tarball.Entry("bin", Path("/unused"), "directory", 0o755, 0, None, None, snapshot),
+            tarball.Entry("bin/FreeCAD", Path("/unused"), "symlink", 0o777, 0, None, "OpenFusion", snapshot),
+            tarball.Entry("bin/FreeCADCmd", Path("/unused"), "symlink", 0o777, 0, None, "OpenFusionCmd", snapshot),
+            tarball.Entry("bin/OpenFusion", Path("/unused"), "file", 0o755, 101, "3" * 64, None, snapshot),
+            tarball.Entry("bin/OpenFusionCmd", Path("/unused"), "file", 0o755, 102, "4" * 64, None, snapshot),
+            tarball.Entry("file", Path("/unused"), "file", 0o644, 0, hashlib.sha256(b"").hexdigest(), None, snapshot),
+            tarball.Entry("share", Path("/unused"), "directory", 0o755, 0, None, None, snapshot),
+            tarball.Entry("share/openfusion", Path("/unused"), "directory", 0o755, 0, None, None, snapshot),
+        ]
+        identity = self.sign_payload(
+            self.signed_payload(payload_tree=tarball._payload_tree_commitment(entries))
+        )
+        identity_content = tarball._identity_envelope_bytes(identity)
+        entries.append(
+            tarball.Entry(
+                tarball.IDENTITY_RELATIVE_PATH,
+                Path("/unused"),
+                "file",
+                0o644,
+                len(identity_content),
+                hashlib.sha256(identity_content).hexdigest(),
+                None,
+                snapshot,
+            )
         )
         content = tarball._manifest_bytes(
             artifact,
@@ -59,10 +381,10 @@ class PurePolicyTests(unittest.TestCase):
             version,
             architecture,
             "/opt/openfusion",
-            1,
-            [entry],
+            SOURCE_DATE_EPOCH,
+            entries,
             "0" * 64,
-            "test-only-bypass",
+            identity,
         )
         value = json.loads(content)
         assert isinstance(value, dict)
@@ -89,13 +411,14 @@ class PurePolicyTests(unittest.TestCase):
                     tarball._validate_version(invalid)
 
     def test_absolute_limits_are_embedded_in_versioned_policy(self) -> None:
-        self.assertEqual(tarball.POLICY_VERSION, 2)
+        self.assertEqual(tarball.POLICY_VERSION, 3)
         self.assertEqual(tarball.POLICY_LIMITS["archive_bytes"], 16 * 1024**3)
         self.assertEqual(tarball.POLICY_LIMITS["pax_header_bytes"], 64 * 1024)
         self.assertEqual(tarball.POLICY_LIMITS["symlink_hops"], 40)
         self.assertEqual(tarball.POLICY_LIMITS["symlink_graph_steps"], 2_000_000)
         self.assertEqual(tarball.POLICY_LIMITS["tar_bytes"], 40 * 1024**3)
         self.assertEqual(tarball.POLICY_LIMITS["zstd_memory_mib"], 512)
+        self.assertEqual(tarball.POLICY_LIMITS["identity_bytes"], 1024 * 1024)
 
     def test_tar_numeric_boundaries_match_non_pax_policy(self) -> None:
         maximum = (1 << 33) - 1
@@ -119,14 +442,19 @@ class PurePolicyTests(unittest.TestCase):
         )
 
         manifest = self._minimal_manifest()
-        manifest["entries"][0]["size"] = maximum
-        tarball._parse_manifest(
-            self._canonical_manifest(manifest), allow_test_identity_bypass=True
+        file_record = next(
+            record for record in manifest["entries"] if record["path"] == "file"
         )
-        manifest["entries"][0]["size"] = maximum + 1
+        file_record["size"] = maximum
+        self.resign_manifest_identity(manifest)
+        self.parse_manifest(
+            self._canonical_manifest(manifest), self.public_key, self.openssl
+        )
+        file_record["size"] = maximum + 1
+        self.resign_manifest_identity(manifest)
         with self.assertRaisesRegex(tarball.PackagingError, "file exceeds"):
-            tarball._parse_manifest(
-                self._canonical_manifest(manifest), allow_test_identity_bypass=True
+            self.parse_manifest(
+                self._canonical_manifest(manifest), self.public_key, self.openssl
             )
 
         with mock.patch.dict(os.environ, {"SOURCE_DATE_EPOCH": str(maximum)}):
@@ -154,6 +482,7 @@ class PurePolicyTests(unittest.TestCase):
         self.assertEqual(identity, (2, 1, 62))
         assert identity is not None
         tarball._validate_elf_identity(identity, "bin/application", "x86_64")
+        tarball._validate_elf_identity((2, 1, 183), "bin/application", "aarch64")
         header[18:20] = (183).to_bytes(2, "little")
         wrong = tarball._elf_identity(bytes(header), "bin/application")
         assert wrong is not None
@@ -246,41 +575,109 @@ class PurePolicyTests(unittest.TestCase):
             },
         ]
         with self.assertRaisesRegex(tarball.PackagingError, "composed symlink escapes"):
-            tarball._parse_manifest(
-                self._canonical_manifest(manifest), allow_test_identity_bypass=True
+            self.parse_manifest(
+                self._canonical_manifest(manifest), self.public_key, self.openssl
             )
 
-    def test_disallowed_test_identity_precedes_entry_traversal(self) -> None:
+    def test_invalid_identity_signature_precedes_entry_traversal(self) -> None:
         manifest = self._minimal_manifest()
+        manifest["product_identity"]["payload"]["version"] = "0.1.0-dev.2"
+        manifest["product_identity"]["payload"]["build_provenance"]["version"] = (
+            "0.1.0-dev.2"
+        )
         with mock.patch.object(
             tarball,
             "_validate_symlink_graph",
             side_effect=AssertionError("entry traversal must not run"),
         ) as graph:
             with self.assertRaisesRegex(
-                tarball.PackagingError, "explicit test API flag"
+                tarball.PackagingError, "identity verification"
             ):
-                tarball._parse_manifest(self._canonical_manifest(manifest))
+                self.parse_manifest(
+                    self._canonical_manifest(manifest), self.public_key, self.openssl
+                )
         graph.assert_not_called()
 
-    def test_production_product_identity_is_fail_closed(self) -> None:
-        with self.assertRaisesRegex(
-            tarball.PackagingError, "no authenticated OpenFusion executable identity"
-        ):
-            tarball._product_identity_status("0.1.0", False)
-        with self.assertRaisesRegex(tarball.PackagingError, "test-only"):
-            tarball._product_identity_status("0.1.0", True)
-        self.assertEqual(
-            tarball._product_identity_status("0.1.0-test.1", True),
-            "test-only-bypass",
+    def test_signed_identity_rejects_version_revision_hash_and_path_relabeling(self) -> None:
+        mutations = (
+            lambda payload: (
+                payload.__setitem__("version", "0.1.0-dev.2"),
+                payload["build_provenance"].__setitem__("version", "0.1.0-dev.2"),
+            ),
+            lambda payload: (
+                payload.__setitem__("source_revision", "6" * 40),
+                payload["build_provenance"].__setitem__("source_revision", "6" * 40),
+            ),
+            lambda payload: (
+                payload["dependency_lock"].__setitem__("sha256", "7" * 64),
+                payload["build_provenance"].__setitem__(
+                    "dependency_lock_sha256", "7" * 64
+                ),
+            ),
+            lambda payload: payload["executables"]["gui"].__setitem__(
+                "path", "bin/renamed-openfusion"
+            ),
         )
+        for mutate in mutations:
+            with self.subTest(mutation=repr(mutate)):
+                envelope = self.sign_payload(self.signed_payload())
+                mutate(envelope["payload"])
+                with self.assertRaises(tarball.PackagingError):
+                    self.verify_identity_envelope(
+                        envelope, self.public_key, self.openssl
+                    )
+
+    def test_production_channel_requires_repository_spki_allowlist(self) -> None:
+        payload = self.signed_payload(version="1.1.3")
+        payload["release_channel"] = "production"
+        envelope = self.sign_payload(payload)
+        with self.assertRaisesRegex(tarball.PackagingError, "trust anchor"):
+            tarball._verify_identity_envelope(
+                envelope,
+                self.public_key,
+                self.openssl,
+                self.key_sha256,
+                "production",
+            )
+
+    def test_development_channel_requires_dev_prerelease(self) -> None:
+        payload = self.signed_payload(version="1.1.3")
+        with self.assertRaisesRegex(tarball.PackagingError, "dev SemVer"):
+            tarball._validate_identity_payload(payload)
+
+    def test_openssl_output_is_bounded_during_execution(self) -> None:
+        with self.assertRaises(tarball.PackagingError):
+            tarball._run_openssl(
+                ["/bin/sh", "-c", "yes x | head -c 131072"],
+                "hostile output fixture",
+            )
+
+    def test_expected_revision_arch_prefix_and_lock_are_mandatory(self) -> None:
+        payload = self.signed_payload()
+        cases = (
+            (VERSION, "aarch64", "/opt/openfusion", SOURCE_REVISION, "5" * 64),
+            (VERSION, "x86_64", "/wrong", SOURCE_REVISION, "5" * 64),
+            (VERSION, "x86_64", "/opt/openfusion", "8" * 40, "5" * 64),
+            (VERSION, "x86_64", "/opt/openfusion", SOURCE_REVISION, "9" * 64),
+        )
+        for coordinates in cases:
+            with self.subTest(coordinates=coordinates):
+                with self.assertRaisesRegex(tarball.PackagingError, "coordinates"):
+                    tarball._validate_expected_identity_coordinates(payload, *coordinates)
+
+    def test_manifest_epoch_swap_is_rejected_by_signed_identity(self) -> None:
+        manifest = self._minimal_manifest()
+        manifest["source_date_epoch"] = SOURCE_DATE_EPOCH + 1
+        manifest["normalization"]["mtime"] = SOURCE_DATE_EPOCH + 1
+        with self.assertRaisesRegex(tarball.PackagingError, "SOURCE_DATE_EPOCH"):
+            self.parse_manifest(self._canonical_manifest(manifest))
 
     def test_missing_zstd_is_a_hard_error(self) -> None:
         with mock.patch.object(tarball.shutil, "which", return_value=None):
             with self.assertRaisesRegex(tarball.PackagingError, "zstd was not found"):
                 tarball._find_zstd(None)
 
-    def test_cli_exposes_no_test_fixture_bypass(self) -> None:
+    def test_cli_exposes_no_identity_bypass(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
                 tarball._parser().parse_args(
@@ -291,22 +688,23 @@ class PurePolicyTests(unittest.TestCase):
                         "--prefix",
                         "/opt/openfusion",
                         "--version",
-                        "0.1.0-test.1",
+                        VERSION,
                         "--architecture",
                         "x86_64",
                         "--output-dir",
                         "/tmp/output",
                         "--staging-is-quiescent",
-                        "--test-only-bypass-product-identity",
+                        "--identity-bypass",
                     ]
                 )
 
     def test_companion_basename_validation_precedes_file_access(self) -> None:
         with self.assertRaisesRegex(tarball.PackagingError, "companion basenames"):
-            tarball.verify_package(
+            self.verify_package(
                 "/abs/package.tar.zst",
                 "/abs/wrong.manifest.json",
                 "/abs/package.tar.zst.sha256",
+                self.public_key,
             )
 
     def test_sparse_tar_member_is_explicitly_rejected(self) -> None:
@@ -385,7 +783,9 @@ class PurePolicyTests(unittest.TestCase):
                     + "\n"
                 ).encode("utf-8")
                 with self.assertRaises(tarball.PackagingError):
-                    tarball._parse_manifest(content, allow_test_identity_bypass=True)
+                    self.parse_manifest(
+                        content, self.public_key, self.openssl
+                    )
 
     def test_packaging_workflow_covers_merge_queue_and_requires_zstd(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -393,11 +793,59 @@ class PurePolicyTests(unittest.TestCase):
             "  merge_group:\n    types:\n      - checks_requested\n", workflow
         )
         self.assertIn("          command -v zstd\n", workflow)
+        self.assertIn("          command -v openssl\n", workflow)
         self.assertNotIn("skipUnless", workflow)
         self.assertNotIn("    paths:\n", workflow)
 
+    def test_installed_executable_names_are_openfusion_with_compatibility_aliases(self) -> None:
+        content = MAIN_CMAKE.read_text(encoding="utf-8")
+        self.assertIn("SET_BIN_DIR(FreeCADMain FreeCAD)", content)
+        self.assertIn("SET_BIN_DIR(FreeCADMainCmd FreeCADCmd)", content)
+        self.assertIn("copy_if_different", content)
+        self.assertIn("OPENFUSION_VERSION_SUFFIX", content)
+        self.assertEqual(
+            content.count('INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"'),
+            2,
+        )
+        self.assertIn("file(CREATE_LINK", content)
+        self.assertIn("OpenFusionCmd", content)
 
-class SnapshotPolicyTests(unittest.TestCase):
+    def test_archive_legal_policy_matches_source_quarantine_identities(self) -> None:
+        policy = tarball._legal_quarantine_policy()
+        pattern_spec = importlib.util.spec_from_file_location(
+            "restricted_pattern_guard", RESTRICTED_PATTERN_GUARD
+        )
+        assert pattern_spec is not None and pattern_spec.loader is not None
+        pattern_guard = importlib.util.module_from_spec(pattern_spec)
+        pattern_spec.loader.exec_module(pattern_guard)
+        expected_patterns = {
+            (path, identity[1], identity[2])
+            for path, identity in pattern_guard.RESTRICTED_PATTERN_BLOBS.items()
+        }
+        actual_patterns = {
+            (record["source_path"], record["sha256"], record["size"])
+            for record in policy["restricted_patterns"]
+        }
+        self.assertEqual(32, len(actual_patterns))
+        self.assertEqual(expected_patterns, actual_patterns)
+
+        thumbnail_spec = importlib.util.spec_from_file_location(
+            "thumbnail_guard", THUMBNAIL_GUARD
+        )
+        assert thumbnail_spec is not None and thumbnail_spec.loader is not None
+        thumbnail_guard = importlib.util.module_from_spec(thumbnail_spec)
+        thumbnail_spec.loader.exec_module(thumbnail_guard)
+        self.assertEqual(
+            thumbnail_guard.INHERITED_PROVIDER_SHA256,
+            policy["thumbnail_provider_sha256"],
+        )
+        self.assertEqual(
+            set(thumbnail_guard.FORBIDDEN_INSTALLER_TEXT),
+            set(policy["forbidden_text"]),
+        )
+
+
+class SnapshotPolicyTests(SignedIdentityMixin, unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="openfusion-snapshot-test-")
         self.root = Path(self.temporary.name).resolve()
@@ -500,48 +948,52 @@ class SnapshotPolicyTests(unittest.TestCase):
             os.close(destination)
             os.close(source)
 
-    def test_missing_product_identity_contract_requires_test_only_api(self) -> None:
-        (self.source / "file").write_bytes(b"payload")
-        source = os.open(self.source, os.O_RDONLY | os.O_DIRECTORY)
-        private = os.open(self.private, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            with self.assertRaisesRegex(
-                tarball.PackagingError,
-                "no authenticated OpenFusion executable identity",
-            ):
-                tarball._create_private_snapshot(
-                    source,
-                    private,
-                    1_700_000_000,
-                    "x86_64",
-                    "0.1.0",
-                    False,
-                )
-        finally:
-            try:
-                tarball._remove_tree_at(private, "snapshot")
-            except FileNotFoundError:
-                pass
-            os.close(private)
-            os.close(source)
+    def _add_identity_executables(self) -> tuple[dict[str, object], bytes]:
+        binary_dir = self.source / "bin"
+        binary_dir.mkdir()
+        gui = binary_dir / "OpenFusion"
+        cli = binary_dir / "OpenFusionCmd"
+        gui.write_bytes(valid_elf(b"snapshot-gui"))
+        cli.write_bytes(valid_elf(b"snapshot-cli"))
+        gui.chmod(0o755)
+        cli.chmod(0o755)
+        os.symlink("OpenFusion", binary_dir / "FreeCAD")
+        os.symlink("OpenFusionCmd", binary_dir / "FreeCADCmd")
+        (self.source / "share" / "openfusion").mkdir(parents=True)
+        scan = self._scan()
+        payload = self.signed_payload(
+            gui_digest=hashlib.sha256(gui.read_bytes()).hexdigest(),
+            cli_digest=hashlib.sha256(cli.read_bytes()).hexdigest(),
+            gui_size=gui.stat().st_size,
+            cli_size=cli.stat().st_size,
+            payload_tree=tarball._payload_tree_commitment(scan.records),
+        )
+        envelope = self.sign_payload(payload)
+        return payload, tarball._identity_envelope_bytes(envelope)
 
-    def test_test_fixture_snapshot_is_private_and_read_only(self) -> None:
-        (self.source / "file").write_bytes(b"payload")
+    def test_signed_snapshot_is_private_read_only_and_contains_identity(self) -> None:
+        payload, identity_content = self._add_identity_executables()
+        envelope = json.loads(identity_content)
         source = os.open(self.source, os.O_RDONLY | os.O_DIRECTORY)
         private = os.open(self.private, os.O_RDONLY | os.O_DIRECTORY)
         try:
-            snapshot, status, source_scan = tarball._create_private_snapshot(
+            snapshot, returned_envelope, source_scan = tarball._create_private_snapshot(
                 source,
                 private,
-                1_700_000_000,
+                SOURCE_DATE_EPOCH,
                 "x86_64",
-                "0.1.0-test.1",
-                True,
+                VERSION,
+                "/opt/openfusion",
+                identity_content,
+                envelope,
+                payload,
             )
-            self.assertEqual(status, "test-only-bypass")
-            self.assertEqual(len(source_scan.records), 1)
+            self.assertEqual(returned_envelope, envelope)
+            self.assertEqual(len(source_scan.records), 7)
             self.assertEqual(stat.S_IMODE(snapshot.stat().st_mode), 0o555)
-            self.assertEqual(stat.S_IMODE((snapshot / "file").stat().st_mode), 0o444)
+            identity = snapshot / tarball.IDENTITY_RELATIVE_PATH
+            self.assertEqual(identity.read_bytes(), identity_content)
+            self.assertEqual(stat.S_IMODE(identity.stat().st_mode), 0o444)
         finally:
             try:
                 tarball._remove_tree_at(private, "snapshot")
@@ -605,11 +1057,12 @@ class SnapshotPolicyTests(unittest.TestCase):
             os.close(source)
 
 
-class ZstdIntegrationTests(unittest.TestCase):
+class ZstdIntegrationTests(SignedIdentityMixin, unittest.TestCase):
     maxDiff = None
 
     @classmethod
     def setUpClass(cls) -> None:
+        super().setUpClass()
         if shutil.which("zstd") is None:
             raise AssertionError(
                 "zstd is required; the Linux packaging release gate must not be skipped"
@@ -625,42 +1078,97 @@ class ZstdIntegrationTests(unittest.TestCase):
         self.prefix.mkdir(parents=True)
         self.output_one.mkdir()
         self.output_two.mkdir()
+        self.lock_file = self.root / "pixi.lock"
+        self.lock_file.write_bytes(b"locked dependency graph\n")
+        self.lock_digest = hashlib.sha256(self.lock_file.read_bytes()).hexdigest()
+        self.cmake_cache_file = self.root / "CMakeCache.txt"
+        self.cmake_cache_file.write_bytes(b"canonical test cache\n")
+        cmake_cache_sha256 = hashlib.sha256(
+            self.cmake_cache_file.read_bytes()
+        ).hexdigest()
+        self.provenance_file = self.root / "build-provenance.json"
+        self.provenance_file.write_bytes(
+            tarball._canonical_json_bytes(
+                self.provenance(
+                    self.lock_digest,
+                    cmake_cache_sha256=cmake_cache_sha256,
+                )
+            )
+        )
+        self.identity_file = self.root / "executable-identity.json"
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
     def _populate(self) -> None:
-        (self.prefix / "bin").mkdir()
-        executable = self.prefix / "bin" / "test-launcher"
-        executable.write_bytes(b"#!/bin/sh\nexit 0\n")
-        executable.chmod(0o751)
+        self._ensure_executables()
         (self.prefix / "lib").mkdir()
         library = self.prefix / "lib" / "libOpenFusion.so.1"
         library.write_bytes(b"synthetic-library\x00payload")
         library.chmod(0o600)
         os.symlink("libOpenFusion.so.1", self.prefix / "lib" / "libOpenFusion.so")
-        (self.prefix / "share").mkdir()
+        (self.prefix / "share").mkdir(exist_ok=True)
+        (self.prefix / "share" / "openfusion").mkdir(exist_ok=True)
         (self.prefix / "share" / "Unicode-模型.txt").write_text(
             "model data\n", encoding="utf-8"
         )
 
+    def _ensure_executables(self) -> None:
+        binary_dir = self.prefix / "bin"
+        binary_dir.mkdir(exist_ok=True)
+        for name, marker in (("OpenFusion", b"integration-gui"), ("OpenFusionCmd", b"integration-cli")):
+            executable = binary_dir / name
+            if not executable.exists():
+                executable.write_bytes(valid_elf(marker))
+                executable.chmod(0o755)
+        aliases = (("FreeCAD", "OpenFusion"), ("FreeCADCmd", "OpenFusionCmd"))
+        for alias, target in aliases:
+            alias_path = binary_dir / alias
+            if not alias_path.exists() and not alias_path.is_symlink():
+                os.symlink(target, alias_path)
+        (self.prefix / "share" / "openfusion").mkdir(parents=True, exist_ok=True)
+        legal_directory = self.prefix / "share" / "doc" / "openfusion"
+        legal_directory.mkdir(parents=True, exist_ok=True)
+        for name in ("LICENSE", "NOTICE.md", "THIRD_PARTY_NOTICES.md"):
+            destination = legal_directory / name
+            if not destination.exists():
+                shutil.copyfile(Path(__file__).parents[2] / name, destination)
+
+    def _identity(self) -> Path:
+        self._ensure_executables()
+        if not self.identity_file.exists():
+            self.create_identity(
+                self.destdir,
+                "/opt/openfusion",
+                VERSION,
+                "x86_64",
+                "development",
+                self.lock_file,
+                self.provenance_file,
+                self.private_key,
+                self.identity_file,
+                str(self.openssl),
+            )
+        return self.identity_file
+
     def _build(self, output: Path) -> tuple[Path, Path, Path]:
-        return tarball.build_package(
+        return self.build_package(
             self.destdir,
             "/opt/openfusion",
-            "0.1.0-test.1",
+            VERSION,
             "x86_64",
             output,
-            1_700_000_000,
+            SOURCE_DATE_EPOCH,
+            self._identity(),
+            self.public_key,
             staging_is_quiescent=True,
             output_is_exclusive=True,
-            _test_only_bypass_product_identity=True,
         )
 
     def _verify(self, outputs: tuple[Path, Path, Path]) -> None:
-        tarball.verify_package(
+        self.verify_package(
             *outputs,
-            _test_only_bypass_product_identity=True,
+            self.public_key,
         )
 
     def test_repeated_build_is_byte_identical_and_verifiable(self) -> None:
@@ -670,7 +1178,7 @@ class ZstdIntegrationTests(unittest.TestCase):
         for path in self.prefix.rglob("*"):
             if not path.is_symlink():
                 os.utime(path, (1_720_000_000, 1_720_000_000))
-        (self.prefix / "bin" / "test-launcher").chmod(0o777)
+        (self.prefix / "bin" / "OpenFusion").chmod(0o777)
         (self.prefix / "lib" / "libOpenFusion.so.1").chmod(0o444)
         second = self._build(self.output_two)
 
@@ -685,16 +1193,26 @@ class ZstdIntegrationTests(unittest.TestCase):
             [record["path"] for record in manifest["entries"]],
             [
                 "bin",
-                "bin/test-launcher",
+                "bin/FreeCAD",
+                "bin/FreeCADCmd",
+                "bin/OpenFusion",
+                "bin/OpenFusionCmd",
                 "lib",
                 "lib/libOpenFusion.so",
                 "lib/libOpenFusion.so.1",
                 "share",
                 "share/Unicode-模型.txt",
+                "share/doc",
+                "share/doc/openfusion",
+                "share/doc/openfusion/LICENSE",
+                "share/doc/openfusion/NOTICE.md",
+                "share/doc/openfusion/THIRD_PARTY_NOTICES.md",
+                "share/openfusion",
+                "share/openfusion/executable-identity.json",
             ],
         )
         records = {record["path"]: record for record in manifest["entries"]}
-        self.assertEqual(records["bin/test-launcher"]["mode"], 0o755)
+        self.assertEqual(records["bin/OpenFusion"]["mode"], 0o755)
         self.assertEqual(records["lib/libOpenFusion.so.1"]["mode"], 0o644)
         self.assertEqual(
             records["lib/libOpenFusion.so"]["target"], "libOpenFusion.so.1"
@@ -702,33 +1220,32 @@ class ZstdIntegrationTests(unittest.TestCase):
         artifact_digest = hashlib.sha256(first[0].read_bytes()).hexdigest()
         self.assertEqual(manifest["archive_sha256"], artifact_digest)
         self.assertEqual(manifest["architecture"], "x86_64")
-        self.assertEqual(manifest["product_identity"], "test-only-bypass")
+        self.assertEqual(
+            manifest["product_identity"]["payload"]["source_revision"],
+            SOURCE_REVISION,
+        )
         self.assertEqual(manifest["policy"]["version"], tarball.POLICY_VERSION)
         checksum_lines = first[2].read_text(encoding="ascii").splitlines()
         self.assertEqual(len(checksum_lines), 2)
         self.assertTrue(checksum_lines[0].endswith(f"  {first[0].name}"))
         self.assertTrue(checksum_lines[1].endswith(f"  {first[1].name}"))
 
-    def test_test_fixture_verification_requires_explicit_api_bypass(self) -> None:
+    def test_verification_requires_the_matching_trusted_key(self) -> None:
         self._populate()
         outputs = self._build(self.output_one)
-        with self.assertRaisesRegex(tarball.PackagingError, "explicit test API flag"):
-            tarball.verify_package(*outputs)
+        other_private = self.root / "other-private.pem"
+        other_public = self.root / "other-public.pem"
+        subprocess.run(
+            [str(self.openssl), "genpkey", "-algorithm", "ED25519", "-out", str(other_private)],
+            check=True,
+        )
+        subprocess.run(
+            [str(self.openssl), "pkey", "-in", str(other_private), "-pubout", "-out", str(other_public)],
+            check=True,
+        )
+        with self.assertRaisesRegex(tarball.PackagingError, "fingerprint"):
+            self.verify_package(*outputs, other_public)
         self._verify(outputs)
-
-        with contextlib.redirect_stderr(io.StringIO()):
-            result = tarball.main(
-                [
-                    "verify",
-                    "--archive",
-                    str(outputs[0]),
-                    "--manifest",
-                    str(outputs[1]),
-                    "--checksum",
-                    str(outputs[2]),
-                ]
-            )
-        self.assertEqual(result, 2)
 
     def test_source_mutation_after_snapshot_prevents_publication(self) -> None:
         self._populate()
@@ -750,33 +1267,348 @@ class ZstdIntegrationTests(unittest.TestCase):
                 self._build(self.output_one)
         self.assertEqual(list(self.output_one.iterdir()), [])
 
-    def test_arbitrary_x86_64_elf_cannot_claim_openfusion_identity(self) -> None:
-        (self.prefix / "bin").mkdir()
-        executable = self.prefix / "bin" / "test-launcher"
-        header = bytearray(64)
-        header[:4] = b"\x7fELF"
-        header[4] = 2
-        header[5] = 1
-        header[6] = 1
-        header[16:18] = (2).to_bytes(2, "little")
-        header[18:20] = (62).to_bytes(2, "little")
-        header[20:24] = (1).to_bytes(4, "little")
-        executable.write_bytes(header)
+    def test_relabelled_x86_64_elf_cannot_reuse_signed_openfusion_identity(self) -> None:
+        self._populate()
+        identity = self._identity()
+        executable = self.prefix / "bin" / "OpenFusion"
+        executable.write_bytes(valid_elf(b"untrusted-relabel"))
         executable.chmod(0o755)
         with self.assertRaisesRegex(
-            tarball.PackagingError, "no authenticated OpenFusion executable identity"
+            tarball.PackagingError, "payload-tree"
         ):
-            tarball.build_package(
+            self.build_package(
                 self.destdir,
                 "/opt/openfusion",
-                "0.1.0",
+                VERSION,
                 "x86_64",
                 self.output_one,
-                1_700_000_000,
+                SOURCE_DATE_EPOCH,
+                identity,
+                self.public_key,
                 staging_is_quiescent=True,
                 output_is_exclusive=True,
             )
         self.assertEqual(list(self.output_one.iterdir()), [])
+
+    def test_signed_identity_rejects_package_version_swap(self) -> None:
+        self._populate()
+        identity = self._identity()
+        with self.assertRaisesRegex(tarball.PackagingError, "package/source/lock coordinates"):
+            self.build_package(
+                self.destdir,
+                "/opt/openfusion",
+                "0.1.0-dev.2",
+                "x86_64",
+                self.output_one,
+                SOURCE_DATE_EPOCH,
+                identity,
+                self.public_key,
+                staging_is_quiescent=True,
+                output_is_exclusive=True,
+            )
+        self.assertEqual(list(self.output_one.iterdir()), [])
+
+    def test_identity_issuance_rejects_entrypoint_without_origin_runpath(self) -> None:
+        self._ensure_executables()
+        executable = self.prefix / "bin" / "OpenFusion"
+        executable.write_bytes(
+            valid_elf(b"no-origin").replace(
+                b"$ORIGIN/../lib", b"missing-runpath"
+            )
+        )
+        executable.chmod(0o755)
+        with self.assertRaisesRegex(tarball.PackagingError, "RUNPATH"):
+            self.create_identity(
+                self.destdir, "/opt/openfusion", VERSION, "x86_64", "development",
+                self.lock_file, self.provenance_file, self.private_key,
+                self.identity_file, str(self.openssl),
+            )
+
+    def test_identity_creation_rejects_dependency_lock_swap(self) -> None:
+        self._ensure_executables()
+        self.lock_file.write_bytes(b"substituted dependency graph\n")
+        with self.assertRaisesRegex(tarball.PackagingError, "version/lock/CMake/OpenSSL"):
+            self.create_identity(
+                self.destdir,
+                "/opt/openfusion",
+                VERSION,
+                "x86_64",
+                "development",
+                self.lock_file,
+                self.provenance_file,
+                self.private_key,
+                self.identity_file,
+                str(self.openssl),
+            )
+
+    def test_identity_issuance_rejects_missing_compatibility_alias(self) -> None:
+        self._ensure_executables()
+        (self.prefix / "bin" / "FreeCAD").unlink()
+        with self.assertRaisesRegex(tarball.PackagingError, "compatibility executable"):
+            self.create_identity(
+                self.destdir, "/opt/openfusion", VERSION, "x86_64", "development",
+                self.lock_file, self.provenance_file, self.private_key,
+                self.identity_file, str(self.openssl),
+            )
+
+    def test_identity_issuance_rejects_retargeted_compatibility_alias(self) -> None:
+        self._ensure_executables()
+        alias = self.prefix / "bin" / "FreeCAD"
+        alias.unlink()
+        os.symlink("OpenFusionCmd", alias)
+        with self.assertRaisesRegex(tarball.PackagingError, "compatibility executable"):
+            self.create_identity(
+                self.destdir, "/opt/openfusion", VERSION, "x86_64", "development",
+                self.lock_file, self.provenance_file, self.private_key,
+                self.identity_file, str(self.openssl),
+            )
+
+    def test_identity_issuance_rejects_regular_compatibility_alias(self) -> None:
+        self._ensure_executables()
+        alias = self.prefix / "bin" / "FreeCAD"
+        alias.unlink()
+        alias.write_bytes((self.prefix / "bin" / "OpenFusion").read_bytes())
+        alias.chmod(0o755)
+        with self.assertRaisesRegex(tarball.PackagingError, "compatibility executable"):
+            self.create_identity(
+                self.destdir, "/opt/openfusion", VERSION, "x86_64", "development",
+                self.lock_file, self.provenance_file, self.private_key,
+                self.identity_file, str(self.openssl),
+            )
+
+    def test_signed_identity_rejects_gui_cli_byte_swap(self) -> None:
+        self._populate()
+        identity = self._identity()
+        gui = self.prefix / "bin" / "OpenFusion"
+        cli = self.prefix / "bin" / "OpenFusionCmd"
+        gui_bytes = gui.read_bytes()
+        cli_bytes = cli.read_bytes()
+        gui.write_bytes(cli_bytes)
+        cli.write_bytes(gui_bytes)
+        gui.chmod(0o755)
+        cli.chmod(0o755)
+        with self.assertRaisesRegex(tarball.PackagingError, "payload-tree"):
+            self.build_package(
+                self.destdir,
+                "/opt/openfusion",
+                VERSION,
+                "x86_64",
+                self.output_one,
+                SOURCE_DATE_EPOCH,
+                identity,
+                self.public_key,
+                staging_is_quiescent=True,
+                output_is_exclusive=True,
+            )
+        self.assertEqual(list(self.output_one.iterdir()), [])
+
+    def test_signed_tree_rejects_tampered_shared_library(self) -> None:
+        self._populate()
+        identity = self._identity()
+        library = self.prefix / "lib" / "libOpenFusion.so.1"
+        library.write_bytes(b"tampered shared library")
+        with self.assertRaisesRegex(tarball.PackagingError, "payload-tree"):
+            self.build_package(
+                self.destdir,
+                "/opt/openfusion",
+                VERSION,
+                "x86_64",
+                self.output_one,
+                SOURCE_DATE_EPOCH,
+                identity,
+                self.public_key,
+                staging_is_quiescent=True,
+                output_is_exclusive=True,
+            )
+
+    def test_rebuilt_archive_cannot_reauthorize_tampered_library(self) -> None:
+        self._populate()
+        artifact, manifest, _ = self._build(self.output_one)
+        original_manifest = json.loads(manifest.read_text(encoding="utf-8"))
+        attacker_dir = self.root / "attacker"
+        attacker_dir.mkdir()
+        attacker_payload = self.root / "attacker-payload"
+        shutil.copytree(self.prefix, attacker_payload, symlinks=True)
+        identity_content = tarball._identity_envelope_bytes(
+            original_manifest["product_identity"]
+        )
+        (attacker_payload / tarball.IDENTITY_RELATIVE_PATH).write_bytes(identity_content)
+        (attacker_payload / "lib" / "libOpenFusion.so.1").write_bytes(b"rebuilt tamper")
+        entries = tarball._scan_tree(attacker_payload)
+        tar_path = attacker_dir / "rebuilt.tar"
+        tarball._write_tar(
+            tar_path,
+            str(original_manifest["archive_root"]),
+            entries,
+            SOURCE_DATE_EPOCH,
+        )
+        rebuilt_artifact = attacker_dir / artifact.name
+        tarball._compress(tar_path, rebuilt_artifact, tarball._find_zstd(None))
+        rebuilt_manifest = attacker_dir / manifest.name
+        rebuilt_manifest.write_bytes(
+            tarball._manifest_bytes(
+                artifact.name,
+                manifest.name,
+                f"{artifact.name}.sha256",
+                str(original_manifest["archive_root"]),
+                VERSION,
+                "x86_64",
+                "/opt/openfusion",
+                SOURCE_DATE_EPOCH,
+                entries,
+                hashlib.sha256(rebuilt_artifact.read_bytes()).hexdigest(),
+                original_manifest["product_identity"],
+            )
+        )
+        rebuilt_checksum = attacker_dir / f"{artifact.name}.sha256"
+        rebuilt_checksum.write_text(
+            f"{hashlib.sha256(rebuilt_artifact.read_bytes()).hexdigest()}  {rebuilt_artifact.name}\n"
+            f"{hashlib.sha256(rebuilt_manifest.read_bytes()).hexdigest()}  {rebuilt_manifest.name}\n",
+            encoding="ascii",
+        )
+        with self.assertRaisesRegex(tarball.PackagingError, "payload-tree"):
+            self.verify_package(rebuilt_artifact, rebuilt_manifest, rebuilt_checksum)
+
+    def test_legal_scan_rejects_arr_metadata_without_filename_allowlist(self) -> None:
+        self._populate()
+        (self.prefix / "opaque-payload").write_bytes(
+            b'General:\nLicense: "All rights reserved"\n'
+        )
+        with self.assertRaisesRegex(tarball.PackagingError, "redistribution permission"):
+            self._build(self.output_one)
+
+    def test_legal_scan_rejects_installer_tokens_in_any_payload_file(self) -> None:
+        self._populate()
+        fixtures = (
+            b'RegDLL "$INSTDIR\\renamed-provider.bin"\n',
+            b'<handler clsid="{4BBBEAB5-BE00-41F4-A209-FE838660B9B1}" />\n',
+            "RegDLL ".encode("utf-16le"),
+            b"\xff\xfe\x00\x00" + "RegDLL ".encode("utf-32le"),
+            "{E357FCCD-A995-4576-B01F-234630154E96}".encode("utf-32be"),
+            b"x" * (tarball.LEGAL_SCAN_CHUNK_BYTES - 3)
+            + "FILES_THUMBS".encode("utf-32le"),
+        )
+        for index, content in enumerate(fixtures):
+            with self.subTest(index=index):
+                if self.identity_file.exists():
+                    self.identity_file.unlink()
+                output = self.root / f"legal-output-{index}"
+                output.mkdir()
+                (self.prefix / f"opaque-{index}").write_bytes(content)
+                with self.assertRaisesRegex(tarball.PackagingError, "thumbnail-provider text"):
+                    self._build(output)
+                (self.prefix / f"opaque-{index}").unlink()
+
+    def test_legal_scan_allows_bare_regdll_binary_collision(self) -> None:
+        self._populate()
+        (self.prefix / "benign-binary-collision").write_bytes(
+            b"\x01RegDLL\x00"
+            + "RegDLL".encode("utf-16le")
+            + "RegDLL".encode("utf-32le")
+        )
+        outputs = self._build(self.output_one)
+        self._verify(outputs)
+
+    def test_legal_scan_allows_internal_fcstd_thumbnail_symbol(self) -> None:
+        self._populate()
+        (self.prefix / "legitimate-start-symbol").write_bytes(
+            b"loadFCStdThumbnail\x00FCStdThumbnail\x00"
+        )
+        outputs = self._build(self.output_one)
+        self._verify(outputs)
+
+    def test_legal_scan_rejects_utf32_arr_metadata_with_and_without_bom(self) -> None:
+        self._populate()
+        fixtures = (
+            b"\x00\x00\xfe\xff"
+            + "License: All rights reserved".encode("utf-32be"),
+            b"x" * (tarball.LEGAL_SCAN_CHUNK_BYTES - 5)
+            + "\nLicense: All rights reserved".encode("utf-32le"),
+        )
+        for index, content in enumerate(fixtures):
+            with self.subTest(index=index):
+                if self.identity_file.exists():
+                    self.identity_file.unlink()
+                output = self.root / f"legal-arr-output-{index}"
+                output.mkdir()
+                (self.prefix / f"opaque-arr-{index}").write_bytes(content)
+                with self.assertRaisesRegex(
+                    tarball.PackagingError, "redistribution permission"
+                ):
+                    self._build(output)
+                (self.prefix / f"opaque-arr-{index}").unlink()
+
+    def test_legal_scan_rejects_lfs_pointer_to_restricted_identity(self) -> None:
+        self._populate()
+        restricted = tarball._legal_quarantine_policy()["restricted_patterns"][0]
+        pointer = (
+            "version https://git-lfs.github.com/spec/v1\n"
+            f"oid sha256:{restricted['sha256']}\n"
+            f"size {restricted['size']}\n"
+        ).encode("ascii")
+        (self.prefix / "renamed-lfs-object").write_bytes(pointer)
+        with self.assertRaisesRegex(tarball.PackagingError, "Git LFS pointer"):
+            self._build(self.output_one)
+
+    def test_legal_scan_rejects_cross_platform_path_aliases(self) -> None:
+        self._populate()
+        (self.prefix / "Case-Alias").write_bytes(b"first")
+        (self.prefix / "case-alias").write_bytes(b"second")
+        with self.assertRaisesRegex(tarball.PackagingError, "path alias collision"):
+            self._build(self.output_one)
+
+    def test_legal_scan_rejects_trailing_dot_path_aliases(self) -> None:
+        self._populate()
+        (self.prefix / "notice").write_bytes(b"first")
+        (self.prefix / "notice.").write_bytes(b"second")
+        with self.assertRaisesRegex(tarball.PackagingError, "path alias collision"):
+            self._build(self.output_one)
+
+    def test_legal_scan_rejects_malformed_lfs_pointer(self) -> None:
+        self._populate()
+        (self.prefix / "malformed-pointer").write_bytes(
+            b"version https://git-lfs.github.com/spec/v1\n"
+            b"oid sha256:not-a-digest\nsize 12\n"
+        )
+        with self.assertRaisesRegex(tarball.PackagingError, "malformed.*Git LFS"):
+            self._build(self.output_one)
+
+    def test_legal_scan_requires_exact_shipped_notices(self) -> None:
+        self._ensure_executables()
+        notice = self.prefix / "share" / "doc" / "openfusion" / "NOTICE.md"
+        notice.unlink()
+        entries = tarball._scan_tree(self.prefix)
+        with self.assertRaisesRegex(tarball.PackagingError, "required shipped legal file"):
+            tarball._verify_legal_quarantine(self.prefix, entries)
+
+        shutil.copyfile(Path(__file__).parents[2] / "NOTICE.md", notice)
+        notice.write_bytes(b"substituted notice\n")
+        entries = tarball._scan_tree(self.prefix)
+        with self.assertRaisesRegex(tarball.PackagingError, "required shipped legal file"):
+            tarball._verify_legal_quarantine(self.prefix, entries)
+
+    def test_legal_scan_exact_hash_identity_is_path_independent(self) -> None:
+        self._ensure_executables()
+        payload = self.prefix / "renamed-asset.data"
+        payload.write_bytes(b"synthetic quarantined identity")
+        entries = tarball._scan_tree(self.prefix)
+        record = next(entry for entry in entries if entry.relative_path == "renamed-asset.data")
+        policy = json.loads(json.dumps(tarball._legal_quarantine_policy()))
+        policy["restricted_patterns"][0] = {
+            "source_path": "historical/restricted.FCMat",
+            "sha256": record.sha256,
+            "size": record.size,
+        }
+        with mock.patch.object(tarball, "_legal_quarantine_policy", return_value=policy):
+            with self.assertRaisesRegex(tarball.PackagingError, "restricted material pattern"):
+                tarball._verify_legal_quarantine(self.prefix, entries)
+
+    def test_legal_scan_fails_closed_on_oversized_payload(self) -> None:
+        self._ensure_executables()
+        entries = tarball._scan_tree(self.prefix)
+        with mock.patch.object(tarball, "MAX_LEGAL_SCAN_FILE_BYTES", 1):
+            with self.assertRaisesRegex(tarball.PackagingError, "legal inspection limit"):
+                tarball._verify_legal_quarantine(self.prefix, entries)
 
     def test_archive_is_published_last_as_commit_marker(self) -> None:
         self._populate()
@@ -795,15 +1627,16 @@ class ZstdIntegrationTests(unittest.TestCase):
     def test_output_directory_exclusivity_must_be_explicit(self) -> None:
         self._populate()
         with self.assertRaisesRegex(tarball.PackagingError, "exclusively control"):
-            tarball.build_package(
+            self.build_package(
                 self.destdir,
                 "/opt/openfusion",
-                "0.1.0-test.1",
+                VERSION,
                 "x86_64",
                 self.output_one,
                 1_700_000_000,
+                self._identity(),
+                self.public_key,
                 staging_is_quiescent=True,
-                _test_only_bypass_product_identity=True,
             )
 
     def test_publication_failure_rolls_back_precommit_companions(self) -> None:
@@ -836,10 +1669,8 @@ class ZstdIntegrationTests(unittest.TestCase):
         (self.prefix / "a-file").write_bytes(b"sibling")
         outputs = self._build(self.output_one)
         manifest = json.loads(outputs[1].read_text(encoding="utf-8"))
-        self.assertEqual(
-            [record["path"] for record in manifest["entries"]],
-            ["a", "a-file", "a/z"],
-        )
+        paths = [record["path"] for record in manifest["entries"]]
+        self.assertEqual([path for path in paths if path.startswith("a")], ["a", "a-file", "a/z"])
         self._verify(outputs)
 
     def test_absolute_and_escaping_symlinks_are_rejected(self) -> None:
@@ -882,7 +1713,7 @@ class ZstdIntegrationTests(unittest.TestCase):
 
     def test_existing_output_is_not_overwritten(self) -> None:
         (self.prefix / "file").write_bytes(b"payload")
-        artifact = self.output_one / "openfusion-0.1.0-test.1-linux-x86_64.tar.zst"
+        artifact = self.output_one / f"openfusion-{VERSION}-linux-x86_64.tar.zst"
         artifact.write_bytes(b"keep-me")
         with self.assertRaisesRegex(tarball.PackagingError, "refusing to overwrite"):
             self._build(self.output_one)
@@ -895,11 +1726,11 @@ class ZstdIntegrationTests(unittest.TestCase):
         with artifact.open("ab") as stream:
             stream.write(b"tamper")
         with self.assertRaisesRegex(tarball.PackagingError, "SHA-256"):
-            tarball.verify_package(
+            self.verify_package(
                 artifact,
                 manifest,
                 checksum,
-                _test_only_bypass_product_identity=True,
+                self.public_key,
             )
 
     def test_tampered_checksum_fails_verification(self) -> None:
@@ -907,11 +1738,11 @@ class ZstdIntegrationTests(unittest.TestCase):
         artifact, manifest, checksum = self._build(self.output_one)
         checksum.write_text(f"{'0' * 64}  {artifact.name}\n", encoding="ascii")
         with self.assertRaisesRegex(tarball.PackagingError, "checksum file"):
-            tarball.verify_package(
+            self.verify_package(
                 artifact,
                 manifest,
                 checksum,
-                _test_only_bypass_product_identity=True,
+                self.public_key,
             )
 
     def test_canonical_manifest_rejects_added_fields_even_with_updated_checksum(
@@ -937,7 +1768,7 @@ class ZstdIntegrationTests(unittest.TestCase):
             encoding="ascii",
         )
         with self.assertRaisesRegex(tarball.PackagingError, "manifest fields"):
-            tarball.verify_package(artifact, manifest, checksum)
+            self.verify_package(artifact, manifest, checksum, self.public_key)
 
     def test_symlinked_companion_directory_is_rejected(self) -> None:
         self._populate()
@@ -945,10 +1776,11 @@ class ZstdIntegrationTests(unittest.TestCase):
         alias = self.root / "output-alias"
         os.symlink(self.output_one.name, alias)
         with self.assertRaisesRegex(tarball.PackagingError, "cannot safely open"):
-            tarball.verify_package(
+            self.verify_package(
                 alias / artifact.name,
                 alias / manifest.name,
                 alias / checksum.name,
+                self.public_key,
             )
 
     def test_decompression_is_bounded(self) -> None:
@@ -974,11 +1806,23 @@ class ZstdIntegrationTests(unittest.TestCase):
                         "--prefix",
                         "/opt/openfusion",
                         "--version",
-                        "0.1.0",
+                        VERSION,
                         "--architecture",
                         "x86_64",
                         "--output-dir",
                         str(self.output_one),
+                        "--identity",
+                        str(self._identity()),
+                        "--trusted-public-key",
+                        str(self.public_key),
+                        "--expected-key-sha256",
+                        self.key_sha256,
+                        "--expected-release-channel",
+                        "development",
+                        "--expected-source-revision",
+                        SOURCE_REVISION,
+                        "--expected-lock-sha256",
+                        self.lock_digest,
                         "--staging-is-quiescent",
                     ]
                 )

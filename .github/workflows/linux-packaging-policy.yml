@@ -43,8 +43,10 @@ jobs:
           python3 --version
           command -v zstd
           zstd --version
+          command -v openssl
+          openssl version
 
-      - name: Run deterministic tarball policy suite
+      - name: Run deterministic tarball and legal quarantine policy suite
         shell: bash
         run: |
           set -euo pipefail

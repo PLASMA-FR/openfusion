@@ -7,6 +7,17 @@ file(MAKE_DIRECTORY "${OPENFUSION_ACCEPTANCE_OUTPUT_DIR}")
 
 if(BUILD_GUI)
     add_test(
+        NAME OpenFusion_GUI_HeadlessVersion
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/OpenFusionGuiHeadlessVersion.py"
+            --executable $<TARGET_FILE:FreeCADMain>
+            --expected-version "${PACKAGE_VERSION}${OPENFUSION_VERSION_SUFFIX}"
+    )
+    set_tests_properties(OpenFusion_GUI_HeadlessVersion PROPERTIES
+        LABELS "acceptance;gui;lifecycle;identity"
+        TIMEOUT 30
+    )
+    add_test(
         NAME OpenFusion_GUI_SystemExit_Propagation
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/OpenFusionGuiSystemExitRegression.py"

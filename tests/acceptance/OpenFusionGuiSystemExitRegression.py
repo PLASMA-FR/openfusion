@@ -362,6 +362,8 @@ def _run_scenario(
         "app-destruct-complete",
         "main-return",
         "main-window-destruct-body-begin",
+        "main-window-owned-ui-destruct-begin",
+        "main-window-owned-ui-destruct-end",
         "main-window-destruct-body-end",
     )
     for stage in expected_lifecycle_stages:
@@ -372,6 +374,19 @@ def _run_scenario(
             failures.append(f"{scenario}: missing main lifecycle stage {stage}")
     if "OpenFusion lifecycle: stage=run-application-catch" in console_output:
         failures.append(f"{scenario}: unexpected raw runApplication catch marker")
+
+    teardown_markers = (
+        "main-window-destruct-body-begin",
+        "main-window-owned-ui-destruct-begin",
+        "main-window-owned-ui-destruct-end",
+        "main-window-destruct-body-end",
+    )
+    teardown_offsets = [
+        console_output.find(f"OpenFusion lifecycle: stage={stage}")
+        for stage in teardown_markers
+    ]
+    if any(offset < 0 for offset in teardown_offsets) or teardown_offsets != sorted(teardown_offsets):
+        failures.append(f"{scenario}: MainWindow owned-UI teardown markers are out of order")
 
     if failures and console_output:
         failures.append(f"{scenario}: FreeCAD output follows:\n{console_output}")

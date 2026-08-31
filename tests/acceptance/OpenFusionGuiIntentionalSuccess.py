@@ -29,16 +29,16 @@ class IntentionalMdiTeardown(unittest.TestCase):
         self.assertIsNotNone(mdi_area)
 
         created_subwindows = []
-        for index in range(6):
+        for index in range(64):
             content = QtWidgets.QWidget()
             content.setObjectName(f"OpenFusionMdiTeardownContent{index}")
             subwindow = mdi_area.addSubWindow(content)
             subwindow.setObjectName(f"OpenFusionMdiTeardownSubWindow{index}")
-            subwindow.show()
+            subwindow.showMaximized()
+            QtWidgets.QApplication.processEvents()
             created_subwindows.append(subwindow)
             _MDI_TEARDOWN_OBJECTS.extend((content, subwindow))
 
-        created_subwindows[-1].showMaximized()
         FreeCADGui.updateGui()
         observe_gui_runtime(INTERNAL_MDI_TEARDOWN_MODE)
         self.assertTrue(all(window in mdi_area.subWindowList() for window in created_subwindows))

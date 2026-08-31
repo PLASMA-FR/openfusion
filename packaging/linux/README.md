@@ -11,37 +11,83 @@ renames inherited binaries, or downloads dependencies. It does not
 intentionally modify staged payload contents, modes, ownership, or non-access
 timestamps; reads may update access times as documented below.
 
-## Production identity blocker
+## Signed executable identity
 
-The production CLI currently refuses every build with
-`no authenticated OpenFusion executable identity contract is configured`.
-This is intentional. The current source tree still builds inherited FreeCAD
-executables and does not provide a canonical OpenFusion executable whose
-version and source revision can be authenticated offline. Checking only an ELF
-machine type, executable bit, path, or filename would allow an arbitrary Linux
-binary to be relabeled as OpenFusion.
+The executable identity is a canonical JSON document signed with Ed25519. Its
+signed payload binds all of the following before any archive is created:
 
-Before this blocker can be removed, the product must define and implement the
-canonical installed executable and an offline identity record bound to the
-OpenFusion version, exact source commit, and build provenance. The packager and
-verifier must then authenticate that record. Until then, the private Python
-test API is the only path that can create an archive, and it accepts only a
-SemVer prerelease identifier named `test`. The CLI exposes no bypass.
+- product `OpenFusion`, Linux, architecture, install prefix, and exact SemVer;
+- development or production release channel;
+- the full lowercase 40-character source revision;
+- the SHA-256 of the locked `pixi.lock` dependency graph;
+- canonical build provenance, including builder, generator, compiler, build
+  type, descriptor-hashed CMake cache, locked OpenSSL binary/version, version,
+  revision, lock digest, and `SOURCE_DATE_EPOCH`;
+- canonical GUI `bin/OpenFusion` and CLI `bin/OpenFusionCmd`, including
+  each executable's exact size and SHA-256.
+- a domain-separated SHA-256 commitment over the packaging policy and every
+  normalized staged path, type, mode, file size/digest, or symlink target.
+
+Legacy `bin/FreeCAD` and `bin/FreeCADCmd` names are relative compatibility
+symlinks only. They are not canonical identity paths. A filename, executable
+bit, or matching ELF machine alone is never identity.
+
+The trusted Ed25519 public key is an out-of-band input to both build and verify.
+The packager checks the signature and fingerprint, then independently hashes
+the descriptor-anchored staged executables. It never launches a staged binary.
+It injects the exact signed document at
+`share/openfusion/executable-identity.json` inside the private snapshot and
+requires the manifest and extracted copy to match it byte for byte. There is no
+test or command-line bypass.
+
+Development builds may use an ephemeral signing key only when the signed
+`release_channel` is `development` and the SemVer prerelease contains the
+identifier `dev`; they must be labeled untrusted development artifacts.
+Production release jobs require a protected signing key and a reviewed
+public-key trust anchor. Production verification is fail-closed against the
+repository's SPKI fingerprint allow-list, which is intentionally empty until
+key custody is established. The repository does not contain a production
+private key.
 
 ## Build and verify interface
 
-Once the production identity contract exists, an installation rooted at
-`/tmp/openfusion-stage/opt/openfusion` will use this interface:
+An installation rooted at `/tmp/openfusion-stage/opt/openfusion` uses this
+interface. First create canonical build provenance and an Ed25519 identity.
+The example key is development-only:
 
 ```bash
 mkdir -p /tmp/openfusion-output
 export SOURCE_DATE_EPOCH=1787961600
+openssl genpkey -algorithm ED25519 -out /tmp/openfusion-development-key.pem
+openssl pkey -in /tmp/openfusion-development-key.pem -pubout \
+  -out /tmp/openfusion-development-public.pem
+
+# build-provenance.json is canonical compact JSON containing every required
+# format-version-1 field and values from the exact build.
+python3 packaging/linux/create_deterministic_tarball.py create-identity \
+  --destdir /tmp/openfusion-stage \
+  --prefix /opt/openfusion \
+  --version 0.1.0-dev.1 \
+  --architecture x86_64 \
+  --release-channel development \
+  --dependency-lock "$(pwd)/pixi.lock" \
+  --build-provenance /tmp/build-provenance.json \
+  --cmake-cache /absolute/build/CMakeCache.txt \
+  --signing-key /tmp/openfusion-development-key.pem \
+  --output /tmp/openfusion-executable-identity.json
+
 python3 packaging/linux/create_deterministic_tarball.py build \
   --destdir /tmp/openfusion-stage \
   --prefix /opt/openfusion \
-  --version 0.1.0 \
+  --version 0.1.0-dev.1 \
   --architecture x86_64 \
   --output-dir /tmp/openfusion-output \
+  --identity /tmp/openfusion-executable-identity.json \
+  --trusted-public-key /tmp/openfusion-development-public.pem \
+  --expected-key-sha256 "${DEVELOPMENT_PUBLIC_KEY_SPKI_SHA256}" \
+  --expected-release-channel development \
+  --expected-source-revision "${SOURCE_REVISION}" \
+  --expected-lock-sha256 "${PIXI_LOCK_SHA256}" \
   --staging-is-quiescent \
   --output-is-exclusive
 ```
@@ -63,26 +109,36 @@ ignore it. Existing entries are never overwritten.
 
 The target architecture is explicit. Every staged ELF must have the expected
 class, byte order, and `e_machine`, but architecture coherence is not product
-identity. The production CLI has no identity bypass, and the verifier rejects
-test fixtures unless its caller uses the explicit private Python API flag. Once
-the production identity blocker is resolved, a successful run will create and
-internally verify exactly these files:
+identity. The production CLI has no identity bypass. A successful development
+run for the example version creates and internally verifies exactly these files:
 
-- `openfusion-0.1.0-linux-x86_64.tar.zst`
-- `openfusion-0.1.0-linux-x86_64.tar.zst.manifest.json`
-- `openfusion-0.1.0-linux-x86_64.tar.zst.sha256`
+The policy recognizes `x86_64` and `aarch64` ELF identities. Producing an
+architecture-labeled development archive is not a support claim; native
+installed-package acceptance remains mandatory for each release architecture.
+
+- `openfusion-0.1.0-dev.1-linux-x86_64.tar.zst`
+- `openfusion-0.1.0-dev.1-linux-x86_64.tar.zst.manifest.json`
+- `openfusion-0.1.0-dev.1-linux-x86_64.tar.zst.sha256`
 
 The archive has one top-level directory named
-`openfusion-0.1.0-linux-x86_64`. Its contents are the contents of the staged
+`openfusion-0.1.0-dev.1-linux-x86_64`. Its contents are the contents of the staged
 install prefix; the `/opt/openfusion` path itself is not embedded.
 
 Verify an existing staged result with:
 
 ```bash
 python3 packaging/linux/create_deterministic_tarball.py verify \
-  --archive /tmp/openfusion-output/openfusion-0.1.0-linux-x86_64.tar.zst \
-  --manifest /tmp/openfusion-output/openfusion-0.1.0-linux-x86_64.tar.zst.manifest.json \
-  --checksum /tmp/openfusion-output/openfusion-0.1.0-linux-x86_64.tar.zst.sha256
+  --archive /tmp/openfusion-output/openfusion-0.1.0-dev.1-linux-x86_64.tar.zst \
+  --manifest /tmp/openfusion-output/openfusion-0.1.0-dev.1-linux-x86_64.tar.zst.manifest.json \
+  --checksum /tmp/openfusion-output/openfusion-0.1.0-dev.1-linux-x86_64.tar.zst.sha256 \
+  --trusted-public-key /tmp/openfusion-development-public.pem \
+  --expected-key-sha256 "${DEVELOPMENT_PUBLIC_KEY_SPKI_SHA256}" \
+  --expected-release-channel development \
+  --expected-version 0.1.0-dev.1 \
+  --expected-architecture x86_64 \
+  --expected-prefix /opt/openfusion \
+  --expected-source-revision "${SOURCE_REVISION}" \
+  --expected-lock-sha256 "${PIXI_LOCK_SHA256}"
 ```
 
 ## Safety and reproducibility contract
@@ -132,12 +188,13 @@ header against the manifest, extracts through a path-safe implementation,
 rescans the payload, revalidates ELF identity, and reconstructs the canonical
 tar for an exact byte comparison.
 
-Policy version 2 has these absolute ceilings:
+Policy version 3 has these absolute ceilings:
 
 | Resource | Limit |
 | --- | ---: |
 | Compressed archive | 16 GiB |
 | Manifest | 256 MiB |
+| Signed executable identity | 1 MiB |
 | Checksum file | 4 KiB |
 | Payload entries | 500,000 |
 | UTF-8 path or symlink target | 4,095 bytes |
@@ -173,7 +230,7 @@ Run the focused tests with:
 python3 -m unittest -v tests.openfusion.test_linux_tarball
 ```
 
-The complete suite requires `zstd`. Its absence is a hard failure, not a skip,
-because otherwise a release gate could appear green without exercising archive
-construction and verification. The test-only product-identity bypass remains
-inaccessible from the packaging CLI.
+The complete suite requires `zstd` and OpenSSL with Ed25519 support. Their
+absence is a hard failure, not a skip, because otherwise a release gate could
+appear green without exercising archive construction, signature
+authentication, and verification.

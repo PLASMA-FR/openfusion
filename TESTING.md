@@ -8,19 +8,20 @@ CMake 4.2.1, Python 3.11.14, and Qt 6.8.3:
 | Gate | Result |
 |---|---|
 | Release build | Reconfigured and completed the combined warm graph; new linked targets passed. |
-| Full CTest | 1,436 registered; 1,430 enabled; zero failures; three skipped; six disabled; four acceptance tests; 107.99 s. |
+| Full CTest | 1,437 registered; 1,431 enabled; zero failures; three skipped; six disabled; five acceptance tests; 138.73 s. |
 | Command palette | Linked Qt test 1/1 in 0.12 s; duplicate activation and missing-icon regressions covered. |
-| Lifecycle | Six process scenarios passed, including six retained live MDI children; exact exit and teardown; 24.41 s in focused run. |
-| CLI | 1,674 tests; 10 skipped; zero failures; parser count 1,674; 157.861 s. |
-| GUI | 1,776 tests; zero failures; parser count 1,776; exit 0 and complete teardown; 439 s. |
+| Lifecycle | Six process scenarios passed, including 64 repeatedly maximized live MDI children and explicit owned-UI teardown; 23.95 s. |
+| CLI | 1,674 tests; 10 skipped; zero failures; parser count 1,674; 156.092 s. |
+| GUI | 1,776 tests; zero failures; parser count 1,776; exit 0 and complete teardown; 426 s. |
 | TechDraw GUI | 1/1 in 2.62 s; SVG 13,163 bytes; PDF 297,380 bytes. |
 | Windows helper/graphics | 31/31. |
-| Packaging / legal / dependency | 53/53; material 22/22; thumbnail 18/18; dependency 30/30; live guard and deterministic real-lock audit passed. |
+| Packaging / legal / dependency | Packaging 80/80; material 22/22; thumbnail 19/19; dependency 30/30; live guard, deterministic real-lock audit and final development payload legal scan passed. |
 
-These are local source/build-tree results, not clean-installed package evidence or
-native Windows/macOS proof. The exact reviewed code head before this truth
-update is `860670be4362f97a3efdc8d390a9e891a6b2b9c2`, tree
-`d2020553a3c02416bb1659e0ea03643ad026e624`.
+These local results do not replace native macOS or production clean-machine
+proof. The reviewed source head before this truth update is
+`4e9eff50caa7e6e5bd9acfbc68dde848aec3e1da`, tree
+`ae09f4378486ffaf99bbd99c15a26fa942edf4c0`. The verified development tar path and digests are recorded in
+`docs/EXECUTION_STATE.md`.
 
 ## Historical verified local integration evidence (2026-08-30)
 
