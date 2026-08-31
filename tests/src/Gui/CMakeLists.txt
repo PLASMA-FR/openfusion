@@ -13,9 +13,20 @@ add_executable(Gui_tests_run
         InputHintTest.cpp
 )
 
+# The production navlib stub is linked only on MSVC/macOS.  Compile its
+# platform-neutral lazy-load boundary with a fake loader on other test hosts so
+# exactly-once concurrent initialization remains covered without symbol clashes.
+if(NOT MSVC AND NOT APPLE)
+    target_sources(Gui_tests_run PRIVATE
+        NavlibLazyLoad.cpp
+        ${CMAKE_SOURCE_DIR}/src/3rdParty/3Dconnexion/src/navlib_load.cpp
+    )
+endif()
+
 # Qt tests
 setup_qt_test(QuantitySpinBox)
 setup_qt_test(CommandPalette)
+setup_qt_test(WorkspaceSelector)
 
 target_link_libraries(Gui_tests_run PRIVATE
     GTest::gtest_main

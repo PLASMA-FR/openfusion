@@ -69,7 +69,7 @@ static PFN_NLREADVALUE pfnNlReadValue = NULL;
 static PFN_NLWRITEVALUE pfnNlWriteValue = NULL;
 static PFN_NLGETTYPE pfnNlGetType = NULL;
 
-extern const long NlErrorCode;
+extern long NlEnsureLoaded(void);
 
 #if _WIN32
 
@@ -131,38 +131,57 @@ long NlLoadLibrary() {
 
 long __cdecl NlCreate(nlHandle_t *pnh, const char *appname, const accessor_t accessors[],
                       size_t accessor_count, const nlCreateOptions_t *options) {
+  const long loadError = NlEnsureLoaded();
+  if (loadError != 0) {
+    return loadError;
+  }
   if (pfnNlCreate) {
     return pfnNlCreate(pnh, appname, accessors, accessor_count, options);
   }
 
-  return NlErrorCode;
+  return EOPNOTSUPP;
 }
 
 long __cdecl NlClose(nlHandle_t nh) {
+  const long loadError = NlEnsureLoaded();
+  if (loadError != 0) {
+    return loadError;
+  }
   if (pfnNlClose) {
     return pfnNlClose(nh);
   }
 
-  return NlErrorCode;
+  return EOPNOTSUPP;
 }
 
 long __cdecl NlReadValue(nlHandle_t nh, property_t name, value_t *value) {
+  const long loadError = NlEnsureLoaded();
+  if (loadError != 0) {
+    return loadError;
+  }
   if (pfnNlReadValue) {
     return pfnNlReadValue(nh, name, value);
   }
 
-  return NlErrorCode;
+  return EOPNOTSUPP;
 }
 
 long __cdecl NlWriteValue(nlHandle_t nh, property_t name, const value_t *value) {
+  const long loadError = NlEnsureLoaded();
+  if (loadError != 0) {
+    return loadError;
+  }
   if (pfnNlWriteValue) {
     return pfnNlWriteValue(nh, name, value);
   }
 
-  return NlErrorCode;
+  return EOPNOTSUPP;
 }
 
 propertyType_t __cdecl NlGetType(property_t name) {
+  if (NlEnsureLoaded() != 0) {
+    return unknown_type;
+  }
   if (pfnNlGetType) {
     return pfnNlGetType(name);
   }

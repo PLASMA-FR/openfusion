@@ -12,6 +12,10 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 
 ### Added
 
+- Added native `Std_WorkspaceDesign` on Ctrl+Alt+D, backed by the real Part
+  Design workbench with successful-only persistence, external activation
+  synchronization, stable preference IDs, keyboard/accessibility behavior,
+  and fail-closed disabled/unregistered availability.
 - Added native `Std_CommandPalette` on Ctrl+K using live command-owned actions,
   deterministic fuzzy/token search, recency, disabled-state enforcement,
   focus/keyboard/accessibility behavior, and single-activation Qt regressions.
@@ -55,6 +59,10 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 
 ### Fixed
 
+- Prepared the macOS headless-version correction by replacing eager
+  pre-`main` 3Dconnexion framework loading with thread-safe, exactly-once lazy
+  loading on first real navlib API use. Local linked coverage passes; native
+  arm64/x86_64 validation remains pending and no stderr suppression is used.
 - Verified the Windows GPU-less CI correction using one Pixi-locked
   app-local Mesa renderer for Qt, Coin, and native OpenGL, with provenance,
   path/hash/context evidence and fail-closed graphics-log validation. Native

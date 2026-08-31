@@ -10,6 +10,8 @@ CMake 4.2.1, Python 3.11.14, and Qt 6.8.3:
 | Release build | Reconfigured and completed the combined warm graph; new linked targets passed. |
 | Full CTest | 1,437 registered; 1,431 enabled; zero failures; three skipped; six disabled; five acceptance tests; 138.73 s. |
 | Command palette | Linked Qt test 1/1 in 0.12 s; duplicate activation and missing-icon regressions covered. |
+| Design workspace | Linked Qt test 1/1 in 0.17 s; enabled/disabled/unregistered availability, successful-only persistence, activation and external synchronization covered. |
+| Lazy navlib | Linked GTest 1/1 in 21 ms with 32-thread first-use contention; exactly one loader call published. |
 | Lifecycle | Six process scenarios passed, including 64 repeatedly maximized live MDI children and explicit owned-UI teardown; 23.95 s. |
 | CLI | 1,674 tests; 10 skipped; zero failures; parser count 1,674; 156.092 s. |
 | GUI | 1,776 tests; zero failures; parser count 1,776; exit 0 and complete teardown; 426 s. |
@@ -19,8 +21,8 @@ CMake 4.2.1, Python 3.11.14, and Qt 6.8.3:
 
 These local results do not replace native macOS or production clean-machine
 proof. The current reviewed source head before this truth update is
-`ee2bc68be74109efd830839e24fbca6f61cbb8b2`, tree
-`f1de931870e58d89c12910a8894f55010808276c`. The verified development tar remains bound to its exact source
+`dbed09de7196096a2be73b315a3d3e3f3beb3eef`, tree
+`1293e90cd2fe4382720a0731683403f47b5a8d6d`. The verified development tar remains bound to its exact source
 `4e9eff50caa7e6e5bd9acfbc68dde848aec3e1da`; its path and digests are recorded in
 `docs/EXECUTION_STATE.md`.
 

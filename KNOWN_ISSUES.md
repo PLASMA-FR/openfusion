@@ -1,5 +1,17 @@
 # Known Issues
 
+## Current connector rerun update (2026-08-31)
+
+The last connector-verified base is `fc7052f95dcdad73a6476c375cb79156ece1202a`.
+Its Security run passed all source guards, locked metadata and CodeQL; only the
+disabled Dependency Graph blocks Dependency Review. macOS arm64 passed 1,430 of
+1,431 enabled CTests, failing only because version-only startup eagerly loaded
+the absent optional 3Dconnexion framework and wrote to stderr. The reviewed
+tree accompanying this update makes navlib loading lazy and exactly-once and
+adds the disabled-safe Design workspace; native macOS teardown validation is
+still required. This is not a production-release or clean-machine-package pass.
+
+
 ## Current integration and release blockers (2026-08-31)
 
 | Area | Exact current state | Exit condition |

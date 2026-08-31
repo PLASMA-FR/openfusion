@@ -112,6 +112,7 @@
 #include "Tree.h"
 #include "WaitCursor.h"
 #include "WorkbenchManager.h"
+#include "WorkbenchSelector.h"
 #include "Workbench.h"
 
 #include "MergeDocuments.h"
@@ -1074,6 +1075,7 @@ void MainWindow::activatePreviousWindow()
 
 void MainWindow::activateWorkbench(const QString& name)
 {
+    WorkspaceSelectionController::persistWorkbenchSelection(name);
     // remember workbench by tab (if enabled)
 
     const ParameterGrp::handle hGrp = App::GetApplication().GetParameterGroupByPath(

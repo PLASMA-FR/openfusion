@@ -3,10 +3,11 @@
 **Last verified:** 2026-08-31 UTC
 **Production-ready:** No
 **Active milestones:** M0 macOS closure and first M1 product/release slices
-**Next task:** Publish the reviewed local head, record its connector SHA/tree,
-and run the complete native matrix. The new run must prove explicit MDI
-hierarchy destruction on both macOS architectures; Linux and Windows must stay
-green. Keep PR #28 draft and keep Dependency Review fail-closed.
+**Next task:** Re-fetch the connector head created with this state update,
+record its exact SHA/tree on PR #28, and run the complete native matrix. The
+new run must prove both lazy optional-navlib startup and explicit MDI hierarchy
+destruction on both macOS architectures; Linux and Windows must stay green.
+Keep PR #28 draft and keep Dependency Review fail-closed.
 
 Local Linux evidence is not native Windows/macOS proof. A development archive
 is not a production release or clean-machine support claim.
@@ -16,8 +17,8 @@ is not a production release or clean-machine support claim.
 | Item | Verified value |
 |---|---|
 | Foundation | FreeCAD 1.1.3, `145529fe741292ff0b3977a01195bf0247425794` |
-| Published integration head | `3f54ec58a6475141e0357101c355a51aefaab5ca`, tree `a80748e4c8243d858ccaf73e8bd64601e5605550` |
-| Local reviewed source head | `ee2bc68be74109efd830839e24fbca6f61cbb8b2`, tree `f1de931870e58d89c12910a8894f55010808276c`, plus this truth update |
+| Last connector-verified base head | `fc7052f95dcdad73a6476c375cb79156ece1202a`, tree `d15a6a93391653eaea76454a3d671b2161697525` |
+| Local reviewed source head | `dbed09de7196096a2be73b315a3d3e3f3beb3eef`, tree `1293e90cd2fe4382720a0731683403f47b5a8d6d`, plus this truth update |
 | Branch / PR | `integration/acceptance-ci`; draft PR #28; connector-created update SHA intentionally not predicted |
 | Dependency lock | `pixi.lock`, SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc` |
 | External setting blocker | Issue #32: repository Dependency Graph is disabled |
@@ -27,11 +28,18 @@ is not a production release or clean-machine support claim.
 - Native `Std_CommandPalette` on Ctrl+K uses live command-owned actions,
   deterministic fuzzy/token ranking, recency, disabled-state enforcement,
   focus/keyboard/accessibility behavior, and single activation.
+- Native `Std_WorkspaceDesign` on Ctrl+Alt+D activates the real Part Design
+  workbench, persists only successful activation, follows external/Python
+  workbench changes, and fails closed when Part Design is absent or disabled.
 - Windows CI stages one Pixi-locked app-local Mesa renderer and verifies the
   loaded module path/hash, OpenGL context, lock provenance, and clean logs.
 - GUI exit handling is exception-neutral and first-code authoritative. The
   latest macOS candidate explicitly deletes the owned QMdiArea hierarchy while
   `MainWindow` and its private state are valid, before QMainWindow base teardown.
+- The optional 3Dconnexion navlib no longer loads from a global initializer
+  before `main`; a thread-safe function-local initialization loads it exactly
+  once on first real navlib API use, preserving normal loader errors while
+  keeping version-only execution independent of the optional framework.
 - Canonical `OpenFusion` / `OpenFusionCmd` entry points and compatibility names
   are installed. Headless version grammar preserves `-v`, `--version`, optional
   `--verbose`, the `--` terminator, Unicode positional arguments, and exact
@@ -59,6 +67,8 @@ Ninja 1.13.2, Python 3.11.14, Qt 6.8.3, locked Pixi environment.
 | GUI suite | 1,776 ran; zero failures; parser count 1,776; exact exit 0 and complete teardown; 426 s. |
 | Final MDI lifecycle | Six process scenarios, including 64 repeatedly maximized live subwindows, passed in 23.95 s with ordered owned-UI, MainWindow, application, Python-finalization, lock-cleanup and process markers. |
 | Headless identity | GUI and CLI report exact configured OpenFusion versions without loading QPA; option grammar regression passed. |
+| Design workspace | Linked `WorkspaceSelector_Tests_run` passed 1/1 in 0.17 s; real enabled/disabled/unregistered availability, activation, persistence, external synchronization, focus and accessibility are covered. |
+| Lazy navlib | `NavlibLazyLoad.ConcurrentFirstUseLoadsExactlyOnce` passed 1/1 in 21 ms from the linked `Gui_tests_run`; the C and C++ implementation compiled warning-clean in isolated review. |
 | Packaging / legal | Packaging 80/80, thumbnail source quarantine 19/19, material quarantine 24/24, dependency audit 30/30, live 32-identity guard, Actionlint/YAML/diff/secret checks passed. The reviewed policy exemption is exact-path and exact-SHA-bound. |
 
 ## Verified Linux development artifact
@@ -92,10 +102,29 @@ All baseline/TechDraw artifacts expire 2026-09-30.
 | Security `33384592150` | Restricted guards, locked audit and all CodeQL jobs passed. Dependency Review alone failed because Dependency Graph is disabled. Lock artifact `9755067638`, 170,355 B, SHA-256 `6b7356f037e5dbf451ccadee64f162ae02d2af59375cf6a7d8257ca5478e60ee`, expires 2026-09-14. | No other artifacts |
 | Packaging `33384592155` | **Success.** Policy suite 53/53. | None |
 
+## Superseded partial rerun at base head `fc7052f9`
+
+Security run `33401416385` passed restricted-asset quarantine, locked metadata,
+and CodeQL for C/C++, Python, and Actions. Dependency Review alone failed on
+the unchanged disabled-Dependency-Graph blocker; lock artifact `9761380724` is
+170,356 bytes with SHA-256
+`de5502957da3fa3749a3f7b63551e7a3af75e8d8371c34f7f9f2984834fb72e7`.
+
+macOS arm64 job `99518932720` built successfully and passed 1,430 of 1,431
+enabled CTests. The sole failure was `OpenFusion_GUI_HeadlessVersion`: the
+version-only process returned through the new parser but the eager global
+3Dconnexion initializer had already written a missing optional-framework error
+to stderr. The lifecycle test itself passed in 25.14 s. Baseline artifact
+`9764761228` is 592,504 bytes with SHA-256
+`3c8222855877bfdd5d9ef8f6e7ec4cb213043b9b24ff3376eb3c62fff1aeda8c`.
+The local lazy-load fix above addresses that exact failure; this partial run did
+not reach the full GUI teardown gate and is not a macOS pass.
+
 ## Active blockers
 
-1. Native macOS arm64/x86_64 must validate explicit owned-QMdiArea destruction
-   and complete teardown at the new head. No exit-code masking is acceptable.
+1. Native macOS arm64/x86_64 must validate headless version output, explicit
+   owned-QMdiArea destruction, and complete teardown at the new head. No stderr
+   suppression, skipped gate, or exit-code masking is acceptable.
 2. Repository owner must enable Dependency Graph and close issue #32 with a
    passing Dependency Review run.
 3. Issue #24's untrusted FCStd/XML/archive atomic-restore architecture remains
@@ -103,13 +132,14 @@ All baseline/TechDraw artifacts expire 2026-09-30.
 4. Production package trust requires reviewed SPKI/key custody, artifact
    signing/notarization, runtime dependency closure, final runtime SBOM,
    clean-machine install/workflow/uninstall, and downloaded-release verification.
-5. Workspace selector/context strip, Project presentation, graph-backed
-   timeline, consolidated settings and remaining product workflows are open.
+5. The Design workspace selector is implemented locally; native matrix proof,
+   context strip, Project presentation, graph-backed timeline, consolidated
+   settings and remaining product workflows are open.
 
 ## Resume sequence
 
-1. Commit this truth update and connector-fast-forward the local tree without
-   force; record exact resulting SHA/tree and fresh run IDs on PR #28.
+1. Re-fetch the connector-fast-forward created with this update; record its
+   exact resulting SHA/tree and fresh run IDs on PR #28.
 2. Keep the PR draft. Retrieve every native/log/artifact result; queued,
    cancelled, skipped, build-only or Linux-only evidence is not a pass.
 3. If macOS passes, advance to clean-machine runtime/package closure and the

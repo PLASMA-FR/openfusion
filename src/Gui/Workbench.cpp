@@ -749,7 +749,7 @@ MenuItem* StdWorkbench::setupMenuBar() const
           << "Separator" << visu << "Std_ToggleNavigation"
           << "Std_RandomColor"
           << "Std_ToggleTransparency"
-          << "Separator"
+          << "Separator" << "Std_WorkspaceDesign"
           << "Std_Workbench"
           << "Std_ToolBarMenu"
           << "Std_DockViewMenu";
@@ -1019,7 +1019,7 @@ MenuItem* NoneWorkbench::setupMenuBar() const
     // View
     auto view = new MenuItem(menuBar);
     view->setCommand("&View");
-    *view << "Std_Workbench";
+    *view << "Std_WorkspaceDesign" << "Std_Workbench";
 
     // Separator
     auto sep = new MenuItem(menuBar);

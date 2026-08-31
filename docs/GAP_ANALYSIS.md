@@ -1,5 +1,18 @@
 # OpenFusion Gap Analysis
 
+## Current milestone update (2026-08-31)
+
+The Design workspace selector is implemented and its linked Qt gate passes
+locally, including disabled/unregistered fail-closed behavior and external
+workbench synchronization. The current macOS arm64 rerun passed 1,430 of 1,431
+enabled CTests; its sole failure exposed eager pre-`main` loading of an optional
+3Dconnexion framework during version-only startup. The reviewed lazy-load fix
+passes its linked exactly-once regression but still requires native arm64 and
+x86_64 proof together with the owned-MDI teardown gate. Production packaging,
+clean-machine runtime closure, signing/notarization and Dependency Graph remain
+open and are not implied by the development archive.
+
+
 **Baseline under evaluation:** FreeCAD 1.1.3, commit `145529fe741292ff0b3977a01195bf0247425794`
 
 **Assessment date:** 2026-08-31
