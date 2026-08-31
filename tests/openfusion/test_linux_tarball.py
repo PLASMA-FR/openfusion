@@ -795,6 +795,12 @@ class PurePolicyTests(SignedIdentityMixin, unittest.TestCase):
         self.assertIn("          command -v zstd\n", workflow)
         self.assertIn("          command -v openssl\n", workflow)
         self.assertIn("  clean-container-runtime:\n", workflow)
+        self.assertEqual(
+            2,
+            workflow.count(
+                "ref: ${{ github.event.pull_request.head.sha || github.sha }}"
+            ),
+        )
         self.assertIn("pixi run cmake --build build/release", workflow)
         self.assertIn("packaging/linux/runtime_closure.py bundle", workflow)
         self.assertIn("create_deterministic_tarball.py create-identity", workflow)
