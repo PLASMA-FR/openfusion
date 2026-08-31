@@ -44,6 +44,7 @@
 #include <QStyleFactory>
 
 #include <QLoggingCategory>
+#include <cstdlib>
 #include <fmt/format.h>
 #include <list>
 #include <ranges>
@@ -2482,6 +2483,21 @@ void reportEventLoopReturn(
     int selectedExitCode
 ) noexcept
 {
+    // Detailed exit arbitration is retained only for internal/lifecycle diagnostics.
+    try {
+        const auto& config = App::Application::Config();
+        const auto runMode = config.find("RunMode");
+        const bool internalMode = runMode != config.end() && runMode->second == "Internal";
+        if (!internalMode && std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") == nullptr) {
+            return;
+        }
+    }
+    catch (...) {
+        if (std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") == nullptr) {
+            return;
+        }
+    }
+
     try {
         Base::Console().log(
             "GUI event loop return: raw=%d stored_present=%s stored_code=%ld selected=%d\n",

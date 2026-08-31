@@ -31,6 +31,7 @@
 # include <unistd.h>
 #endif
 
+#include <cstdlib>
 #include <mutex>
 #include <sstream>
 #include <QAbstractSpinBox>
@@ -155,6 +156,20 @@ void reportSystemExitFailure(const char* reason) noexcept
     }
 }
 
+bool systemExitDiagnosticsEnabledOnGuiThread() noexcept
+{
+    try {
+        const auto& config = App::Application::Config();
+        const auto runMode = config.find("RunMode");
+        if (runMode != config.end() && runMode->second == "Internal") {
+            return true;
+        }
+    }
+    catch (...) {
+    }
+    return std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") != nullptr;
+}
+
 std::string sanitizedDiagnosticValue(QString value)
 {
     constexpr int maximumLength = 512;
@@ -197,6 +212,12 @@ void reportSystemExitRequest(
     bool directDispatch
 ) noexcept
 {
+    // This function is called only from the GUI thread. Keep detailed state out of ordinary
+    // application logs and never inspect mutable application configuration from a worker thread.
+    if (!systemExitDiagnosticsEnabledOnGuiThread()) {
+        return;
+    }
+
     try {
         const auto& config = App::Application::Config();
         const auto runModeEntry = config.find("RunMode");
@@ -204,7 +225,7 @@ void reportSystemExitRequest(
                                                                  : runModeEntry->second;
 
         std::string activeTest;
-        if (directDispatch && runMode == "Internal") {
+        if (runMode == "Internal") {
             activeTest = sanitizedDiagnosticValue(
                 application->property("OpenFusionActiveGuiUnitTest").toString()
             );
@@ -267,7 +288,6 @@ bool GUIApplication::requestSystemExit(std::exception_ptr exception) noexcept
     }
 
     const bool directDispatch = QThread::currentThread() == thread();
-    reportSystemExitRequest(this, requestedCode, authoritativeCode, firstRequest, directDispatch);
 
     const auto applyExit = [this]() noexcept -> bool {
         long exitCode = 0;
@@ -291,13 +311,16 @@ bool GUIApplication::requestSystemExit(std::exception_ptr exception) noexcept
     };
 
     if (directDispatch) {
+        reportSystemExitRequest(this, requestedCode, authoritativeCode, firstRequest, true);
         return applyExit();
     }
 
     try {
-        const auto queuedExit = [applyExit]() noexcept {
-            (void)applyExit();
-        };
+        const auto queuedExit =
+            [this, applyExit, requestedCode, authoritativeCode, firstRequest]() noexcept {
+                reportSystemExitRequest(this, requestedCode, authoritativeCode, firstRequest, false);
+                (void)applyExit();
+            };
         if (!QMetaObject::invokeMethod(this, queuedExit, Qt::QueuedConnection)) {
             reportSystemExitFailure("could not queue the request on the GUI thread");
             return false;
