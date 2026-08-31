@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -162,7 +164,203 @@ class DiscoverQtPluginLayoutTest(unittest.TestCase):
                 runtime.discover_qt_plugin_layout(manifest)
 
 
+class StageSoftwareOpenGLTest(unittest.TestCase):
+    @staticmethod
+    def create_renderer(root: Path, payload: bytes = b"locked mesa renderer") -> Path:
+        renderer = root / "prefix" / "Library" / "bin" / "opengl32sw.dll"
+        renderer.parent.mkdir(parents=True)
+        renderer.write_bytes(payload)
+        return renderer
+
+    def test_stages_locked_renderer_under_native_dependency_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            renderer = self.create_renderer(root)
+            binary_directory = root / "build" / "bin"
+            binary_directory.mkdir(parents=True)
+
+            destination, digest = runtime.stage_software_opengl(
+                renderer, binary_directory
+            )
+
+            self.assertEqual(destination, (binary_directory / "opengl32.dll").resolve())
+            self.assertEqual(destination.read_bytes(), renderer.read_bytes())
+            self.assertEqual(digest, hashlib.sha256(renderer.read_bytes()).hexdigest())
+
+    def test_accepts_an_identical_already_staged_renderer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            renderer = self.create_renderer(root)
+            binary_directory = root / "build" / "bin"
+            binary_directory.mkdir(parents=True)
+            destination = binary_directory / "opengl32.dll"
+            destination.write_bytes(renderer.read_bytes())
+
+            staged, _ = runtime.stage_software_opengl(renderer, binary_directory)
+
+            self.assertEqual(staged, destination.resolve())
+
+    def test_rejects_a_different_existing_native_renderer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            renderer = self.create_renderer(root)
+            binary_directory = root / "build" / "bin"
+            binary_directory.mkdir(parents=True)
+            (binary_directory / "opengl32.dll").write_bytes(b"unexpected renderer")
+
+            with self.assertRaisesRegex(
+                runtime.RuntimeLayoutError, "Refusing to replace"
+            ):
+                runtime.stage_software_opengl(renderer, binary_directory)
+
+    def test_rejects_an_unexpected_source_basename(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            renderer = root / "untrusted.dll"
+            renderer.write_bytes(b"renderer")
+            binary_directory = root / "build" / "bin"
+            binary_directory.mkdir(parents=True)
+
+            with self.assertRaisesRegex(runtime.RuntimeLayoutError, "must be named"):
+                runtime.stage_software_opengl(renderer, binary_directory)
+
+    @staticmethod
+    def create_locked_renderer_environment(root: Path) -> tuple[Path, Path, str]:
+        prefix = root / "locked prefix"
+        renderer = StageSoftwareOpenGLTest.create_renderer(root)
+        renderer.relative_to(root / "prefix")
+        prefix.mkdir(parents=True)
+        target = prefix / "Library" / "bin" / "opengl32sw.dll"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(renderer.read_bytes())
+        package_url = (
+            "https://conda.anaconda.org/conda-forge/win-64/"
+            "qt6-main-6.8.3-test_0.conda"
+        )
+        metadata = prefix / "conda-meta" / "qt6-main-6.8.3-test_0.json"
+        metadata.parent.mkdir()
+        metadata.write_text(
+            json.dumps(
+                {
+                    "name": "qt6-main",
+                    "version": "6.8.3",
+                    "build": "test_0",
+                    "subdir": "win-64",
+                    "url": package_url,
+                    "files": ["Library/bin/opengl32sw.dll"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        lock = root / "pixi.lock"
+        lock.write_text(
+            "version: 6\npackages:\n"
+            f"- conda: {package_url}\n"
+            f"  sha256: {'a' * 64}\n",
+            encoding="utf-8",
+        )
+        return prefix, lock, package_url
+
+    def test_resolves_renderer_from_locked_active_conda_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            prefix, lock, package_url = self.create_locked_renderer_environment(root)
+
+            renderer, provenance = runtime.locked_conda_software_opengl(
+                {"CONDA_PREFIX": str(prefix)}, lock
+            )
+
+            self.assertEqual(
+                renderer, (prefix / "Library" / "bin" / "opengl32sw.dll").resolve()
+            )
+            self.assertIn("qt6-main-6.8.3-test_0", provenance)
+            self.assertIn(package_url, provenance)
+
+    def test_rejects_renderer_owner_missing_from_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            prefix, lock, _ = self.create_locked_renderer_environment(root)
+            lock.write_text("version: 6\npackages: []\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                runtime.RuntimeLayoutError, "not uniquely present"
+            ):
+                runtime.locked_conda_software_opengl(
+                    {"CONDA_PREFIX": str(prefix)}, lock
+                )
+
+    def test_rejects_renderer_owned_by_an_unexpected_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            prefix, lock, _ = self.create_locked_renderer_environment(root)
+            metadata = next((prefix / "conda-meta").glob("qt6-main-*.json"))
+            record = json.loads(metadata.read_text(encoding="utf-8"))
+            record["name"] = "untrusted-renderer"
+            metadata.write_text(json.dumps(record), encoding="utf-8")
+
+            with self.assertRaisesRegex(runtime.RuntimeLayoutError, "not owned"):
+                runtime.locked_conda_software_opengl(
+                    {"CONDA_PREFIX": str(prefix)}, lock
+                )
+
+    def test_rejects_duplicate_renderer_ownership(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            prefix, lock, _ = self.create_locked_renderer_environment(root)
+            metadata = next((prefix / "conda-meta").glob("qt6-main-*.json"))
+            duplicate = prefix / "conda-meta" / "duplicate.json"
+            duplicate.write_bytes(metadata.read_bytes())
+
+            with self.assertRaisesRegex(runtime.RuntimeLayoutError, "exactly one"):
+                runtime.locked_conda_software_opengl(
+                    {"CONDA_PREFIX": str(prefix)}, lock
+                )
+
+    def test_rejects_renderer_resolving_outside_active_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            prefix, lock, _ = self.create_locked_renderer_environment(root)
+            renderer = prefix / "Library" / "bin" / "opengl32sw.dll"
+            outside = root / "outside-opengl32sw.dll"
+            outside.write_bytes(renderer.read_bytes())
+            renderer.unlink()
+            try:
+                renderer.symlink_to(outside)
+            except OSError as error:
+                self.skipTest(f"Symlink creation is unavailable: {error}")
+
+            with self.assertRaisesRegex(
+                runtime.RuntimeLayoutError, "outside CONDA_PREFIX"
+            ):
+                runtime.locked_conda_software_opengl(
+                    {"CONDA_PREFIX": str(prefix)}, lock
+                )
+
+    def test_rejects_missing_conda_prefix(self) -> None:
+        with self.assertRaisesRegex(runtime.RuntimeLayoutError, "CONDA_PREFIX"):
+            runtime.locked_conda_software_opengl({}, Path("pixi.lock"))
+
+
 class WriteRuntimePathsTest(unittest.TestCase):
+    def test_exports_one_renderer_backend_and_retained_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            renderer = root / "opengl32.dll"
+            renderer.write_bytes(b"renderer")
+            environment = root / "github-env.txt"
+
+            runtime.write_software_opengl_environment(
+                renderer,
+                "a" * 64,
+                "qt6-main-6.8.3-test_0 package_sha256=" + "b" * 64,
+                environment,
+            )
+
+            assignments = environment.read_text(encoding="utf-8").splitlines()
+            self.assertIn("QT_OPENGL=desktop", assignments)
+            self.assertIn(f"OPENFUSION_STAGED_OPENGL_PATH={renderer}", assignments)
+            self.assertIn("OPENFUSION_STAGED_OPENGL_SHA256=" + "a" * 64, assignments)
+
     def test_appends_github_path_and_writes_deterministic_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -241,6 +439,58 @@ class WindowsWorkflowRuntimeTest(unittest.TestCase):
             "build/release/tests/windows-native-test-qt-plugin-paths.txt",
             helper_step,
         )
+        self.assertIn("--stage-software-opengl", helper_step)
+        self.assertIn("--lock-file pixi.lock", helper_step)
+
+        graphics_validator = ".github/scripts/validate_gui_graphics_log.py"
+        self.assertEqual(workflow.count(graphics_validator), 4)
+        self.assertIn("OpenFusionWindowsOpenGLAcceptance", workflow)
+
+        for step_name, exit_marker in (
+            (
+                "- name: Verify loaded Windows software OpenGL runtime",
+                "if ($runtimeExitCode -ne 0)",
+            ),
+            (
+                "- name: Validate TechDraw GUI SVG and PDF export",
+                "if ($techDrawExitCode -ne 0)",
+            ),
+            (
+                "- name: Inventory and run native FreeCAD GUI baseline",
+                "if ($inventoryExitCode -ne 0)",
+            ),
+            (
+                "- name: Inventory and run native FreeCAD GUI baseline",
+                "if ($testExitCode -ne 0)",
+            ),
+        ):
+            with self.subTest(step=step_name, exit_marker=exit_marker):
+                step_position = workflow.index(step_name, helper_position)
+                exit_position = workflow.index(exit_marker, step_position)
+                validator_position = workflow.rfind(
+                    graphics_validator, step_position, exit_position
+                )
+                self.assertGreater(validator_position, step_position)
+
+        for copy_marker, exit_marker in (
+            (
+                "logs/freecadgui-inventory-application.log",
+                "if ($inventoryExitCode -ne 0)",
+            ),
+            (
+                "logs/freecadgui-application.log",
+                "if ($testExitCode -ne 0)",
+            ),
+        ):
+            with self.subTest(copy=copy_marker, exit_marker=exit_marker):
+                step_position = workflow.index(
+                    "- name: Inventory and run native FreeCAD GUI baseline",
+                    helper_position,
+                )
+                self.assertLess(
+                    workflow.index(copy_marker, step_position),
+                    workflow.index(exit_marker, step_position),
+                )
 
         for later_step in (
             "- name: Validate TechDraw GUI SVG and PDF export",

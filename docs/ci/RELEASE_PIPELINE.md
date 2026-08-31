@@ -57,7 +57,22 @@ above and must be confirmed by completed run logs.
 | `windows.yml` | Reusable call, manual development run | Build, optionally sign, install-test, and uninstall-test Windows package | `contents: read` |
 | `macos.yml` | Reusable call, manual development run | Build, optionally sign/notarize, mount-test Intel and Apple Silicon DMGs | `contents: read` |
 | `release.yml` | Protected SemVer tag, manual recovery dispatch | Coordinate platform workflows, attest, create draft, upload, publish | Per-job grants |
-| `security.yml` | Pull requests, merge groups, protected branches, schedule | Initial dependency review plus Actions, C/C++, and Python CodeQL analysis | Read plus `security-events: write` only where needed |
+| `security.yml` | Pull requests, merge groups, protected branches, schedule | Recursive tracked-source quarantine, Pixi lock schema/source-policy audit, dependency review, plus Actions, C/C++, and Python CodeQL analysis | Read plus `security-events: write` only where needed |
+
+GitHub Dependency Review requires the repository Dependency Graph. The job is
+intentionally fail-closed while that external setting is disabled; neither
+CodeQL nor the Pixi lock audit substitutes for graph comparison. Dependency
+Review runs for pull requests and merge groups using explicit event base/head
+SHAs. Push and scheduled runs skip it because those events lack that pair.
+
+The independent lock audit validates canonical source URLs, package schema,
+environment references, unique asserted SHA-256 fields, and PyPI wheel/sdist
+filename identity, including Conda-subdirectory and wheel-tag platform
+association. It does not download dependency archives or hash their bytes; its
+digests remain lock-metadata assertions disclosed in the SPDX output. That
+deterministic SPDX inventory describes the multi-platform development lock and
+does not satisfy the final per-package release SBOM gate. CI syntax-checks its
+JSON; a hash-pinned semantic SPDX validator remains required for release use.
 
 The release dependency order is:
 

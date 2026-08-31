@@ -13,6 +13,12 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 - OpenFusion release artifacts: not produced.
 - Production readiness: **not achieved**.
 - Supported-platform claims: none until clean-machine package tests pass.
+- Material-pattern quarantine: 32 restricted inherited assets are removed
+  from source and build manifests with a CI reintroduction guard; original
+  cleared presets and final artifact verification remain pending.
+- Windows thumbnail quarantine: the inherited prebuilt COM server and all
+  installer actions are removed under a CI guard; an independently reviewed
+  OpenFusion-identity provider is deferred.
 
 ### Verified M0 execution snapshot (2026-08-30)
 
@@ -83,14 +89,14 @@ hidden-mode diagnostic is not counted as evidence.
 
 ## M1 — Integrated Design workspace vertical slice
 
-**Status:** Source integration paths researched; implementation is gated on a passing baseline
+**Status:** In progress; native command palette implemented, workspace/context shell pending
 **Purpose:** Prove a real workspace presentation layer without replacing modeling logic or creating a mock interface.
 
 ### Scope
 
 - A workspace selector backed by real FreeCAD workbench activation.
 - A selection-driven contextual action strip backed by real commands.
-- A fuzzy command palette for live commands and registered workspaces.
+- A fuzzy command palette for live commands is implemented; workspace entries follow the selector slice.
 - The existing `ComboView`/`TreeWidget` retained as the functional Project browser.
 - Design as the first fully registered workspace; other built-in mappings appear only when their backing workbench exists.
 - No timeline control in this milestone. It remains absent until M2 provides graph-backed behavior.

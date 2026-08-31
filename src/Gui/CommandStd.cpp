@@ -39,6 +39,7 @@
 #include "Action.h"
 #include "BitmapFactory.h"
 #include "Command.h"
+#include "CommandPalette.h"
 #include "Dialogs/DlgAbout.h"
 #include "Dialogs/DlgCustomizeImp.h"
 #include "Dialogs/DlgParameterImp.h"
@@ -474,6 +475,34 @@ void StdCmdDlgCustomize::activated(int iMsg)
     }
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
+}
+
+//===========================================================================
+// Std_CommandPalette
+//===========================================================================
+DEF_STD_CMD(StdCmdCommandPalette)
+
+StdCmdCommandPalette::StdCmdCommandPalette()
+    : Command("Std_CommandPalette")
+{
+    sGroup = "Tools";
+    sMenuText = QT_TR_NOOP("Command &Palette...");
+    sToolTipText = QT_TR_NOOP("Searches and runs application commands");
+    sWhatsThis = "Std_CommandPalette";
+    sStatusTip = sToolTipText;
+    sPixmap = CommandPaletteIconName;
+    sAccel = "Ctrl+K";
+    eType = 0;
+}
+
+void StdCmdCommandPalette::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    static QPointer<CommandPalette> palette;
+    if (!palette) {
+        palette = new CommandPalette(getMainWindow());
+    }
+    palette->showPalette();
 }
 
 //===========================================================================
@@ -978,6 +1007,7 @@ void CreateStdCommands()
     rcCmdMgr.addCommand(new StdCmdDlgParameter());
     rcCmdMgr.addCommand(new StdCmdDlgPreferences());
     rcCmdMgr.addCommand(new StdCmdDlgCustomize());
+    rcCmdMgr.addCommand(new StdCmdCommandPalette());
     rcCmdMgr.addCommand(new StdCmdCommandLine());
     rcCmdMgr.addCommand(new StdCmdWorkbench());
     rcCmdMgr.addCommand(new StdCmdRecentFiles());

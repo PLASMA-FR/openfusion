@@ -690,7 +690,8 @@ MenuItem* StdWorkbench::setupMenuBar() const
     // Edit
     auto edit = new MenuItem(menuBar);
     edit->setCommand("&Edit");
-    *edit << "Std_Undo" << "Std_Redo" << "Separator" << "Std_Cut" << "Std_Copy"
+    *edit << "Std_Undo" << "Std_Redo" << "Separator" << "Std_CommandPalette" << "Separator"
+          << "Std_Cut" << "Std_Copy"
           << "Std_Paste" << "Std_DuplicateSelection" << "Separator"
           << "Std_Refresh" << "Std_BoxSelection" << "Std_BoxElementSelection"
           << "Std_SelectAll" << "Std_Delete" << "Std_SendToPythonConsole"
@@ -1013,7 +1014,7 @@ MenuItem* NoneWorkbench::setupMenuBar() const
     // Edit
     auto edit = new MenuItem(menuBar);
     edit->setCommand("&Edit");
-    *edit << "Std_DlgPreferences";
+    *edit << "Std_CommandPalette" << "Separator" << "Std_DlgPreferences";
 
     // View
     auto view = new MenuItem(menuBar);

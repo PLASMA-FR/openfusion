@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""Register build-tree runtime and Qt plugin paths for Windows tests.
+"""Prepare the build-tree runtime and Qt graphics stack for Windows tests.
 
 FreeCAD module libraries are deliberately emitted below ``build/Mod`` while
 the GoogleTest executables live in ``build/bin``.  Windows does not search
@@ -8,16 +8,24 @@ sibling module directories when it resolves a test executable's imports.  In
 GitHub Actions, this helper discovers the actual build layout and appends its
 runtime directories to ``GITHUB_PATH`` for all subsequent test steps.  It also
 validates the qmake-derived CTest Qt plugin manifest and exports the exact
-plugin directories through ``GITHUB_ENV``.
+plugin directories through ``GITHUB_ENV``.  GPU-less CI runners additionally
+need Qt's locked Mesa renderer staged as app-local ``opengl32.dll`` so Qt,
+Coin, and FreeCAD's native OpenGL calls all resolve through one implementation.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 from pathlib import Path
+import re
+import shutil
 import sys
 from typing import Sequence
+
+import yaml
 
 
 DYNAMIC_LIBRARY_SUFFIXES = frozenset({".dll", ".pyd"})
@@ -27,6 +35,16 @@ QT_PLATFORM_PLUGIN_BASENAME_GROUPS = (
 )
 QT_PLUGIN_PATH_VARIABLE = "QT_PLUGIN_PATH"
 QT_PLATFORM_PLUGIN_PATH_VARIABLE = "QT_QPA_PLATFORM_PLUGIN_PATH"
+SOFTWARE_OPENGL_BASENAME = "opengl32sw.dll"
+DESKTOP_OPENGL_BASENAME = "opengl32.dll"
+SOFTWARE_OPENGL_RELATIVE_PATH = Path("Library") / "bin" / SOFTWARE_OPENGL_BASENAME
+SOFTWARE_OPENGL_PACKAGE = "qt6-main"
+QT_OPENGL_VARIABLE = "QT_OPENGL"
+QT_OPENGL_DESKTOP_BACKEND = "desktop"
+STAGED_OPENGL_PATH_VARIABLE = "OPENFUSION_STAGED_OPENGL_PATH"
+STAGED_OPENGL_SHA256_VARIABLE = "OPENFUSION_STAGED_OPENGL_SHA256"
+STAGED_OPENGL_PACKAGE_VARIABLE = "OPENFUSION_STAGED_OPENGL_PACKAGE"
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
 class RuntimeLayoutError(RuntimeError):
@@ -110,6 +128,163 @@ def _resolved_file(path: Path, description: str) -> Path:
     if not resolved.is_file():
         raise RuntimeLayoutError(f"Expected {description} to be a file: {path}")
     return resolved
+
+
+def _sha256(path: Path, description: str) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as error:
+        raise RuntimeLayoutError(f"Cannot hash {description}: {path}") from error
+    return digest.hexdigest()
+
+
+def _normalized_conda_path(path: str) -> str:
+    return path.replace("\\", "/").lstrip("./").casefold()
+
+
+def locked_conda_software_opengl(
+    environment: dict[str, str], lock_file: Path
+) -> tuple[Path, str]:
+    """Return the renderer and package provenance from the locked active environment."""
+
+    prefix = environment.get("CONDA_PREFIX", "")
+    if not prefix:
+        raise RuntimeLayoutError(
+            "CONDA_PREFIX is required to locate the locked software OpenGL renderer"
+        )
+    prefix_path = _resolved_directory(Path(prefix), "active Conda prefix")
+    source = _resolved_file(
+        prefix_path / SOFTWARE_OPENGL_RELATIVE_PATH,
+        "software OpenGL renderer",
+    )
+    try:
+        source.relative_to(prefix_path)
+    except ValueError as error:
+        raise RuntimeLayoutError(
+            f"Software OpenGL renderer resolves outside CONDA_PREFIX: {source}"
+        ) from error
+
+    metadata_directory = _resolved_directory(
+        prefix_path / "conda-meta", "Conda package metadata directory"
+    )
+    expected_file = _normalized_conda_path(SOFTWARE_OPENGL_RELATIVE_PATH.as_posix())
+    owners: list[dict[str, object]] = []
+    try:
+        metadata_files = sorted(metadata_directory.glob("*.json"))
+        for metadata_file in metadata_files:
+            record = json.loads(metadata_file.read_text(encoding="utf-8"))
+            files = record.get("files", [])
+            if isinstance(files, list) and any(
+                isinstance(item, str) and _normalized_conda_path(item) == expected_file
+                for item in files
+            ):
+                owners.append(record)
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise RuntimeLayoutError(
+            "Cannot inspect Conda package ownership metadata"
+        ) from error
+    if len(owners) != 1:
+        raise RuntimeLayoutError(
+            "Expected exactly one Conda package to own "
+            f"{SOFTWARE_OPENGL_RELATIVE_PATH.as_posix()}, found {len(owners)}"
+        )
+
+    owner = owners[0]
+    name = owner.get("name")
+    version = owner.get("version")
+    build = owner.get("build")
+    subdir = owner.get("subdir")
+    package_url = owner.get("url")
+    if (
+        name != SOFTWARE_OPENGL_PACKAGE
+        or not isinstance(version, str)
+        or not version
+        or not isinstance(build, str)
+        or not build
+        or subdir != "win-64"
+        or not isinstance(package_url, str)
+        or not package_url
+    ):
+        raise RuntimeLayoutError(
+            "Software OpenGL renderer is not owned by a complete win-64 "
+            f"{SOFTWARE_OPENGL_PACKAGE} package record"
+        )
+
+    lock_file = _resolved_file(lock_file, "Pixi lock file")
+    try:
+        lock = yaml.safe_load(lock_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError) as error:
+        raise RuntimeLayoutError(f"Cannot parse Pixi lock file: {lock_file}") from error
+    packages = lock.get("packages") if isinstance(lock, dict) else None
+    if not isinstance(packages, list):
+        raise RuntimeLayoutError("Pixi lock file does not contain a packages list")
+    locked_records = [
+        package
+        for package in packages
+        if isinstance(package, dict) and package.get("conda") == package_url
+    ]
+    if len(locked_records) != 1:
+        raise RuntimeLayoutError(
+            "Conda renderer owner URL is not uniquely present in the Pixi lock: "
+            f"{package_url}"
+        )
+    package_sha256 = str(locked_records[0].get("sha256", "")).casefold()
+    if SHA256_PATTERN.fullmatch(package_sha256) is None:
+        raise RuntimeLayoutError("Locked renderer package has no valid SHA-256 digest")
+
+    provenance = (
+        f"{name}-{version}-{build} package_sha256={package_sha256} url={package_url}"
+    )
+    return source, provenance
+
+
+def stage_software_opengl(source: Path, binary_directory: Path) -> tuple[Path, str]:
+    """Stage Qt's Mesa renderer under the native OpenGL dependency basename."""
+
+    source = _resolved_file(source, "software OpenGL renderer")
+    if source.name.casefold() != SOFTWARE_OPENGL_BASENAME:
+        raise RuntimeLayoutError(
+            "Software OpenGL renderer must be named "
+            f"{SOFTWARE_OPENGL_BASENAME}: {source}"
+        )
+    binary_directory = _resolved_directory(binary_directory, "binary directory")
+    destination = binary_directory / DESKTOP_OPENGL_BASENAME
+    source_digest = _sha256(source, "software OpenGL renderer")
+
+    if destination.exists():
+        destination = _resolved_file(destination, "staged OpenGL renderer")
+        if _sha256(destination, "staged OpenGL renderer") != source_digest:
+            raise RuntimeLayoutError(
+                "Refusing to replace a different app-local OpenGL renderer: "
+                f"{destination}"
+            )
+        return destination, source_digest
+
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    try:
+        shutil.copyfile(source, temporary)
+        os.replace(temporary, destination)
+    except OSError as error:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise RuntimeLayoutError(
+            f"Cannot stage software OpenGL renderer at {destination}"
+        ) from error
+
+    if _sha256(destination, "staged OpenGL renderer") != source_digest:
+        try:
+            destination.unlink()
+        except OSError:
+            pass
+        raise RuntimeLayoutError(
+            f"Staged software OpenGL renderer failed verification: {destination}"
+        )
+    return destination, source_digest
 
 
 def discover_qt_plugin_layout(manifest: Path) -> tuple[Path, Path]:
@@ -227,6 +402,31 @@ def write_qt_plugin_environment(
             command_file.write(f"{name}={value}\n")
 
 
+def write_software_opengl_environment(
+    renderer: Path,
+    digest: str,
+    provenance: str,
+    github_environment: Path,
+) -> None:
+    """Force Qt through the staged app-local renderer and retain exact evidence."""
+
+    assignments = (
+        (QT_OPENGL_VARIABLE, QT_OPENGL_DESKTOP_BACKEND),
+        (
+            STAGED_OPENGL_PATH_VARIABLE,
+            _safe_command_file_line(renderer, "Staged OpenGL renderer"),
+        ),
+        (STAGED_OPENGL_SHA256_VARIABLE, digest),
+        (STAGED_OPENGL_PACKAGE_VARIABLE, provenance),
+    )
+    github_environment.parent.mkdir(parents=True, exist_ok=True)
+    with github_environment.open("a", encoding="utf-8", newline="\n") as command_file:
+        for name, value in assignments:
+            if "\n" in value or "\r" in value:
+                raise RuntimeLayoutError(f"{name} contains a newline")
+            command_file.write(f"{name}={value}\n")
+
+
 def parse_arguments(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, required=True)
@@ -244,6 +444,15 @@ def parse_arguments(arguments: Sequence[str] | None = None) -> argparse.Namespac
     )
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--qt-plugin-manifest", type=Path, required=True)
+    parser.add_argument("--lock-file", type=Path)
+    parser.add_argument(
+        "--stage-software-opengl",
+        action="store_true",
+        help=(
+            "Stage the active locked environment's opengl32sw.dll as the "
+            "app-local opengl32.dll used by GPU-less Windows runners"
+        ),
+    )
     parser.add_argument(
         "--require-artifact",
         action="append",
@@ -266,10 +475,29 @@ def main(arguments: Sequence[str] | None = None) -> int:
         plugin_directory, platform_directory = discover_qt_plugin_layout(
             options.qt_plugin_manifest
         )
+        staged_renderer = None
+        renderer_provenance = None
+        if options.stage_software_opengl:
+            if options.lock_file is None:
+                raise RuntimeLayoutError(
+                    "--lock-file is required with --stage-software-opengl"
+                )
+            renderer_source, renderer_provenance = locked_conda_software_opengl(
+                dict(os.environ), options.lock_file
+            )
+            staged_renderer = stage_software_opengl(renderer_source, directories[0])
         write_runtime_paths(directories, options.github_path, options.manifest)
         write_qt_plugin_environment(
             plugin_directory, platform_directory, options.github_env
         )
+        if staged_renderer is not None and renderer_provenance is not None:
+            renderer, digest = staged_renderer
+            write_software_opengl_environment(
+                renderer,
+                digest,
+                renderer_provenance,
+                options.github_env,
+            )
     except RuntimeLayoutError as error:
         print(f"Windows test runtime setup failed: {error}", file=sys.stderr)
         return 1
@@ -282,6 +510,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
         print(f"  {directory}")
     print(f"Registered {QT_PLUGIN_PATH_VARIABLE}={plugin_directory}")
     print(f"Registered {QT_PLATFORM_PLUGIN_PATH_VARIABLE}={platform_directory}")
+    if staged_renderer is not None:
+        renderer, digest = staged_renderer
+        print(f"Staged software OpenGL renderer={renderer} sha256={digest}")
+        print(f"Locked software OpenGL package={renderer_provenance}")
+        print(f"Registered {QT_OPENGL_VARIABLE}={QT_OPENGL_DESKTOP_BACKEND}")
     return 0
 
 

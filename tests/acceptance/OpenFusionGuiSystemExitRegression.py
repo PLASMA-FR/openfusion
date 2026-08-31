@@ -17,6 +17,7 @@ POSITIONAL_MODE = "positional"
 DIAGNOSTIC_MODE = "diagnostic"
 INTERNAL_MODE = "internal"
 INTERNAL_SUCCESS_MODE = "internal-success"
+INTERNAL_MDI_TEARDOWN_MODE = "internal-mdi-teardown"
 INTERNAL_SYSTEM_EXIT_MODE = "internal-system-exit"
 POSITIONAL_EXIT_CODE = 7
 INTERNAL_EXIT_CODE = 1
@@ -200,6 +201,11 @@ def _run_scenario(
             test_case = "OpenFusionGuiRunnerFailure.ControlledRunnerFailure"
         elif scenario == INTERNAL_SYSTEM_EXIT_MODE:
             test_case = "OpenFusionGuiRunnerFailure.ControlledRunnerSystemExit"
+        elif scenario == INTERNAL_MDI_TEARDOWN_MODE:
+            test_case = (
+                "OpenFusionGuiIntentionalSuccess.IntentionalMdiTeardown."
+                "test_mdi_children_shutdown_cleanly"
+            )
         elif scenario == INTERNAL_SUCCESS_MODE:
             test_case = (
                 "OpenFusionGuiIntentionalSuccess.IntentionalInternalSuccess."
@@ -396,6 +402,14 @@ def _run_driver() -> int:
             INTERNAL_SUCCESS_EXIT_CODE,
         )
     )
+    failures.extend(
+        _run_scenario(
+            freecad,
+            state_dir,
+            INTERNAL_MDI_TEARDOWN_MODE,
+            INTERNAL_SUCCESS_EXIT_CODE,
+        )
+    )
     failures.extend(_run_scenario(freecad, state_dir, INTERNAL_MODE, INTERNAL_EXIT_CODE))
     failures.extend(
         _run_scenario(
@@ -420,8 +434,8 @@ def _run_driver() -> int:
 
     print(
         "FreeCAD GUI preserved positional SystemExit(7), internal test success exit 0, "
-        "internal test failure exit 1, internal SystemExit(23), controlled non-SystemExit "
-        "diagnostics, and completed lock/interpreter cleanup"
+        "live-MDI teardown exit 0, internal test failure exit 1, internal SystemExit(23), "
+        "controlled non-SystemExit diagnostics, and completed lock/interpreter cleanup"
     )
     return 0
 

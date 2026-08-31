@@ -377,6 +377,8 @@ jobs:
             --github-env "$env:GITHUB_ENV" `
             --manifest logs/windows-test-runtime-paths.txt `
             --qt-plugin-manifest build/release/tests/windows-native-test-qt-plugin-paths.txt `
+            --lock-file pixi.lock `
+            --stage-software-opengl `
             --require-artifact Materials.pyd `
             2>&1 | Tee-Object -FilePath logs/windows-test-runtime-setup.log
           if ($LASTEXITCODE -ne 0) {
@@ -426,6 +428,49 @@ jobs:
             2>&1 | Tee-Object -FilePath logs/ctest.log
           if ($LASTEXITCODE -ne 0) { throw "CTest baseline failed." }
 
+      - name: Verify loaded Windows software OpenGL runtime
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = "Stop"
+          $outputDir = Join-Path $PWD "build/release/Testing/OpenFusionAcceptance"
+          $profileDir = Join-Path $env:RUNNER_TEMP `
+            "openfusion-opengl-runtime-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $applicationLog = Join-Path $outputDir "FreeCADGui-windows-opengl.log"
+          $stdoutLog = Join-Path $PWD "logs/windows-opengl-runtime.log"
+          $report = Join-Path $outputDir "WindowsOpenGLRuntime.json"
+          $binary = Join-Path $PWD "build/release/bin/FreeCAD.exe"
+          New-Item -ItemType Directory -Force $outputDir, $profileDir | Out-Null
+
+          $env:OPENFUSION_ACCEPTANCE_OUTPUT_DIR = $outputDir
+          $env:QT_QPA_PLATFORM = "windows"
+          pixi run $binary `
+            --safe-mode `
+            --user-cfg (Join-Path $profileDir "user.cfg") `
+            --system-cfg (Join-Path $profileDir "system.cfg") `
+            --log-file $applicationLog `
+            --python-path (Join-Path $PWD "tests/acceptance") `
+            --run-test OpenFusionWindowsOpenGLAcceptance `
+            2>&1 | Tee-Object -FilePath $stdoutLog
+          $runtimeExitCode = $LASTEXITCODE
+
+          $graphicsExitCode = $null
+          if (Test-Path -LiteralPath $applicationLog -PathType Leaf) {
+            pixi run python .github/scripts/validate_gui_graphics_log.py `
+              $applicationLog `
+              --label "Windows OpenGL runtime"
+            $graphicsExitCode = $LASTEXITCODE
+          }
+          if ($runtimeExitCode -ne 0) {
+            throw "Windows OpenGL runtime acceptance failed with exit code $runtimeExitCode."
+          }
+          if ($null -eq $graphicsExitCode -or $graphicsExitCode -ne 0) {
+            throw "Windows OpenGL runtime graphics validation failed or had no log."
+          }
+          if (-not (Test-Path -LiteralPath $report -PathType Leaf) -or
+              (Get-Item -LiteralPath $report).Length -eq 0) {
+            throw "Windows OpenGL runtime evidence was missing or empty."
+          }
+
       - name: Validate TechDraw GUI SVG and PDF export
         timeout-minutes: 10
         run: |
@@ -453,8 +498,14 @@ jobs:
             "--run-test", "OpenFusionTechDrawGuiExportAcceptance"
           )
           pixi run $binary @arguments 2>&1 | Tee-Object -FilePath $stdoutLog
-          if ($LASTEXITCODE -ne 0) {
-            throw "TechDraw GUI export acceptance failed with exit code $LASTEXITCODE."
+          $techDrawExitCode = $LASTEXITCODE
+
+          $graphicsExitCode = $null
+          if (Test-Path -LiteralPath $applicationLog -PathType Leaf) {
+            pixi run python .github/scripts/validate_gui_graphics_log.py `
+              $applicationLog `
+              --label "TechDraw GUI export"
+            $graphicsExitCode = $LASTEXITCODE
           }
 
           $requiredFiles = @(
@@ -462,13 +513,23 @@ jobs:
             (Join-Path $outputDir "TechDrawGuiExport/OpenFusionTechDraw-full-page.svg"),
             (Join-Path $outputDir "TechDrawGuiExport/OpenFusionTechDraw-full-page.pdf")
           )
+          $missingFiles = @()
           foreach ($path in $requiredFiles) {
             if (
               -not (Test-Path -LiteralPath $path -PathType Leaf) -or
               (Get-Item -LiteralPath $path).Length -eq 0
             ) {
-              throw "Missing or empty TechDraw GUI export artifact: $path"
+              $missingFiles += $path
             }
+          }
+          if ($techDrawExitCode -ne 0) {
+            throw "TechDraw GUI export acceptance failed with exit code $techDrawExitCode."
+          }
+          if ($null -eq $graphicsExitCode -or $graphicsExitCode -ne 0) {
+            throw "TechDraw GUI export graphics validation failed or had no log."
+          }
+          if ($missingFiles.Count -ne 0) {
+            throw "Missing or empty TechDraw GUI export artifacts: $($missingFiles -join ', ')"
           }
 
           pixi run python .github/scripts/validate_unittest_summary.py `
@@ -618,15 +679,26 @@ jobs:
             -t `
             2>&1 | Tee-Object -FilePath logs/freecadgui-inventory.log
           $inventoryExitCode = $LASTEXITCODE
+
+          $inventoryGraphicsExitCode = $null
+          if (Test-Path -LiteralPath $inventoryApplicationLog -PathType Leaf) {
+            pixi run python .github/scripts/validate_gui_graphics_log.py `
+              $inventoryApplicationLog `
+              --label "FreeCAD GUI inventory"
+            $inventoryGraphicsExitCode = $LASTEXITCODE
+            Copy-Item -LiteralPath $inventoryApplicationLog `
+              logs/freecadgui-inventory-application.log
+          }
+          if ($inventoryExitCode -ne 0) { throw "FreeCAD GUI test inventory failed." }
           if (
             -not (Test-Path -LiteralPath $inventoryApplicationLog -PathType Leaf) -or
             (Get-Item -LiteralPath $inventoryApplicationLog).Length -eq 0
           ) {
             throw "FreeCAD GUI inventory did not produce a nonempty application log."
           }
-          Copy-Item -LiteralPath $inventoryApplicationLog `
-            logs/freecadgui-inventory-application.log
-          if ($inventoryExitCode -ne 0) { throw "FreeCAD GUI test inventory failed." }
+          if ($null -eq $inventoryGraphicsExitCode -or $inventoryGraphicsExitCode -ne 0) {
+            throw "FreeCAD GUI inventory graphics validation failed or had no log."
+          }
           $inventory = Get-Content -Raw logs/freecadgui-inventory.log
           if ($inventory -notmatch '(?m)^Registered test units:[ \t]*\r?$') {
             throw "FreeCAD GUI inventory did not report registered test units."
@@ -670,15 +742,25 @@ jobs:
             -t 0 `
             2>&1 | Tee-Object -FilePath logs/freecadgui-tests.log
           $testExitCode = $LASTEXITCODE
+
+          $graphicsExitCode = $null
+          if (Test-Path -LiteralPath $applicationLog -PathType Leaf) {
+            pixi run python .github/scripts/validate_gui_graphics_log.py `
+              $applicationLog `
+              --label "FreeCAD GUI"
+            $graphicsExitCode = $LASTEXITCODE
+            Copy-Item -LiteralPath $applicationLog logs/freecadgui-application.log
+          }
+          if ($testExitCode -ne 0) { throw "FreeCAD GUI test baseline failed." }
           if (
             -not (Test-Path -LiteralPath $applicationLog -PathType Leaf) -or
             (Get-Item -LiteralPath $applicationLog).Length -eq 0
           ) {
             throw "FreeCAD GUI tests did not produce a nonempty application log."
           }
-          Copy-Item -LiteralPath $applicationLog logs/freecadgui-application.log
-          if ($testExitCode -ne 0) { throw "FreeCAD GUI test baseline failed." }
-
+          if ($null -eq $graphicsExitCode -or $graphicsExitCode -ne 0) {
+            throw "FreeCAD GUI graphics validation failed or had no log."
+          }
           pixi run python .github/scripts/validate_unittest_summary.py `
             logs/freecadgui-tests.log `
             --count-file logs/freecadgui-test-count.txt `

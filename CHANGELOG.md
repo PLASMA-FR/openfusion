@@ -12,6 +12,12 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 
 ### Added
 
+- Added native `Std_CommandPalette` on Ctrl+K using live command-owned actions,
+  deterministic fuzzy/token search, recency, disabled-state enforcement,
+  focus/keyboard/accessibility behavior, and single-activation Qt regressions.
+- Added deterministic Linux `tar.zst` policy, locked-dependency metadata/SPDX
+  audit, recursive legal quarantine guards, and Windows loaded-renderer probe.
+
 - Pinned the foundation to FreeCAD 1.1.3 commit
   `145529fe741292ff0b3977a01195bf0247425794` with an upstream remote and
   provenance documentation.
@@ -25,6 +31,18 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 - Added CTest-registered acceptance workflows for constrained Part Design,
   Assembly, TechDraw, persistence, history editing, and STEP/STL round trips.
 
+### Removed
+
+- Removed and quarantined 32 inherited material-pattern assets for which
+  downstream redistribution permission has not been established, and added a
+  recursive source guard against path, blob, metadata, Git LFS pointer, and
+  recognized build/package-manifest reintroduction within checked root and
+  initialized-submodule Git indexes. Untracked files, Git LFS object storage,
+  source archives, and final package payload inspection remain pending.
+- Removed the inherited prebuilt Windows thumbnail COM server and all installer
+  copy, registration, and uninstall actions pending an independently reviewed
+  implementation with OpenFusion identity.
+
 ### Changed
 
 - Established OpenFusion as the project identity for new project
@@ -32,6 +50,15 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   APIs, and much of the inherited UI remain unchanged pending tested migration.
 
 ### Fixed
+
+- Implemented a candidate Windows GPU-less CI correction using one Pixi-locked
+  app-local Mesa renderer for Qt, Coin, and native OpenGL, with provenance,
+  path/hash/context evidence and fail-closed graphics-log validation. Native
+  Windows validation remains pending.
+- Implemented a candidate macOS post-suite teardown correction by disconnecting
+  MDI activation before `MainWindow` derived state destruction; lifecycle now
+  retains six live MDI children and completes exact cleanup locally. Native
+  arm64 and x86_64 validation remains pending.
 
 - Implemented TechDraw's declared explicit-line-number `LineFormat`
   constructor and isolated its QColor unit tests from the uninitialized

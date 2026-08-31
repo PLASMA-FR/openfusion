@@ -1,6 +1,28 @@
 # Testing OpenFusion
 
-## Verified local integration evidence (2026-08-30)
+## Current combined candidate evidence (2026-08-31)
+
+On Ubuntu 24.04 arm64 with the locked Pixi environment, Clang 21.1.0,
+CMake 4.2.1, Python 3.11.14, and Qt 6.8.3:
+
+| Gate | Result |
+|---|---|
+| Release build | Reconfigured and completed the combined warm graph; new linked targets passed. |
+| Full CTest | 1,436 registered; 1,430 enabled; zero failures; three skipped; six disabled; four acceptance tests; 107.99 s. |
+| Command palette | Linked Qt test 1/1 in 0.12 s; duplicate activation and missing-icon regressions covered. |
+| Lifecycle | Six process scenarios passed, including six retained live MDI children; exact exit and teardown; 24.41 s in focused run. |
+| CLI | 1,674 tests; 10 skipped; zero failures; parser count 1,674; 157.861 s. |
+| GUI | 1,776 tests; zero failures; parser count 1,776; exit 0 and complete teardown; 439 s. |
+| TechDraw GUI | 1/1 in 2.62 s; SVG 13,163 bytes; PDF 297,380 bytes. |
+| Windows helper/graphics | 31/31. |
+| Packaging / legal / dependency | 53/53; material 22/22; thumbnail 18/18; dependency 30/30; live guard and deterministic real-lock audit passed. |
+
+These are local source/build-tree results, not clean-installed package evidence or
+native Windows/macOS proof. The exact reviewed code head before this truth
+update is `860670be4362f97a3efdc8d390a9e891a6b2b9c2`, tree
+`d2020553a3c02416bb1659e0ea03643ad026e624`.
+
+## Historical verified local integration evidence (2026-08-30)
 
 The tables below record completed local logs only. They do not replace remote
 PR checks or clean-installed package tests.
