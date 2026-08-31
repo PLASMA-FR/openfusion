@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import unittest
 
+from PySide import QtCore
+from qtunittest import _ACTIVE_TEST_PROPERTY
+
 from OpenFusionGuiSystemExitRegression import (
     DIAGNOSTIC_MESSAGE,
     DIAGNOSTIC_MODE,
@@ -31,8 +34,10 @@ class ControlledRunnerSystemExit(unittest.TestCase):
         )
 
     def run(self, result: unittest.TestResult | None = None) -> unittest.TestResult:
-        if result is not None:
-            result.startTest(self)
+        application = QtCore.QCoreApplication.instance()
+        if application is None:
+            raise RuntimeError("Controlled SystemExit test has no QCoreApplication")
+        application.setProperty(_ACTIVE_TEST_PROPERTY, str(self))
         observe_gui_runtime(INTERNAL_SYSTEM_EXIT_MODE)
         raise SystemExit(INTERNAL_SYSTEM_EXIT_CODE)
 
