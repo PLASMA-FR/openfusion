@@ -865,29 +865,29 @@ jobs:
           }
 
           $pythonProbe = @'
-import _ssl
-import os
-from pathlib import Path
-import ssl
-import sys
-from PySide6 import QtCore, QtWidgets
-root = Path(os.environ["OPENFUSION_PORTABLE_ROOT"]).resolve()
-for value, label in ((sys.executable, "python"), (_ssl.__file__, "_ssl"), (QtCore.__file__, "QtCore")):
-    resolved = Path(value).resolve()
-    if not resolved.is_relative_to(root):
-        raise RuntimeError(f"{label} escaped package: {resolved}")
-if Path(os.environ["OPENSSL_CONF"]).resolve() != root / "ssl" / "openssl.cnf":
-    raise RuntimeError("OpenSSL configuration is not package-relative")
-ssl.create_default_context()
-application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-widget = QtWidgets.QWidget()
-widget.show()
-application.processEvents()
-if root / "plugins" not in [Path(value).resolve() for value in QtCore.QCoreApplication.libraryPaths()]:
-    raise RuntimeError("Qt did not load the package-relative plugin root")
-widget.close()
-print(f"python={sys.version.split()[0]} openssl={ssl.OPENSSL_VERSION} qt={QtCore.qVersion()}")
-'@
+          import _ssl
+          import os
+          from pathlib import Path
+          import ssl
+          import sys
+          from PySide6 import QtCore, QtWidgets
+          root = Path(os.environ["OPENFUSION_PORTABLE_ROOT"]).resolve()
+          for value, label in ((sys.executable, "python"), (_ssl.__file__, "_ssl"), (QtCore.__file__, "QtCore")):
+              resolved = Path(value).resolve()
+              if not resolved.is_relative_to(root):
+                  raise RuntimeError(f"{label} escaped package: {resolved}")
+          if Path(os.environ["OPENSSL_CONF"]).resolve() != root / "ssl" / "openssl.cnf":
+              raise RuntimeError("OpenSSL configuration is not package-relative")
+          ssl.create_default_context()
+          application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+          widget = QtWidgets.QWidget()
+          widget.show()
+          application.processEvents()
+          if root / "plugins" not in [Path(value).resolve() for value in QtCore.QCoreApplication.libraryPaths()]:
+              raise RuntimeError("Qt did not load the package-relative plugin root")
+          widget.close()
+          print(f"python={sys.version.split()[0]} openssl={ssl.OPENSSL_VERSION} qt={QtCore.qVersion()}")
+          '@
           $pythonProbePath = Join-Path $extractRoot "portable-runtime-probe.py"
           $pythonProbe | Set-Content -LiteralPath $pythonProbePath -Encoding utf8
           $env:QT_QPA_PLATFORM = "offscreen"
