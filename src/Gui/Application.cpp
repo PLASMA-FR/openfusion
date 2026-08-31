@@ -2604,6 +2604,15 @@ int Application::runApplicationImpl(bool rethrowSystemExit)
     int argc = App::Application::GetARGC();
     GUISingleApplication mainApp(argc, App::Application::GetARGV());
 
+    // Internal GUI tests start from a delayed callback and terminate explicitly with their
+    // result.  A platform plugin may close the last transient startup window before that callback
+    // runs (notably the Windows plugin after the OpenGL probe), which would otherwise make Qt
+    // leave the event loop with a false success.  Keep the loop alive until the runner requests
+    // its authoritative exit code.  MainWindow::closeEvent() still quits explicitly for --run-open.
+    if (App::Application::Config()["RunMode"] == "Internal") {
+        mainApp.setQuitOnLastWindowClosed(false);
+    }
+
 #if (COIN_MAJOR_VERSION * 100 + COIN_MINOR_VERSION * 10 + COIN_MICRO_VERSION < 406) \
     && (defined(FC_OS_LINUX) || defined(FC_OS_BSD))
     // If QT is running with native Wayland then inform Coin to use EGL

@@ -65,19 +65,15 @@ def _validate_windows_qt_plugin_environment() -> list[str]:
     }
     for platform in ("windows", "offscreen"):
         prefix = f"q{platform}"
-        if not any(
-            name.startswith(prefix) and name.endswith(".dll")
-            for name in available_plugins
-        ):
-            failures.append(
-                f"Qt {platform} platform plugin is missing from {platform_directory}"
-            )
+        if not any(name.startswith(prefix) and name.endswith(".dll") for name in available_plugins):
+            failures.append(f"Qt {platform} platform plugin is missing from {platform_directory}")
     return failures
 
 
 def observe_gui_runtime(scenario: str) -> None:
     import FreeCAD
     import FreeCADGui
+    from PySide import QtWidgets
 
     state_dir = Path(os.environ[STATE_DIR_ENV])
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -91,8 +87,15 @@ def observe_gui_runtime(scenario: str) -> None:
 
     event_loop_active = bool(FreeCADGui.getMainWindow().property("eventLoop"))
     if not event_loop_active:
+        raise RuntimeError("GUI SystemExit regression did not run inside the Qt event loop")
+
+    quit_on_last_window_closed = QtWidgets.QApplication.quitOnLastWindowClosed()
+    expected_automatic_quit = scenario == POSITIONAL_MODE
+    if quit_on_last_window_closed != expected_automatic_quit:
         raise RuntimeError(
-            "GUI SystemExit regression did not run inside the Qt event loop"
+            "GUI lifecycle used the wrong automatic last-window exit policy: "
+            f"scenario={scenario!r}, expected={expected_automatic_quit}, "
+            f"actual={quit_on_last_window_closed}"
         )
 
     executable_name = FreeCAD.ConfigGet("ExeName")
@@ -114,6 +117,7 @@ def observe_gui_runtime(scenario: str) -> None:
         "executable_name": executable_name,
         "lock_path": str(lock_candidates[0]),
         "pid": os.getpid(),
+        "quit_on_last_window_closed": quit_on_last_window_closed,
         "scenario": scenario,
     }
     observation_path = state_dir / "observation.json"
@@ -250,16 +254,17 @@ def _run_scenario(
         if observation.get("scenario") != scenario:
             failures.append(f"{scenario}: callback recorded the wrong scenario")
         if observation.get("event_loop_active") is not True:
+            failures.append(f"{scenario}: callback did not observe the active event loop")
+        expected_automatic_quit = scenario == POSITIONAL_MODE
+        if observation.get("quit_on_last_window_closed") is not expected_automatic_quit:
             failures.append(
-                f"{scenario}: callback did not observe the active event loop"
+                f"{scenario}: callback observed the wrong automatic last-window exit policy"
             )
 
         observed_cache = Path(str(observation.get("cache_dir", "")))
         observed_lock = Path(str(observation.get("lock_path", "")))
         if not observed_cache.is_dir():
-            failures.append(
-                f"{scenario}: persistent cache directory was removed: {observed_cache}"
-            )
+            failures.append(f"{scenario}: persistent cache directory was removed: {observed_cache}")
         if observed_lock.exists():
             failures.append(
                 f"{scenario}: GUI process lock remained after shutdown: {observed_lock}"
@@ -271,22 +276,16 @@ def _run_scenario(
     if not application_log.is_file():
         failures.append(f"{scenario}: FreeCAD did not write its application log")
     else:
-        application_output = application_log.read_text(
-            encoding="utf-8", errors="replace"
-        )
+        application_output = application_log.read_text(encoding="utf-8", errors="replace")
         if "Finish: Event loop left" not in application_output:
             failures.append(f"{scenario}: event loop did not return normally")
         if " terminating..." not in application_output:
             failures.append(f"{scenario}: normal teardown did not start")
         if scenario == DIAGNOSTIC_MODE:
             if DIAGNOSTIC_MESSAGE not in application_output:
-                failures.append(
-                    f"{scenario}: application log omitted the controlled failure"
-                )
+                failures.append(f"{scenario}: application log omitted the controlled failure")
             if DIAGNOSTIC_LOG_PREFIX not in application_output:
-                failures.append(
-                    f"{scenario}: Release log omitted the ordinary callback diagnostic"
-                )
+                failures.append(f"{scenario}: Release log omitted the ordinary callback diagnostic")
 
     if scenario == DIAGNOSTIC_MODE:
         if "Traceback (most recent call last):" not in console_output:
@@ -333,9 +332,7 @@ def _run_driver() -> int:
             INTERNAL_SUCCESS_EXIT_CODE,
         )
     )
-    failures.extend(
-        _run_scenario(freecad, state_dir, INTERNAL_MODE, INTERNAL_EXIT_CODE)
-    )
+    failures.extend(_run_scenario(freecad, state_dir, INTERNAL_MODE, INTERNAL_EXIT_CODE))
     failures.extend(
         _run_scenario(
             freecad,
