@@ -361,7 +361,7 @@ jobs:
           ) | Set-Content -Encoding ascii `
             logs/ctest-native-runtime-summary.txt
 
-      - name: Register native test runtime directories
+      - name: Register native test runtime and Qt plugin directories
         timeout-minutes: 5
         run: |
           $ErrorActionPreference = "Stop"
@@ -374,7 +374,9 @@ jobs:
           pixi run python .github/scripts/prepare_windows_test_runtime.py `
             --build-dir build/release `
             --github-path "$env:GITHUB_PATH" `
+            --github-env "$env:GITHUB_ENV" `
             --manifest logs/windows-test-runtime-paths.txt `
+            --qt-plugin-manifest build/release/tests/windows-native-test-qt-plugin-paths.txt `
             --require-artifact Materials.pyd `
             2>&1 | Tee-Object -FilePath logs/windows-test-runtime-setup.log
           if ($LASTEXITCODE -ne 0) {
