@@ -1701,11 +1701,23 @@ void handleDelayedStartupException(std::exception_ptr exception) noexcept
         Base::Console().error("Unknown exception in delayed startup callback\n");
     }
     catch (const Base::Exception& error) {
+        const bool wasAlreadyReported = error.getReported();
+        const bool isPythonException = dynamic_cast<const Base::PyException*>(&error) != nullptr;
         try {
             error.reportException();
         }
         catch (...) {
             Base::Console().error("Base exception in delayed startup callback: %s\n", error.what());
+        }
+        if (wasAlreadyReported || isPythonException) {
+            // PyException::throwException() reports through the developer-only channel before
+            // propagating, while other interpreter entry points throw an unreported PyException.
+            // Release builds can filter the developer channel in either case, so retain an
+            // ordinary error record for unattended startup and test failures.
+            Base::Console().error(
+                "Exception diagnostic in delayed startup callback: %s\n",
+                error.what()
+            );
         }
     }
     catch (const std::exception& error) {
@@ -1726,13 +1738,16 @@ void MainWindow::delayedStartup()
         QTimer::singleShot(1000, this, [] {
             try {
                 string command = "import sys\n"
+                                 "import GuiTestRunner\n"
                                  "import FreeCAD\n"
                                  "import QtUnitGui\n\n"
                                  "testCase = FreeCAD.ConfigGet(\"TestCase\")\n"
                                  "QtUnitGui.addTest(testCase)\n"
                                  "QtUnitGui.setTest(testCase)\n"
-                                 "result = QtUnitGui.runTest()\n"
-                                 "sys.stdout.flush()\n";
+                                 "result = GuiTestRunner.run_test_with_diagnostics(\n"
+                                 "    QtUnitGui.runTest,\n"
+                                 "    fallback=FreeCAD.Console.PrintError,\n"
+                                 ")\n";
                 if (App::Application::Config()["ExitTests"] == "yes") {
                     command += "sys.exit(0 if result else 1)";
                 }

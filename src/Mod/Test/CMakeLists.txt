@@ -5,6 +5,8 @@ SET(Test_SRCS
     BaseTests.py
     Document.py
     GuiDocument.py
+    GuiTestRunner.py
+    GuiTestRunnerTests.py
     Metadata.py
     StringHasher.py
     Menu.py

@@ -14,11 +14,15 @@ import sys
 
 
 POSITIONAL_MODE = "positional"
+DIAGNOSTIC_MODE = "diagnostic"
 INTERNAL_MODE = "internal"
 INTERNAL_SUCCESS_MODE = "internal-success"
 POSITIONAL_EXIT_CODE = 7
 INTERNAL_EXIT_CODE = 1
 INTERNAL_SUCCESS_EXIT_CODE = 0
+DIAGNOSTIC_EXIT_CODE = 1
+DIAGNOSTIC_MESSAGE = "OpenFusion controlled non-SystemExit callback failure"
+DIAGNOSTIC_LOG_PREFIX = "Exception diagnostic in delayed startup callback"
 CHILD_MODE_ENV = "OPENFUSION_GUI_SYSTEM_EXIT_CHILD"
 STATE_DIR_ENV = "OPENFUSION_GUI_SYSTEM_EXIT_STATE_DIR"
 QT_PLUGIN_PATH_ENV = "QT_PLUGIN_PATH"
@@ -125,6 +129,18 @@ def _run_positional_child() -> None:
     raise SystemExit(POSITIONAL_EXIT_CODE)
 
 
+def _run_diagnostic_child() -> None:
+    observe_gui_runtime(DIAGNOSTIC_MODE)
+
+    import FreeCAD
+    from GuiTestRunner import run_test_with_diagnostics
+
+    def fail() -> None:
+        raise RuntimeError(DIAGNOSTIC_MESSAGE)
+
+    run_test_with_diagnostics(fail, fallback=FreeCAD.Console.PrintError)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--freecad", required=True, type=Path)
@@ -176,7 +192,7 @@ def _run_scenario(
         "--log-file",
         str(application_log),
     ]
-    if scenario == POSITIONAL_MODE:
+    if scenario in (POSITIONAL_MODE, DIAGNOSTIC_MODE):
         command.append(str(Path(__file__).resolve()))
     else:
         test_case = (
@@ -265,6 +281,25 @@ def _run_scenario(
             failures.append(f"{scenario}: event loop did not return normally")
         if " terminating..." not in application_output:
             failures.append(f"{scenario}: normal teardown did not start")
+        if scenario == DIAGNOSTIC_MODE:
+            if DIAGNOSTIC_MESSAGE not in application_output:
+                failures.append(
+                    f"{scenario}: application log omitted the controlled failure"
+                )
+            if DIAGNOSTIC_LOG_PREFIX not in application_output:
+                failures.append(
+                    f"{scenario}: Release log omitted the ordinary callback diagnostic"
+                )
+
+    if scenario == DIAGNOSTIC_MODE:
+        if "Traceback (most recent call last):" not in console_output:
+            failures.append(f"{scenario}: console omitted the Python traceback")
+        if "in fail" not in console_output:
+            failures.append(f"{scenario}: traceback omitted the failing frame")
+        if "raise RuntimeError(DIAGNOSTIC_MESSAGE)" not in console_output:
+            failures.append(f"{scenario}: traceback omitted the failing source line")
+        if DIAGNOSTIC_MESSAGE not in console_output:
+            failures.append(f"{scenario}: console omitted the controlled failure")
 
     if " completely terminated" not in console_output:
         failures.append(f"{scenario}: normal teardown did not complete")
@@ -301,6 +336,14 @@ def _run_driver() -> int:
     failures.extend(
         _run_scenario(freecad, state_dir, INTERNAL_MODE, INTERNAL_EXIT_CODE)
     )
+    failures.extend(
+        _run_scenario(
+            freecad,
+            state_dir,
+            DIAGNOSTIC_MODE,
+            DIAGNOSTIC_EXIT_CODE,
+        )
+    )
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)
@@ -308,12 +351,15 @@ def _run_driver() -> int:
 
     print(
         "FreeCAD GUI preserved positional SystemExit(7), internal test success exit 0, "
-        "internal test failure exit 1, and completed lock/interpreter cleanup"
+        "internal test failure exit 1, controlled non-SystemExit diagnostics, and completed "
+        "lock/interpreter cleanup"
     )
     return 0
 
 
 if os.environ.get(CHILD_MODE_ENV) == POSITIONAL_MODE:
     _run_positional_child()
+elif os.environ.get(CHILD_MODE_ENV) == DIAGNOSTIC_MODE:
+    _run_diagnostic_child()
 elif __name__ == "__main__":
     raise SystemExit(_run_driver())
