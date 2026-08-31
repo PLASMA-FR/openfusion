@@ -25,6 +25,13 @@ INTERNAL_SYSTEM_EXIT_CODE = 23
 DIAGNOSTIC_EXIT_CODE = 1
 DIAGNOSTIC_MESSAGE = "OpenFusion controlled non-SystemExit callback failure"
 DIAGNOSTIC_LOG_PREFIX = "Exception diagnostic in delayed startup callback"
+SANITIZED_SYSTEM_EXIT_TEST_NAME = (
+    'active_test="ControlledRunnerSystemExit.test_not_reached'
+    "\\u0009\\u001b\\u0000\\u0085\\u2028\\u2029"
+    '\\"'
+    "\\\\"
+    '"'
+)
 CHILD_MODE_ENV = "OPENFUSION_GUI_SYSTEM_EXIT_CHILD"
 STATE_DIR_ENV = "OPENFUSION_GUI_SYSTEM_EXIT_STATE_DIR"
 QT_PLUGIN_PATH_ENV = "QT_PLUGIN_PATH"
@@ -281,6 +288,43 @@ def _run_scenario(
             failures.append(f"{scenario}: event loop did not return normally")
         if " terminating..." not in application_output:
             failures.append(f"{scenario}: normal teardown did not start")
+
+        if scenario == DIAGNOSTIC_MODE:
+            expected_event_loop_state = "GUI event loop return: raw=1 stored_present=no stored_code=0 selected=1"
+        else:
+            expected_event_loop_state = (
+                f"GUI event loop return: raw={expected_exit_code} stored_present=yes "
+                f"stored_code={expected_exit_code} selected={expected_exit_code}"
+            )
+        if expected_event_loop_state not in application_output:
+            failures.append(
+                f"{scenario}: event-loop exit-state diagnostic was missing or incorrect"
+            )
+
+        request_marker = "GUI SystemExit request:"
+        if scenario == DIAGNOSTIC_MODE:
+            if request_marker in application_output:
+                failures.append(
+                    f"{scenario}: non-SystemExit path unexpectedly recorded SystemExit"
+                )
+        else:
+            expected_request = (
+                f"requested={expected_exit_code} authoritative={expected_exit_code} "
+                "first=yes dispatch=direct"
+            )
+            if (
+                request_marker not in application_output
+                or expected_request not in application_output
+            ):
+                failures.append(
+                    f"{scenario}: SystemExit request diagnostic was missing or incorrect"
+                )
+            if scenario == INTERNAL_SYSTEM_EXIT_MODE and (
+                SANITIZED_SYSTEM_EXIT_TEST_NAME not in application_output
+            ):
+                failures.append(
+                    f"{scenario}: SystemExit diagnostic omitted the active internal test"
+                )
         if scenario == DIAGNOSTIC_MODE:
             if DIAGNOSTIC_MESSAGE not in application_output:
                 failures.append(f"{scenario}: application log omitted the controlled failure")
@@ -302,6 +346,18 @@ def _run_scenario(
 
     if " completely terminated" not in console_output:
         failures.append(f"{scenario}: normal teardown did not complete")
+
+    expected_lifecycle_stages = (
+        "run-returned",
+        "streams-restored",
+        "app-destruct-begin",
+        "app-destruct-complete",
+        "main-return",
+    )
+    for stage in expected_lifecycle_stages:
+        marker = f"OpenFusion lifecycle: stage={stage} exit_code={expected_exit_code}"
+        if marker not in console_output:
+            failures.append(f"{scenario}: missing main lifecycle stage {stage}")
 
     if failures and console_output:
         failures.append(f"{scenario}: FreeCAD output follows:\n{console_output}")

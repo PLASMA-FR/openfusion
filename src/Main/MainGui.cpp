@@ -36,6 +36,7 @@
 #include <Build/Version.h>  // For FCCopyrightYear
 
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <stdexcept>
 
@@ -59,6 +60,35 @@ const auto sBanner = fmt::format(
     "FreeCAD is free and open-source software licensed under the terms of LGPL2+ license.\n\n",
     FCCopyrightYear
 );
+
+namespace
+{
+bool mainLifecycleDiagnosticsEnabled() noexcept
+{
+    static const bool enabled = []() noexcept {
+        try {
+            const auto& config = App::Application::Config();
+            const auto runMode = config.find("RunMode");
+            if (runMode != config.end() && runMode->second == "Internal") {
+                return true;
+            }
+        }
+        catch (...) {
+        }
+        return std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") != nullptr;
+    }();
+    return enabled;
+}
+
+void reportMainLifecycleStage(const char* stage, int exitCode) noexcept
+{
+    if (!mainLifecycleDiagnosticsEnabled()) {
+        return;
+    }
+    std::fprintf(stderr, "OpenFusion lifecycle: stage=%s exit_code=%d\n", stage, exitCode);
+    std::fflush(stderr);
+}
+}  // namespace
 
 #if defined(_MSC_VER)
 void InitMiniDumpWriter(const std::string&);
@@ -340,36 +370,45 @@ int main(int argc, char** argv)
         }
     }
     catch (const Base::SystemExitException& e) {
+        reportMainLifecycleStage("run-caught-system-exit", static_cast<int>(e.getExitCode()));
         exit(e.getExitCode());
     }
     catch (const Base::Exception& e) {
         e.reportException();
+        reportMainLifecycleStage("run-caught-base-exception", 1);
         exit(1);
     }
     catch (const std::exception& e) {
         Base::Console().error("Application unexpectedly terminated: %s\n", e.what());
+        reportMainLifecycleStage("run-caught-std-exception", 1);
         exit(1);
     }
     catch (...) {
         Base::Console().error("Application unexpectedly terminated\n");
+        reportMainLifecycleStage("run-caught-unknown-exception", 1);
         exit(1);
     }
 
+    reportMainLifecycleStage("run-returned", applicationExitCode);
     std::cout.rdbuf(oldcout);
     std::clog.rdbuf(oldclog);
     std::cerr.rdbuf(oldcerr);
+    reportMainLifecycleStage("streams-restored", applicationExitCode);
 
     // Destruction phase ===========================================================
     const std::string executableName = App::Application::Config()["ExeName"];
     Base::Console().log("%s terminating...\n", executableName.c_str());
 
     // cleans up
+    reportMainLifecycleStage("app-destruct-begin", applicationExitCode);
     App::Application::destruct();
+    reportMainLifecycleStage("app-destruct-complete", applicationExitCode);
 
     // Application::destruct() detaches the console observers, including the file logger.
     // Use the restored standard stream for the final post-destruction marker.
     std::clog << executableName << " completely terminated" << std::endl;
 
+    reportMainLifecycleStage("main-return", applicationExitCode);
     return applicationExitCode;
 }
 

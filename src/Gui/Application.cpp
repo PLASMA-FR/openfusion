@@ -2475,6 +2475,26 @@ private:
     bool removeFile = false;
 };
 
+void reportEventLoopReturn(
+    int rawExitCode,
+    bool hasStoredExitCode,
+    long storedExitCode,
+    int selectedExitCode
+) noexcept
+{
+    try {
+        Base::Console().log(
+            "GUI event loop return: raw=%d stored_present=%s stored_code=%ld selected=%d\n",
+            rawExitCode,
+            hasStoredExitCode ? "yes" : "no",
+            storedExitCode,
+            selectedExitCode
+        );
+    }
+    catch (...) {
+    }
+}
+
 int tryRunEventLoop(GUISingleApplication& mainApp)
 {
     std::stringstream out;
@@ -2502,10 +2522,11 @@ int tryRunEventLoop(GUISingleApplication& mainApp)
             // captured exception as the authoritative source so another Qt exit request cannot
             // replace the Python exit code before the event loop stops.
             long caughtSystemExitCode = 0;
-            if (mainApp.getCaughtSystemExitCode(caughtSystemExitCode)) {
-                return static_cast<int>(caughtSystemExitCode);
-            }
-            return exitCode;
+            const bool hasCaughtSystemExit = mainApp.getCaughtSystemExitCode(caughtSystemExitCode);
+            const int selectedExitCode = hasCaughtSystemExit ? static_cast<int>(caughtSystemExitCode)
+                                                             : exitCode;
+            reportEventLoopReturn(exitCode, hasCaughtSystemExit, caughtSystemExitCode, selectedExitCode);
+            return selectedExitCode;
         }
         else {
             Base::Console().error(

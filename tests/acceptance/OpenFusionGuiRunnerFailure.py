@@ -24,7 +24,15 @@ class ControlledRunnerFailure(unittest.TestCase):
 
 
 class ControlledRunnerSystemExit(unittest.TestCase):
+    def __str__(self) -> str:
+        return (
+            "ControlledRunnerSystemExit.test_not_reached"
+            '\t\x1b\x00\u0085\u2028\u2029"\\'
+        )
+
     def run(self, result: unittest.TestResult | None = None) -> unittest.TestResult:
+        if result is not None:
+            result.startTest(self)
         observe_gui_runtime(INTERNAL_SYSTEM_EXIT_MODE)
         raise SystemExit(INTERNAL_SYSTEM_EXIT_CODE)
 

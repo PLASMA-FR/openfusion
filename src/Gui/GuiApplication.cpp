@@ -107,7 +107,8 @@ void clearCaughtSystemExitState(const Gui::GUIApplication* application) noexcept
 bool recordCaughtSystemExitCode(
     Gui::GUIApplication* application,
     long requestedCode,
-    long& authoritativeCode
+    long& authoritativeCode,
+    bool& firstRequest
 ) noexcept
 {
     try {
@@ -119,6 +120,7 @@ bool recordCaughtSystemExitCode(
         if (!state.hasExitCode) {
             state.exitCode = requestedCode;
             state.hasExitCode = true;
+            firstRequest = true;
         }
         authoritativeCode = state.exitCode;
         return true;
@@ -148,6 +150,76 @@ void reportSystemExitFailure(const char* reason) noexcept
 {
     try {
         Base::Console().error("Failed to handle SystemExit: %s\n", reason);
+    }
+    catch (...) {
+    }
+}
+
+std::string sanitizedDiagnosticValue(QString value)
+{
+    constexpr int maximumLength = 512;
+    const bool truncated = value.size() > maximumLength;
+    if (truncated) {
+        value.truncate(maximumLength);
+    }
+
+    QString sanitized;
+    sanitized.reserve(value.size());
+    for (const QChar character : value) {
+        const auto category = character.category();
+        const bool isControl = category == QChar::Other_Control || category == QChar::Other_Format
+            || category == QChar::Other_Surrogate || category == QChar::Separator_Line
+            || category == QChar::Separator_Paragraph;
+        if (character == QLatin1Char('\\')) {
+            sanitized.append(QStringLiteral("\\\\"));
+        }
+        else if (character == QLatin1Char('"')) {
+            sanitized.append(QStringLiteral("\\\""));
+        }
+        else if (isControl) {
+            sanitized.append(QStringLiteral("\\u%1").arg(character.unicode(), 4, 16, QLatin1Char('0')));
+        }
+        else {
+            sanitized.append(character);
+        }
+    }
+    if (truncated) {
+        sanitized.append(QStringLiteral("..."));
+    }
+    return sanitized.toUtf8().toStdString();
+}
+
+void reportSystemExitRequest(
+    const Gui::GUIApplication* application,
+    long requestedCode,
+    long authoritativeCode,
+    bool firstRequest,
+    bool directDispatch
+) noexcept
+{
+    try {
+        const auto& config = App::Application::Config();
+        const auto runModeEntry = config.find("RunMode");
+        const std::string runMode = runModeEntry == config.end() ? std::string()
+                                                                 : runModeEntry->second;
+
+        std::string activeTest;
+        if (directDispatch && runMode == "Internal") {
+            activeTest = sanitizedDiagnosticValue(
+                application->property("OpenFusionActiveGuiUnitTest").toString()
+            );
+        }
+
+        Base::Console().log(
+            "GUI SystemExit request: requested=%ld authoritative=%ld first=%s dispatch=%s "
+            "run_mode=%s active_test=\"%s\"\n",
+            requestedCode,
+            authoritativeCode,
+            firstRequest ? "yes" : "no",
+            directDispatch ? "direct" : "queued",
+            runMode.c_str(),
+            activeTest.c_str()
+        );
     }
     catch (...) {
     }
@@ -188,10 +260,14 @@ bool GUIApplication::requestSystemExit(std::exception_ptr exception) noexcept
     }
 
     long authoritativeCode = requestedCode;
-    if (!recordCaughtSystemExitCode(this, requestedCode, authoritativeCode)) {
+    bool firstRequest = false;
+    if (!recordCaughtSystemExitCode(this, requestedCode, authoritativeCode, firstRequest)) {
         reportSystemExitFailure("could not record the requested exit code");
         return false;
     }
+
+    const bool directDispatch = QThread::currentThread() == thread();
+    reportSystemExitRequest(this, requestedCode, authoritativeCode, firstRequest, directDispatch);
 
     const auto applyExit = [this]() noexcept -> bool {
         long exitCode = 0;
@@ -214,7 +290,7 @@ bool GUIApplication::requestSystemExit(std::exception_ptr exception) noexcept
         return true;
     };
 
-    if (QThread::currentThread() == thread()) {
+    if (directDispatch) {
         return applyExit();
     }
 
