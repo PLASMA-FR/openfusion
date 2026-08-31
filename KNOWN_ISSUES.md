@@ -1,23 +1,28 @@
 # Known Issues
 
-## Current integration and release blockers (2026-08-30)
+## Current integration and release blockers (2026-08-31)
 
 | Area | Exact current state | Exit condition |
 |---|---|---|
-| Remote baseline | Draft PR #28's latest native evidence is mixed at `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`: Linux is fully green; macOS arm64 exits 1 after its application log reports 1,763 GUI tests and `OK`; Windows and macOS x86_64 remain active. SectionCut implementation `11abf724213c6309ecd32f5c14507c68e5bd43fd` is the published base and this documentation update accompanies it on integration, but no native rerun exists yet. | Re-fetch the resulting branch/PR head, record its exact state-update SHA/tree in the PR comment, preserve the active-run evidence, and retrieve every fresh matrix conclusion, log, and artifact. |
-| Windows | Run `33333139201` has configured and is still building. No native-output, discovery, CTest, CLI, or GUI result exists yet for the Qt plugin-path correction. | A real Windows Release runner completes every discovered native and GUI test without ad hoc DLL copying or timeout. |
-| macOS | arm64 passes build, 1,427 enabled CTests, TechDraw, and 1,661 CLI tests; its application log reports 1,763 GUI tests and `OK`, but the process exits 1 because the SectionCut regression hid its only source and accepted the wrong dock state. x86_64 remains active. | Both macOS jobs validate published SectionCut correction `11abf72` and complete the GUI gate with process exit 0 and no deferred exception. |
+| Remote baseline | At published head `8edc271bc0b39f942c26a28f6c797570edda3caa`, Linux is fully green; Windows fails one lifecycle CTest; both macOS jobs exit 1 after 1,763-test `OK` GUI logs without observed teardown. Combined diagnostic/propagation/Windows implementation through `1208166` accompanies this state update but has no native rerun. | Re-fetch the resulting branch/PR head, record its exact state-update SHA/tree in the PR comment, and retrieve every fresh matrix conclusion, log, and artifact. |
+| Windows | Build, plugin checks, discovery, QuantitySpinBox, and DlgVersionMigrator pass. CTest passes 1,428/1,429; Qt automatic last-window exit preempts internal callbacks, yielding return 0, no callback observation, and no Python finalization. Later gates are skipped. | A real Windows Release runner validates `1208166`, completes all 1,429 enabled CTests, and then passes TechDraw, CLI, and GUI. |
+| macOS | Both architectures pass build, 1,427 enabled CTests, TechDraw, and 1,661 CLI tests. Each application log reports 1,763 GUI tests and `OK`, but the process exits 1 without observed normal teardown. | Both macOS jobs validate `a56554c` and complete the GUI gate with process exit 0 and orderly teardown. |
 | Dependency Review | The last CodeQL jobs were green, but Dependency Review remains fail-closed because the repository Dependency Graph is disabled. CodeQL is not a substitute. | Enable the authorized repository setting and obtain a passing Dependency Review run; retain complementary locked-dependency and SBOM auditing. |
 | Security | Audit evidence found a symlink graph escape in PR #27, and the stale DTD-only hardening stack is insufficient for the complete untrusted FCStd/XML/archive threat model. Release-blocker issue #24 remains open. | Close the complete extraction, entity, path, temporary-file, and parser acceptance criteria with regression evidence. |
 | Legal and assets | Restricted material-pattern assets, inherited identity/provenance gaps, and a prebuilt Windows thumbnail DLL remain in the integration surface. | Remove or replace restricted/unverifiable material, establish provenance, rebuild permissible binaries from reviewed source, and complete shipped notices. |
 | Product | There are still no OpenFusion product classes under `src/`; the workspace shell, command palette, contextual actions, Project presentation, and functional timeline are not implemented. | Implement real, tested workflows in roadmap order; inherited FreeCAD capability and visible controls do not close these gaps. |
 | Packaging and release | Required clean-installed packages, checksums, SBOMs, signing/notarization evidence, release tag, and verified GitHub Release are absent. | Pass every package and release gate; unavailable credentials remain explicit pre-production blockers. |
 
-Linux is green at tested head `fa0f3b6`; published SectionCut implementation
-`11abf72` is green locally on Linux arm64, but local evidence is not a native
+Linux is green at published head `8edc271`; diagnostic/propagation implementation
+through `1208166` is green locally on Linux arm64, but local evidence is not a native
 platform pass or a production-readiness claim. If one platform remains externally blocked,
 work may continue elsewhere, but M0 cannot advance on failed or inferred
 evidence.
+
+Internal GUI unittest diagnostics retain full tracebacks in stderr or the
+application error log. These logs may disclose filesystem paths, exception text,
+and test-provided values; they must be handled as potentially sensitive. The
+wrapper rethrows the original failure and does not mask a nonzero result.
 
 **Status:** Foundation/pre-alpha
 

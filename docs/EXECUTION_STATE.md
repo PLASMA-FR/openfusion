@@ -1,13 +1,12 @@
 # OpenFusion Execution State
 
-**Last verified:** 2026-08-30 UTC
+**Last verified:** 2026-08-31 UTC
 **Production-ready:** No
 **Active milestone:** M0, reproducible upstream baseline
-**Next task:** Re-fetch the resulting integration branch and PR #28 head after
-this documentation update, record its exact state-update SHA/tree in the PR
-comment, and run/retrieve Linux, Windows, macOS arm64, macOS x86_64, and Security.
-Preserve the terminal results from the still-active `fa0f3b6` Windows and macOS
-x86_64 jobs when they complete.
+**Next task:** Re-fetch the resulting integration branch and PR #28 head, record
+its exact state-update SHA/tree in the PR comment, and run/retrieve Linux,
+Windows, macOS arm64, macOS x86_64, and Security. Do not predict the documentation
+commit SHA or infer a native pass from local Linux evidence.
 
 This file records resumable execution truth. A local pass is not a remote CI
 pass, an inherited FreeCAD feature is not an OpenFusion product feature, and a
@@ -18,9 +17,10 @@ built artifact is not a tested package.
 | Item | Verified value |
 |---|---|
 | FreeCAD foundation | 1.1.3, commit `145529fe741292ff0b3977a01195bf0247425794` |
-| Published SectionCut implementation | `11abf724213c6309ecd32f5c14507c68e5bd43fd`, tree `72cb369ca34bcdac7d7aa7fe73105a883997218a`; connector-created from locally tested `c120c0dd2e07b6eb38a2df43bbc5535a157fbba2` |
-| Integration state update | SectionCut implementation `11abf72` is the published base and this documentation update accompanies it on integration. This file does not predict its own commit SHA; the exact resulting head belongs in the verified PR comment after connector re-fetch |
-| Active integration PR | Draft PR #28, `integration/acceptance-ci`; latest terminal/active native evidence remains at `fa0f3b6`: Linux green, macOS arm64 GUI process exit 1 after a 1,763-test `OK` application log, Windows/macOS x86_64 still active. No native rerun exists yet for `11abf72` |
+| Published integration base | `8edc271bc0b39f942c26a28f6c797570edda3caa`, state tree `7d239dd15da5a1900e4d2be7a0a2180db5e75330` |
+| Connector-created lifecycle implementation | Diagnostics `d89b6cbd30e81ed9b5ab402ae1ec9bff6f334d16`, tree `9d812e59`; automated propagation `a56554cc451ad73440e2a4f70d4c8736e4f93d1c`, tree `c3838e96`; Windows internal-mode last-window handling `12081664bccfb342be1f50f3a3e6d0e91a23be22`, tree `8a477f3d` |
+| Integration state update | The verified implementation chain is the base accompanying this documentation update on integration. This file does not predict its own commit SHA; the exact resulting head belongs in the verified PR comment after connector re-fetch |
+| Active integration PR | Draft PR #28, `integration/acceptance-ci`; all `8edc271` runs are terminal: Linux green, Windows failed one lifecycle CTest, both macOS architectures exited 1 after 1,763-test `OK` application logs, and Security failed only on disabled Dependency Graph. No native rerun exists yet for `1208166` |
 | Dependency lock | `pixi.lock`, SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc` |
 
 ### Published platform work at the remote head
@@ -94,6 +94,43 @@ LIBGL_ALWAYS_SOFTWARE=1 QT_QPA_PLATFORM=xcb timeout 600s \
   --user-cfg <profile>/user.cfg --system-cfg <profile>/system.cfg \
   --log-file <log> -t TestPartGui.SectionCutTestCases.testOpenDialog
 ```
+
+### Internal GUI unittest diagnostics and automated exit propagation
+
+Connector-created commit `d89b6cbd30e81ed9b5ab402ae1ec9bff6f334d16`
+adds fail-closed diagnostics around the internal GUI unittest callback. Commit
+`a56554cc451ad73440e2a4f70d4c8736e4f93d1c` propagates the callback result through
+the existing orderly GUI exit path so nonzero results survive event-loop shutdown,
+Python finalization, lock cleanup, and application teardown. Windows commit
+`12081664bccfb342be1f50f3a3e6d0e91a23be22` disables Qt automatic
+quit-on-last-window only for internal unittest mode; otherwise Qt could exit the
+event loop before the queued callback ran. Explicit positional, successful,
+failing, diagnostic, and `SystemExit` exits remain authoritative.
+
+The diagnostic wrapper captures the original stdout/stderr objects, prints the
+full original exception traceback to stderr or the FreeCAD error-log fallback,
+flushes original and current streams, and rethrows the same exception. It never
+turns a failed callback into success, replaces the original exception with a
+flush error, masks a nonzero exit, or skips teardown. Full tracebacks can contain
+filesystem paths, exception messages, and test-supplied values; CI/application
+logs and retained artifacts containing these diagnostics must therefore be
+handled as potentially sensitive. The mechanism is scoped to the internal GUI
+unittest runner and is not a general crash-report upload channel.
+
+Local Linux arm64 evidence at the `13edad` implementation state: the warm
+affected rebuild completed all 93 effective Ninja edges (the initial graph
+reported 94 before MOC pruning); the immediate repeat build was clean/no-op
+except the existing version-file generator. The Windows runtime helper passed
+6/6. The lifecycle regression passed positional 7, internal success 0, internal
+failure 1, diagnostic failure 1, and internal `SystemExit(23)` with cleanup in
+19.64 seconds. CTest registered 1,433 tests and passed all 1,427 enabled tests in
+100.78 seconds, with three skipped, six disabled, and all four acceptance tests
+passing. The CLI suite ran 1,667 tests with 10 skipped and zero failures in
+149.782 seconds; the parser counted 1,667. The increase from historical native
+totals of 1,661 is exactly the six newly registered `GuiTestRunner` diagnostic
+tests. The faithful safe-mode GUI suite passed 1,769/1,769 with exit 0 in
+`4.2e+02s`. These are local results; native Windows and macOS reruns remain
+required.
 
 ### Exact combined-candidate commands
 
@@ -183,25 +220,25 @@ These Linux arm64 results supported publication of the preceding platform
 changes. They are not Windows or macOS evidence. An earlier hidden-mode
 diagnostic run was invalid and interrupted and remains excluded.
 
-## Latest GitHub Actions evidence at published head `fa0f3b6`
+## Terminal GitHub Actions evidence at published head `8edc271`
 
 All artifacts below expire on 2026-09-29.
 
 | Workflow run | Terminal result | Artifacts |
 |---|---|---|
-| Linux `33333139217` | **Passed.** Release build, 1,427/1,427 enabled CTests, TechDraw GUI export, 1,661 CLI tests, and the expanded 1,763-test GUI suite all passed. | Baseline `9739849026`, 6,879,588 bytes, SHA-256 `49a908d9394bb77be62d23beccffe66e5f87b67489d411011e8b04b3ceab3a2e`; TechDraw `9739761364`, 603,854 bytes, SHA-256 `9689e1cb5ffd7cb3d1da694ebab73fc9e239a39d5326b8b58954d1cf423d2c03` |
-| macOS arm64, run `33333139229` | **Failed at GUI process exit.** Build, 1,427 enabled CTests, TechDraw, and 1,661 CLI tests passed. The application log reported 1,763 GUI tests and `OK`, but the process exited 1. Triage traced the only new exception to the invalid SectionCut regression setup and its weak dock assertion. | Baseline `9739523215`, 6,870,210 bytes, SHA-256 `a88a0a51f8c260555a852c2d8e5a3c8e5aa6f5ea70dbf39442feb9b96a49cd94`; TechDraw `9739432731`, 597,323 bytes, SHA-256 `e8ff30a63b8b7bf41b8ba8d544107bfaa3fa154045952c4c315802081fd38307` |
-| macOS x86_64, run `33333139229` | **In progress.** Configure passed and the Release build is active. No later gate or artifact is claimed. | None yet |
-| Windows `33333139201` | **In progress.** Configure passed and the Release build is active. No native-output, discovery, CTest, CLI, GUI, or artifact result is claimed. | None yet |
-| Security `33333139224` | **Failed only at Dependency Review.** CodeQL actions, C/C++, and Python all passed. Dependency Review remained fail-closed because the repository Dependency Graph is disabled. | None |
+| Linux `33340018602` | **Passed.** Release build, 1,427/1,427 enabled CTests, TechDraw GUI export, 1,661 CLI tests, and 1,763 GUI tests all passed. | Baseline `9741262458`, 6,880,134 bytes, SHA-256 `e6c4ad5bf83716f0200e253571120e44ae74ca4a8ef208eab7ae13d70e7ea6ab`; TechDraw `9741185797`, 603,861 bytes, SHA-256 `6b5c08346cb1a4b1a68ab3cf45f2136262fb31aa101a7c860271437f80a21885` |
+| Windows `33340018502` | **Failed CTest.** The 6,758-edge build, native output/plugin checks, discovery, QuantitySpinBox, and DlgVersionMigrator passed. CTest passed 1,428/1,429 enabled tests; only `OpenFusion_GUI_SystemExit_Propagation` failed in 15.64 seconds. Qt automatic last-window exit preempted the queued internal callbacks, so the process returned 0 instead of required 1, wrote no callback observation, and did not finalize embedded Python. Later TechDraw/CLI/GUI gates were skipped. | Baseline `9742796772`, 748,854 bytes, SHA-256 `58ca56f820e68ef481a2ddb230d2d5751e00edc9a4acc31c47d872c91102abd7` |
+| macOS arm64, run `33340018607` | **Failed at GUI process exit.** Build, 1,427/1,427 enabled CTests, TechDraw, and 1,661 CLI tests passed. The application log reported 1,763 GUI tests and `OK`, but a hidden internal callback exception left process exit 1 and normal teardown was not observed. | Baseline `9741680756`, 6,863,990 bytes, SHA-256 `f70c65d6244c2d8e5b0ccdbbbfc1621cc45cd8f34257eaeb5b145c40ccfecc58`; TechDraw `9741584722`, 594,367 bytes, SHA-256 `c920e32cf19c1b5f865276b02529bc221bdc4168511271882f2f1d41563e9a41` |
+| macOS x86_64, run `33340018607` | **Failed at GUI process exit.** Build, 1,427/1,427 enabled CTests, TechDraw, and 1,661 CLI tests passed. The application log reported 1,763 GUI tests and `OK`, but a hidden internal callback exception left process exit 1 and normal teardown was not observed. | Baseline `9742174311`, 6,868,634 bytes, SHA-256 `28f744541db04b29e88150531d52aa1f348860a20e7f9737d27145e08c750508`; TechDraw `9741984725`, 594,364 bytes, SHA-256 `0c0ed6552022ec9edeb1955ffd7956e4f46fce808b397e6e329a99d45160f26b` |
+| Security `33340018525` | **Failed only at Dependency Review.** CodeQL actions, C/C++, and Python all passed. Dependency Review remained fail-closed because the repository Dependency Graph is disabled. | None |
 
 ## Active blockers
 
 | Priority | Blocker | Current truth |
 |---|---|---|
-| P0 | Remote integration evidence | PR #28's latest native evidence is mixed at `fa0f3b6d3e9d8437db8a403a25d4bbfb2ba63720`: Linux is green; macOS arm64 exits 1 after a 1,763-test `OK` GUI log; Windows and macOS x86_64 are still active. SectionCut implementation `11abf72` is published and Linux-green, but its native rerun is pending. |
-| P0 | Windows native tests | Run `33333139201` is still building. The Qt platform-plugin correction has no completed native Windows evidence yet. |
-| P0 | macOS matrix | arm64 passes build, CTest, TechDraw, and CLI but exits 1 after the GUI application log reports 1,763 tests and `OK`; x86_64 is still building. The locally green SectionCut correction requires native reruns. |
+| P0 | Remote integration evidence | At `8edc271`, Linux is green; Windows fails only the internal lifecycle CTest; both macOS architectures exit 1 after 1,763-test `OK` GUI logs without observed teardown. Combined implementation through `1208166` is locally green but has no native rerun. |
+| P0 | Windows native tests | Native Qt plugin discovery and both Qt tests are proven. Automatic last-window quit preempts internal callbacks, producing return 0, no observation, and no Python finalization. Commit `1208166` disables that automatic quit only in internal mode and requires a native rerun. |
+| P0 | macOS matrix | Both architectures pass build, CTest, TechDraw, and CLI, then report 1,763 GUI tests and `OK` but exit 1 without observed normal teardown. Automated internal-result propagation requires both native reruns. |
 | P0 | Dependency Review | Last CodeQL jobs were green, but Dependency Review is fail-closed while the repository Dependency Graph is disabled. CodeQL is not a replacement. |
 | P0 | Untrusted input | Audit evidence found PR #27's symlink graph escape; the stale DTD-only stack is insufficient. Release-blocker issue #24 remains unresolved. |
 | P0 | Legal / provenance | Restricted material-pattern assets, inherited identity/provenance gaps, and a prebuilt Windows thumbnail DLL remain unresolved. The legal audit is NO-GO. |
@@ -210,9 +247,9 @@ All artifacts below expire on 2026-09-29.
 
 ## Resume sequence
 
-1. Preserve the terminal results and artifacts from active Windows `33333139201` and macOS x86_64 `33333139229` when they complete.
-2. Re-fetch the resulting integration branch and PR #28 head and record the exact state-update SHA/tree in the PR comment.
-3. Run and retrieve Linux, Windows, macOS arm64, macOS x86_64, and Security at that verified head before accepting M0.
+1. Re-fetch the resulting integration branch and PR #28 head and record the exact state-update SHA/tree in the PR comment without predicting it here.
+2. Run and retrieve Linux, Windows, macOS arm64, macOS x86_64, and Security at that verified head before accepting M0.
+3. Triage exact failing steps and preserve every artifact; do not mask nonzero results or bypass teardown.
 4. Retrieve every job result, exact failed step, log, and artifact; do not summarize a queued or skipped gate as passed.
 5. Fix root causes and repeat until green, or document the exact external setting blocker.
 6. Only then select the next roadmap slice. Highest priority remains safety, correctness, and baseline integrity before UI work.

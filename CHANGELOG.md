@@ -62,6 +62,16 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   The tested local commit `c120c0dd2e07b6eb38a2df43bbc5535a157fbba2`
   is published as connector-created commit
   `11abf724213c6309ecd32f5c14507c68e5bd43fd`; its native rerun remains pending.
+- Added fail-closed internal GUI unittest diagnostics that preserve and rethrow
+  the original exception, retain full tracebacks through captured stderr or the
+  application error log, and flush replaced streams without masking failures.
+- Added automated internal unittest result propagation through orderly event-loop
+  exit and application cleanup. Connector-created implementation commits are
+  `d89b6cbd30e81ed9b5ab402ae1ec9bff6f334d16` and
+  `a56554cc451ad73440e2a4f70d4c8736e4f93d1c`.
+- Prevented Qt automatic last-window exit from preempting queued callbacks only
+  in internal unittest mode. Explicit exit paths remain unchanged. The verified
+  connector-created commit is `12081664bccfb342be1f50f3a3e6d0e91a23be22`.
 
 ### Verification
 
@@ -112,10 +122,25 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   `11abf72`, passed a 358-edge rebuild and clean
   repeat, focused 1/1 in 0.585 seconds, current `TestPartGui` 13/13 in 3.23
   seconds, and the full 1,763-test GUI suite with exit 0 in 423 seconds.
+- At `8edc271`, Linux passed every gate; Windows passed build, plugin checks,
+  discovery, and 1,428/1,429 enabled CTests but exposed internal result 0 instead
+  of 1 with no Python finalization; both macOS jobs passed build, 1,427 CTests,
+  TechDraw, and 1,661 CLI tests before 1,763-test `OK` GUI logs ended at process 1.
+- Local combined evidence completed all 93 effective Ninja edges after the
+  initial 94-edge graph was MOC-pruned, followed by a clean/no-op repeat except
+  the existing version generator; helper 6/6; all five lifecycle outcomes in
+  19.64 seconds; 1,427/1,427 enabled CTests in 100.78 seconds; 1,667 CLI tests
+  with 10 skips, zero failures, and parser count 1,667 in 149.782 seconds; and
+  1,769/1,769 faithful GUI tests with exit 0 in `4.2e+02s`. The six-test CLI
+  increase is the newly registered `GuiTestRunner` diagnostic coverage.
 
 ### Security
 
 - Defined private vulnerability reporting and pre-release security gates.
+- Internal unittest failures now retain full tracebacks in stderr or the
+  application error log. Those diagnostics may contain paths, exception text,
+  and test values and must be treated as potentially sensitive CI output; the
+  wrapper rethrows rather than suppressing or converting the failure.
 
 ### Known limitations
 
