@@ -10,7 +10,9 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
+import OpenFusionGuiHeadlessVersion as probe
 from OpenFusionGuiHeadlessVersion import (
     is_headless_version_output,
     observe_normal_path,
@@ -18,6 +20,36 @@ from OpenFusionGuiHeadlessVersion import (
 
 
 class HeadlessVersionNormalPathTest(unittest.TestCase):
+    def test_windows_graceful_cleanup_uses_signal_ctrl_break_event(self) -> None:
+        process = mock.Mock()
+        process.poll.return_value = None
+        sentinel = object()
+        with (
+            mock.patch.object(probe.os, "name", "nt"),
+            mock.patch.object(probe.signal, "CTRL_BREAK_EVENT", sentinel, create=True),
+        ):
+            probe._signal_process_group(process, force=False)
+        process.send_signal.assert_called_once_with(sentinel)
+
+    def test_windows_forced_cleanup_bounds_taskkill_and_falls_back(self) -> None:
+        process = mock.Mock()
+        process.pid = 4123
+        process.poll.return_value = None
+        timeout = subprocess.TimeoutExpired(["taskkill"], probe.KILL_GRACE_SECONDS)
+        with (
+            mock.patch.object(probe.os, "name", "nt"),
+            mock.patch.object(probe.subprocess, "run", side_effect=timeout) as run,
+        ):
+            probe._signal_process_group(process, force=True)
+        run.assert_called_once_with(
+            ["taskkill", "/PID", "4123", "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=probe.KILL_GRACE_SECONDS,
+            check=False,
+        )
+        process.kill.assert_called_once_with()
+
     def test_timeout_cleans_new_process_group_with_finite_waits(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             script = Path(temporary) / "wait.py"

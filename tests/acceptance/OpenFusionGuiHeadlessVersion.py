@@ -52,7 +52,7 @@ def _signal_process_group(process: subprocess.Popen[str], force: bool) -> None:
     if os.name == "nt":
         if not force:
             try:
-                process.send_signal(subprocess.CTRL_BREAK_EVENT)
+                process.send_signal(signal.CTRL_BREAK_EVENT)
             except (OSError, ValueError):
                 # Preserve the live root PID so the forced tree cleanup can
                 # still find every descendant after the grace period.
