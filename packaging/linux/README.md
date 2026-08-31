@@ -112,6 +112,70 @@ class, byte order, and `e_machine`, but architecture coherence is not product
 identity. The production CLI has no identity bypass. A successful development
 run for the example version creates and internally verifies exactly these files:
 
+## Locked runtime closure
+
+Before creating build provenance or signing executable identity, close the
+quiescent installed prefix from the exact Pixi environment used for the build:
+
+```bash
+python3 packaging/linux/runtime_closure.py bundle \
+  --stage-prefix /tmp/openfusion-stage/opt/openfusion \
+  --pixi-prefix "$(realpath .pixi/envs/default)" \
+  --dependency-lock "$(realpath pixi.lock)" \
+  --architecture x86_64 \
+  --source-date-epoch "${SOURCE_DATE_EPOCH}"
+
+python3 packaging/linux/runtime_closure.py verify \
+  --stage-prefix /tmp/openfusion-stage/opt/openfusion \
+  --architecture x86_64
+```
+
+The bundler never launches staged or Pixi binaries. It parses bounded ELF64
+program and dynamic tables directly, selects the locked Python and Qt runtimes,
+recursively closes their package dependencies and the non-system `DT_NEEDED`
+graph, and copies every file owned by every selected package. Every copied file is attributed to its
+exact `conda-meta` package URL, package SHA-256, build, version, and declared
+license in `share/openfusion/runtime-closure.json`; the full payload signature
+and archive manifest independently authenticate the resulting bytes.
+
+The Linux GUI install uses a minimal ELF launcher in `bin/OpenFusion`. It
+derives the package root from `/proc/self/exe`, replaces Qt, fontconfig,
+Python, OpenSSL certificate, and XDG data search paths with package-internal
+locations, then uses `execv` to enter `libexec/OpenFusion.real`. This is
+required because the conda-forge Qt build does not honor an adjacent
+`qt.conf` early enough for platform-plugin discovery. The launcher does not
+fork, use a shell, or preserve host plugin search paths.
+
+Only the architecture-specific dynamic loader and these glibc ABI names may be
+resolved from the host: `libc`, `libm`, `libdl`, `libpthread`, `librt`,
+`libutil`, `libresolv`, `libanl`, and `libBrokenLocale`. In particular,
+`libstdc++`, `libgcc_s`, X11/GL, Qt, Python, OpenCascade, and compiler runtimes
+must be bundled. Every dynamic ELF must use `DT_RUNPATH` components rooted at
+`$ORIGIN`; absolute paths, empty components, escapes, legacy `DT_RPATH`,
+colliding SONAMEs, system-ABI shadow files, noncanonical dynamic interpreters,
+and unresolved dependencies fail both archive construction and fresh extraction
+verification. Managed Python and Qt trees are exhaustive: any additional file,
+directory, or symlink not committed by the closure manifest is rejected. The
+closure lock digest must equal the lock digest in signed executable identity.
+Locked ELF files whose package-relative path is stored as `DT_RPATH` are
+normalized deterministically to `DT_RUNPATH`: the tool rewrites the dynamic tag
+and replaces the existing string with an equal-length central-lib `$ORIGIN`
+path, recording both source and transformed SHA-256 identities. It never grows
+or relocates ELF structures and does not invoke `patchelf`.
+
+The locked OpenVINO 2025.0.0 split packages omit their license field. Their
+exact aarch64 package URLs and SHA-256 identities are bound by
+`runtime_license_provenance.json` to the Apache-2.0 license and three upstream
+third-party program inventories vendored under `licenses/openvino-2025.0.0`.
+The evidence files are hash-validated and shipped whenever those packages are
+selected. Case-distinct files owned by one exact locked package are retained;
+therefore the Linux archive requires a case-sensitive extraction filesystem.
+
+This proves dependency closure against the locked environment. It does not by
+itself prove a glibc baseline or distribution compatibility. Release claims
+still require native clean-container or clean-machine CLI and GUI lifecycle
+acceptance on each architecture.
+
 The policy recognizes `x86_64` and `aarch64` ELF identities. Producing an
 architecture-labeled development archive is not a support claim; native
 installed-package acceptance remains mandatory for each release architecture.
@@ -214,9 +278,8 @@ at level 19, with sparse output disabled and a 512 MiB memory limit. The
 release pipeline must pin and record the packaging toolchain before treating
 byte-for-byte output across different builders as a gate.
 
-This staging mechanism does not establish runtime dependency closure or
-package usability. Those require the separately tracked installed-package
-acceptance tests.
+Runtime closure is a necessary packaging gate, not proof of package usability.
+Installed-package acceptance remains mandatory.
 
 Verification deliberately favors assurance over speed. Standalone
 verification needs temporary disk space of roughly three times the
@@ -228,6 +291,7 @@ Run the focused tests with:
 
 ```bash
 python3 -m unittest -v tests.openfusion.test_linux_tarball
+python3 -m unittest -v tests.openfusion.test_linux_runtime_closure
 ```
 
 The complete suite requires `zstd` and OpenSSL with Ed25519 support. Their

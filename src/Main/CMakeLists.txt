@@ -95,6 +95,29 @@ if(BUILD_GUI)
                 SYMBOLIC
             )
         ")
+
+        add_executable(OpenFusionRuntimeLauncher OpenFusionRuntimeLauncher.c)
+        set_target_properties(
+            OpenFusionRuntimeLauncher PROPERTIES
+            INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
+        )
+        install(
+            TARGETS OpenFusionRuntimeLauncher
+            RUNTIME DESTINATION libexec
+        )
+        install(CODE "
+            file(MAKE_DIRECTORY
+                \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/libexec\"
+            )
+            file(RENAME
+                \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${OPENFUSION_GUI_INSTALL_DIR}/OpenFusion\"
+                \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/libexec/OpenFusion.real\"
+            )
+            file(RENAME
+                \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/libexec/OpenFusionRuntimeLauncher\"
+                \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${OPENFUSION_GUI_INSTALL_DIR}/OpenFusion\"
+            )
+        ")
     endif()
 endif(BUILD_GUI)
 ######################## FreeCADMainCmd ########################

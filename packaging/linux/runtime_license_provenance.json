@@ -1,0 +1,76 @@
+{
+  "evidence": {
+    "feedstock_revision": "2b71586676c5bfd0ea0e37102ebb2124935729b8",
+    "feedstock_url": "https://github.com/conda-forge/openvino-feedstock",
+    "files": [
+      {
+        "path": "licenses/openvino-2025.0.0/LICENSE",
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "size": 11357
+      },
+      {
+        "path": "licenses/openvino-2025.0.0/licensing/onednn_third-party-programs.txt",
+        "sha256": "f1b16991dfe8488f3f5f07cccba575c31c91175a9f2c8d9e1569665f86e0b2f6",
+        "size": 28475
+      },
+      {
+        "path": "licenses/openvino-2025.0.0/licensing/runtime-third-party-programs.txt",
+        "sha256": "7a8dce1367db91f163881aac0476e6e565dd47a22601ce58f4dc883c78cdb8e5",
+        "size": 98131
+      },
+      {
+        "path": "licenses/openvino-2025.0.0/licensing/third-party-programs.txt",
+        "sha256": "27753b0342247ba036c9c1c2c41642cbf2304b98c28a9d512dd0fe87752eabe4",
+        "size": 105419
+      }
+    ],
+    "license": "Apache-2.0"
+  },
+  "format_version": 1,
+  "packages": [
+    {
+      "sha256": "d4e774708a073ba4a240fd2bc0f524d8b6d9fe68a24074bc7affe70c7fd9d8b7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-2025.0.0-hd63d6c0_3.conda"
+    },
+    {
+      "sha256": "1097bf9bfff8a9dade6b2a033b107aafed75d0dd2b4430a1754d8b89cb12f47d",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-arm-cpu-plugin-2025.0.0-hd63d6c0_3.conda"
+    },
+    {
+      "sha256": "829a98d1dd0859fec5536419c9d7b1b99a612a91c629f173f6e9f05003e85749",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-auto-batch-plugin-2025.0.0-hf15766e_3.conda"
+    },
+    {
+      "sha256": "af207ffa6f3a8a150620ca32c2996e941645689596ad2dc923115cef3ac1706d",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-auto-plugin-2025.0.0-hf15766e_3.conda"
+    },
+    {
+      "sha256": "69c8e3a060a10900f6d35df32264f48560e153fe370c6a2ee7fcff1b969629bb",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-hetero-plugin-2025.0.0-ha8e9e04_3.conda"
+    },
+    {
+      "sha256": "3901f6922cfbac4de21622445d8a201862f46f502c95251bd2cba11eb67bf839",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-ir-frontend-2025.0.0-ha8e9e04_3.conda"
+    },
+    {
+      "sha256": "72097ef28507f41ff371cb10540261b7cbd433a9932a9c42d073f4d56335bfbe",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-onnx-frontend-2025.0.0-hd8f0270_3.conda"
+    },
+    {
+      "sha256": "b7666e63f7399e94599829b9b8901e1e6541d9d4d0c156359eb24846a434bcb7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-paddle-frontend-2025.0.0-hd8f0270_3.conda"
+    },
+    {
+      "sha256": "174f630bdc3ffc6728fc83aefef15cf9a9a9fcd00712ce809df7a3b5c37dae99",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-pytorch-frontend-2025.0.0-h5ad3122_3.conda"
+    },
+    {
+      "sha256": "437fc934eaa6282258ac2dc3e58d276b208079ee2440264cd19b67a9b6ff6827",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-tensorflow-frontend-2025.0.0-h33e842c_3.conda"
+    },
+    {
+      "sha256": "e1328d5e6ef41e112c1e79d06e2309b89da302806a5ec7b18cf7bfe47d321be6",
+      "url": "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino-tensorflow-lite-frontend-2025.0.0-h5ad3122_3.conda"
+    }
+  ]
+}

@@ -241,8 +241,13 @@ MACRO(SET_BIN_DIR ProjectName OutputName)
     if(WIN32)
         set_target_properties(${ProjectName} PROPERTIES DEBUG_OUTPUT_NAME ${OutputName}_d)
     else(WIN32)
+        if(UNIX AND NOT APPLE AND NOT ${ProjectName} MATCHES "^(FreeCADMain|FreeCADMainCmd)$")
+            # Linux release artifacts are relocatable. Dependency closure is
+            # installed in the same central lib directory as library targets.
+            set_property(TARGET ${ProjectName} APPEND PROPERTY INSTALL_RPATH "$ORIGIN")
+            set_property(TARGET ${ProjectName} PROPERTY INSTALL_RPATH_USE_LINK_PATH FALSE)
         # FreeCADBase, SMDS, Driver and MEFISTO2 libs don't depend on parts from CMAKE_INSTALL_LIBDIR
-        if(NOT ${ProjectName} MATCHES "^(FreeCADBase|SMDS|Driver|MEFISTO2)$")
+        elseif(NOT ${ProjectName} MATCHES "^(FreeCADBase|SMDS|Driver|MEFISTO2)$")
             if(${ARGC} STREQUAL 4)
                 set_property(TARGET ${ProjectName} APPEND PROPERTY INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/${ARGV3})
             elseif(NOT IS_ABSOLUTE ${CMAKE_INSTALL_LIBDIR})

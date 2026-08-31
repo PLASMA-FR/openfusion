@@ -15,6 +15,7 @@ import contextlib
 import fcntl
 import functools
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -115,6 +116,24 @@ ORIGIN_RUNPATH_MARKER = b"$ORIGIN/../lib"
 
 class PackagingError(RuntimeError):
     """Raised when a stage or artifact violates the packaging contract."""
+
+
+@functools.lru_cache(maxsize=1)
+def _runtime_closure_module():
+    path = Path(__file__).resolve().with_name("runtime_closure.py")
+    spec = importlib.util.spec_from_file_location(
+        "_openfusion_linux_runtime_closure", path
+    )
+    if spec is None or spec.loader is None:
+        raise PackagingError("Linux runtime closure verifier cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(spec.name, None)
+        raise
+    return module
 
 
 @dataclass(frozen=True)
@@ -1364,6 +1383,53 @@ def _verify_legal_quarantine(payload_root: Path, entries: Sequence[Entry]) -> No
     forbidden_text = policy["forbidden_text"]
     assert isinstance(forbidden_text, list)
 
+    runtime_alias_exceptions: set[str] = set()
+    runtime_manifest_entry = next(
+        (
+            entry
+            for entry in entries
+            if entry.relative_path == "share/openfusion/runtime-closure.json"
+        ),
+        None,
+    )
+    if runtime_manifest_entry is not None:
+        runtime_closure = _runtime_closure_module()
+        content = _read_regular_path_bounded(
+            runtime_manifest_entry.source_path,
+            "runtime closure manifest",
+            runtime_closure.MAX_MANIFEST_BYTES,
+        )
+        try:
+            runtime_manifest = json.loads(content.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as error:
+            raise PackagingError("runtime closure manifest is invalid JSON") from error
+        runtime_aliases: dict[str, list[tuple[str, tuple[str, str]]]] = {}
+        runtime_files = runtime_manifest.get("files")
+        if not isinstance(runtime_files, list):
+            raise PackagingError("runtime closure file provenance is invalid")
+        for record in runtime_files:
+            if not isinstance(record, dict):
+                raise PackagingError("runtime closure file provenance is invalid")
+            relative_path = record.get("path")
+            package = record.get("package")
+            if (
+                not isinstance(relative_path, str)
+                or not isinstance(package, dict)
+                or not isinstance(package.get("url"), str)
+                or not isinstance(package.get("sha256"), str)
+                or not SHA256_RE.fullmatch(package["sha256"])
+            ):
+                raise PackagingError("runtime closure package provenance is invalid")
+            alias = _legal_alias_key(relative_path)
+            runtime_aliases.setdefault(alias, []).append(
+                (relative_path, (package["url"], package["sha256"]))
+            )
+        for alias, records in runtime_aliases.items():
+            paths = {record[0] for record in records}
+            identities = {record[1] for record in records}
+            if len(paths) > 1 and len(identities) == 1:
+                runtime_alias_exceptions.add(alias)
+
     by_path: dict[str, Entry] = {}
     aliases: dict[str, str] = {}
     for entry in entries:
@@ -1371,7 +1437,7 @@ def _verify_legal_quarantine(payload_root: Path, entries: Sequence[Entry]) -> No
             raise PackagingError(f"duplicate payload path during legal inspection: {entry.relative_path}")
         alias = _legal_alias_key(entry.relative_path)
         previous = aliases.get(alias)
-        if previous is not None:
+        if previous is not None and alias not in runtime_alias_exceptions:
             raise PackagingError(
                 f"cross-platform payload path alias collision: {previous} and {entry.relative_path}"
             )
@@ -1572,7 +1638,9 @@ def create_identity(
         source_descriptor = _open_prefix_at(destdir_descriptor, prefix)
         scan = _scan_source_tree(source_descriptor, None, int(provenance["source_date_epoch"]), architecture)
         _validate_payload_elf(
-            _scan_tree(_descriptor_path(source_descriptor)), architecture
+            _scan_tree(_descriptor_path(source_descriptor)),
+            architecture,
+            str(provenance["dependency_lock_sha256"]),
         )
         if IDENTITY_RELATIVE_PATH in _records_by_path(scan.records):
             raise PackagingError(f"staged payload already contains reserved identity path: {IDENTITY_RELATIVE_PATH}")
@@ -2223,7 +2291,11 @@ def _scan_tree(root: Path) -> list[Entry]:
     return entries
 
 
-def _validate_payload_elf(entries: Sequence[Entry], architecture: str) -> None:
+def _validate_payload_elf(
+    entries: Sequence[Entry],
+    architecture: str,
+    expected_dependency_lock_sha256: str | None = None,
+) -> None:
     for entry in entries:
         if entry.kind != "file":
             continue
@@ -2253,6 +2325,22 @@ def _validate_payload_elf(entries: Sequence[Entry], architecture: str) -> None:
                     "canonical entrypoint lacks packaged-library RUNPATH: "
                     f"{entry.relative_path}"
                 )
+
+    first_entry = entries[0]
+    payload_root = first_entry.source_path
+    for _part in PurePosixPath(first_entry.relative_path).parts:
+        payload_root = payload_root.parent
+    payload_root = payload_root.resolve(strict=True)
+    runtime_closure = _runtime_closure_module()
+    try:
+        runtime_closure.verify_runtime_closure(
+            payload_root,
+            architecture,
+            allow_static_without_manifest=True,
+            expected_dependency_lock_sha256=expected_dependency_lock_sha256,
+        )
+    except runtime_closure.ClosureError as error:
+        raise PackagingError(str(error)) from error
 
 
 def _tar_info(name: str, kind: str, mode: int, epoch: int) -> tarfile.TarInfo:
@@ -2977,7 +3065,15 @@ def _extract_and_verify_tar(tar_path: Path, manifest: dict[str, object]) -> None
             or root_metadata.st_mtime_ns != epoch * 1_000_000_000
         ):
             raise PackagingError("extracted archive root metadata is not normalized")
-        _validate_payload_elf(extracted_entries, str(manifest["architecture"]))
+        _validate_payload_elf(
+            extracted_entries,
+            str(manifest["architecture"]),
+            str(
+                manifest["product_identity"]["payload"]["dependency_lock"][
+                    "sha256"
+                ]
+            ),
+        )
         canonical_tar = extraction_root / "canonical.tar"
         _write_tar(canonical_tar, archive_root, extracted_entries, epoch)
         if _sha256_file(canonical_tar) != _sha256_file(tar_path):
@@ -3315,7 +3411,11 @@ def build_package(
                 identity_payload,
             )
             entries = _scan_tree(snapshot_path)
-            _validate_payload_elf(entries, architecture)
+            _validate_payload_elf(
+                entries,
+                architecture,
+                str(identity_payload["dependency_lock"]["sha256"]),
+            )
 
             tar_path = _descriptor_path(private_descriptor, "payload.tar")
             _write_tar(tar_path, archive_root, entries, epoch)

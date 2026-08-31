@@ -46,8 +46,282 @@ jobs:
           command -v openssl
           openssl version
 
-      - name: Run deterministic tarball and legal quarantine policy suite
+      - name: Run deterministic tarball, runtime closure, and legal policy suites
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m unittest -v tests.openfusion.test_linux_tarball
+          python3 -m unittest -v \
+            tests.openfusion.test_linux_runtime_closure \
+            tests.openfusion.test_linux_tarball
+
+  clean-container-runtime:
+    name: Fresh build and clean-container runtime
+    needs: deterministic-tarball
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out exact source and pinned submodules
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install pinned Pixi
+        uses: prefix-dev/setup-pixi@82d477f15f3a381dbcc8adc1206ce643fe110fb7 # v0.9.3
+        with:
+          pixi-version: v0.59.0
+          cache: false
+          run-install: false
+
+      - name: Materialize exact locked environment
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          test "$RUNNER_ARCH" = X64
+          test "$(uname -m)" = x86_64
+          pixi install --locked --color never --no-progress
+          pixi --version | tee logs/pixi-version.txt
+          sha256sum pixi.lock | tee logs/pixi-lock.sha256
+
+      - name: Build exact checkout with development identity
+        timeout-minutes: 90
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$(git rev-parse --verify HEAD)"
+          short_revision="${revision:0:12}"
+          base_version="$(python3 - <<'PY'
+          from pathlib import Path
+          import re
+          content = Path("CMakeLists.txt").read_text(encoding="utf-8")
+          values = []
+          for name in ("MAJOR", "MINOR", "PATCH"):
+              match = re.search(
+                  rf'set\(PACKAGE_VERSION_{name} "([0-9]+)"\)', content
+              )
+              if match is None:
+                  raise SystemExit(f"missing PACKAGE_VERSION_{name}")
+              values.append(match.group(1))
+          print(".".join(values))
+          PY
+          )"
+          version="${base_version}-dev.g${short_revision}"
+          source_date_epoch="$(git show -s --format=%ct HEAD)"
+          printf 'OPENFUSION_REVISION=%s\n' "$revision" >>"$GITHUB_ENV"
+          printf 'OPENFUSION_VERSION=%s\n' "$version" >>"$GITHUB_ENV"
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$source_date_epoch" >>"$GITHUB_ENV"
+          pixi run cmake --preset conda-linux-release \
+            -DOPENFUSION_VERSION_SUFFIX="-dev.g${short_revision}"
+          pixi run cmake --build build/release --parallel 2
+
+      - name: Install and close locked runtime
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/openfusion-stage"
+          prefix="$stage/opt/openfusion"
+          install_root="$RUNNER_TEMP/openfusion-extracted"
+          package_dir="$RUNNER_TEMP/openfusion-package"
+          mkdir -p "$stage" "$install_root" "$package_dir"
+          DESTDIR="$stage" pixi run cmake --install build/release \
+            --prefix /opt/openfusion
+          python3 packaging/linux/runtime_closure.py bundle \
+            --stage-prefix "$prefix" \
+            --pixi-prefix "$(realpath .pixi/envs/default)" \
+            --dependency-lock "$(realpath pixi.lock)" \
+            --architecture x86_64 \
+            --source-date-epoch "$SOURCE_DATE_EPOCH"
+          python3 packaging/linux/runtime_closure.py verify \
+            --stage-prefix "$prefix" \
+            --architecture x86_64
+          printf 'OPENFUSION_STAGE=%s\n' "$stage" >>"$GITHUB_ENV"
+          printf 'OPENFUSION_PREFIX=%s\n' "$prefix" >>"$GITHUB_ENV"
+          printf 'OPENFUSION_EXTRACTED=%s\n' "$install_root" >>"$GITHUB_ENV"
+          printf 'OPENFUSION_PACKAGE_DIR=%s\n' "$package_dir" >>"$GITHUB_ENV"
+
+      - name: Sign, build, verify, and extract development archive
+        timeout-minutes: 60
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl="$(realpath .pixi/envs/default/bin/openssl)"
+          zstd="$(realpath .pixi/envs/default/bin/zstd)"
+          lock_sha256="$(sha256sum pixi.lock | cut -d' ' -f1)"
+          cache_sha256="$(sha256sum build/release/CMakeCache.txt | cut -d' ' -f1)"
+          openssl_sha256="$(sha256sum "$openssl" | cut -d' ' -f1)"
+          openssl_version="$($openssl version)"
+          provenance="$RUNNER_TEMP/build-provenance.json"
+          private_key="$RUNNER_TEMP/development-private.pem"
+          public_key="$RUNNER_TEMP/development-public.pem"
+          identity="$RUNNER_TEMP/executable-identity.json"
+          export lock_sha256 cache_sha256 openssl_sha256 openssl_version provenance
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          value = {
+              "build_type": "Release",
+              "builder": "github-actions-ubuntu-24.04",
+              "cmake_cache_sha256": os.environ["cache_sha256"],
+              "compiler": "Clang 21.1.0",
+              "dependency_lock_sha256": os.environ["lock_sha256"],
+              "format_version": 1,
+              "generator": "Ninja",
+              "openssl_sha256": os.environ["openssl_sha256"],
+              "openssl_version": os.environ["openssl_version"],
+              "source_date_epoch": int(os.environ["SOURCE_DATE_EPOCH"]),
+              "source_revision": os.environ["OPENFUSION_REVISION"],
+              "version": os.environ["OPENFUSION_VERSION"],
+          }
+          Path(os.environ["provenance"]).write_text(
+              json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+          "$openssl" genpkey -algorithm ED25519 -out "$private_key"
+          "$openssl" pkey -in "$private_key" -pubout -out "$public_key"
+          key_sha256="$(
+            "$openssl" pkey -pubin -in "$public_key" -outform DER |
+              sha256sum | cut -d' ' -f1
+          )"
+          python3 packaging/linux/create_deterministic_tarball.py create-identity \
+            --destdir "$OPENFUSION_STAGE" \
+            --prefix /opt/openfusion \
+            --version "$OPENFUSION_VERSION" \
+            --architecture x86_64 \
+            --release-channel development \
+            --dependency-lock "$(realpath pixi.lock)" \
+            --build-provenance "$provenance" \
+            --cmake-cache "$(realpath build/release/CMakeCache.txt)" \
+            --signing-key "$private_key" \
+            --output "$identity" \
+            --openssl "$openssl"
+          python3 packaging/linux/create_deterministic_tarball.py build \
+            --destdir "$OPENFUSION_STAGE" \
+            --prefix /opt/openfusion \
+            --version "$OPENFUSION_VERSION" \
+            --architecture x86_64 \
+            --output-dir "$OPENFUSION_PACKAGE_DIR" \
+            --identity "$identity" \
+            --trusted-public-key "$public_key" \
+            --expected-key-sha256 "$key_sha256" \
+            --expected-release-channel development \
+            --expected-source-revision "$OPENFUSION_REVISION" \
+            --expected-lock-sha256 "$lock_sha256" \
+            --staging-is-quiescent \
+            --output-is-exclusive \
+            --zstd "$zstd" \
+            --openssl "$openssl"
+          archive="$OPENFUSION_PACKAGE_DIR/openfusion-${OPENFUSION_VERSION}-linux-x86_64.tar.zst"
+          manifest="$archive.manifest.json"
+          checksum="$archive.sha256"
+          python3 packaging/linux/create_deterministic_tarball.py verify \
+            --archive "$archive" \
+            --manifest "$manifest" \
+            --checksum "$checksum" \
+            --trusted-public-key "$public_key" \
+            --expected-key-sha256 "$key_sha256" \
+            --expected-release-channel development \
+            --expected-version "$OPENFUSION_VERSION" \
+            --expected-architecture x86_64 \
+            --expected-prefix /opt/openfusion \
+            --expected-source-revision "$OPENFUSION_REVISION" \
+            --expected-lock-sha256 "$lock_sha256" \
+            --zstd "$zstd" \
+            --openssl "$openssl"
+          "$zstd" -q -dc -- "$archive" | tar -xf - -C "$OPENFUSION_EXTRACTED"
+          extracted_prefix="$OPENFUSION_EXTRACTED/openfusion-${OPENFUSION_VERSION}-linux-x86_64"
+          test -x "$extracted_prefix/bin/OpenFusion"
+          test -x "$extracted_prefix/bin/OpenFusionCmd"
+          test -f "$extracted_prefix/lib/qt6/plugins/platforms/libqoffscreen.so"
+          printf 'OPENFUSION_EXTRACTED_PREFIX=%s\n' "$extracted_prefix" >>"$GITHUB_ENV"
+          rm -f -- "$private_key"
+
+      - name: Run network-isolated clean-container CLI and GUI lifecycle
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >"$RUNNER_TEMP/runtime-smoke.py" <<'PY'
+          import os
+          import ssl
+          import FreeCAD as App
+          import Part
+          from PySide6 import QtCore
+          assert QtCore.qVersion().startswith("6.8.")
+          assert "OpenSSL 3" in ssl.OPENSSL_VERSION
+          document = App.newDocument("RuntimeClosureSmoke")
+          box = document.addObject("Part::Box", "Box")
+          box.Length, box.Width, box.Height = 10, 20, 30
+          document.recompute()
+          assert abs(box.Shape.Volume - 6000.0) < 1e-7
+          output = "/tmp/RuntimeClosureSmoke.FCStd"
+          document.saveAs(output)
+          assert os.path.getsize(output) > 0
+          App.closeDocument(document.Name)
+          print("OPENFUSION_CLEAN_CLI_SMOKE_OK")
+          print("QT=" + QtCore.qVersion())
+          print("OPENSSL=" + ssl.OPENSSL_VERSION)
+          PY
+          mkdir -p "$RUNNER_TEMP/gui-smoke"
+          cat >"$RUNNER_TEMP/gui-smoke/CleanGuiRuntimeSmoke.py" <<'PY'
+          import unittest
+          import FreeCAD as App
+          import FreeCADGui as Gui
+          from PySide6 import QtCore, QtWidgets
+          class CleanGuiRuntimeSmoke(unittest.TestCase):
+              def test_runtime(self):
+                  app = QtWidgets.QApplication.instance()
+                  self.assertIsNotNone(app)
+                  self.assertEqual("offscreen", app.platformName())
+                  self.assertIsNotNone(Gui.getMainWindow())
+                  document = App.newDocument("CleanGuiRuntimeSmoke")
+                  self.assertEqual("CleanGuiRuntimeSmoke", document.Name)
+                  App.closeDocument(document.Name)
+                  print("OPENFUSION_CLEAN_GUI_SMOKE_OK", flush=True)
+                  print("QT=" + QtCore.qVersion(), flush=True)
+          PY
+          image="ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
+          docker pull "$image"
+          common=(
+            --rm --network none --read-only
+            --tmpfs /tmp:rw,nosuid,nodev,mode=1777
+            -e HOME=/tmp/home -e XDG_CONFIG_HOME=/tmp/config
+            -e XDG_CACHE_HOME=/tmp/cache
+            -v "$OPENFUSION_EXTRACTED_PREFIX:/opt/openfusion:ro"
+          )
+          docker run "${common[@]}" "$image" \
+            /opt/openfusion/bin/OpenFusionCmd --version |
+            tee logs/clean-container-version.log
+          grep -Fx "OpenFusion $OPENFUSION_VERSION" logs/clean-container-version.log
+          docker run "${common[@]}" \
+            -v "$RUNNER_TEMP/runtime-smoke.py:/runtime-smoke.py:ro" \
+            "$image" /opt/openfusion/bin/OpenFusionCmd /runtime-smoke.py |
+            tee logs/clean-container-cli.log
+          grep -F "OPENFUSION_CLEAN_CLI_SMOKE_OK" logs/clean-container-cli.log
+          docker run "${common[@]}" \
+            -e QT_QPA_PLATFORM=offscreen -e QT_OPENGL=software \
+            -v "$RUNNER_TEMP/gui-smoke:/smoke:ro" \
+            "$image" /usr/bin/timeout 60 /opt/openfusion/bin/OpenFusion \
+            --hidden --user-cfg /tmp/user.cfg --system-cfg /tmp/system.cfg \
+            --log-file /tmp/OpenFusionGui.log --python-path /smoke \
+            --run-test CleanGuiRuntimeSmoke.CleanGuiRuntimeSmoke.test_runtime |
+            tee logs/clean-container-gui.log
+          grep -F "OPENFUSION_CLEAN_GUI_SMOKE_OK" logs/clean-container-gui.log
+
+      - name: Upload verified development archive
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: openfusion-linux-runtime-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.OPENFUSION_PACKAGE_DIR }}/*
+            logs/clean-container-*.log
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

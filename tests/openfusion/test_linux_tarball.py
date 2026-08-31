@@ -794,6 +794,19 @@ class PurePolicyTests(SignedIdentityMixin, unittest.TestCase):
         )
         self.assertIn("          command -v zstd\n", workflow)
         self.assertIn("          command -v openssl\n", workflow)
+        self.assertIn("  clean-container-runtime:\n", workflow)
+        self.assertIn("pixi run cmake --build build/release", workflow)
+        self.assertIn("packaging/linux/runtime_closure.py bundle", workflow)
+        self.assertIn("create_deterministic_tarball.py create-identity", workflow)
+        self.assertIn("--network none --read-only", workflow)
+        self.assertIn("OPENFUSION_CLEAN_CLI_SMOKE_OK", workflow)
+        self.assertIn("OPENFUSION_CLEAN_GUI_SMOKE_OK", workflow)
+        self.assertLess(
+            workflow.index("Run network-isolated clean-container CLI and GUI lifecycle"),
+            workflow.index("Upload verified development archive"),
+        )
+        upload_block = workflow.split("- name: Upload verified development archive", 1)[1]
+        self.assertNotIn("if: always()", upload_block)
         self.assertNotIn("skipUnless", workflow)
         self.assertNotIn("    paths:\n", workflow)
 
@@ -805,7 +818,7 @@ class PurePolicyTests(SignedIdentityMixin, unittest.TestCase):
         self.assertIn("OPENFUSION_VERSION_SUFFIX", content)
         self.assertEqual(
             content.count('INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"'),
-            2,
+            3,
         )
         self.assertIn("file(CREATE_LINK", content)
         self.assertIn("OpenFusionCmd", content)
