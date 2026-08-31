@@ -3,10 +3,10 @@
 **Last verified:** 2026-08-31 UTC
 **Production-ready:** No
 **Active milestone:** M0, reproducible upstream baseline
-**Next task:** Re-fetch the resulting integration branch and PR #28 head, record
-its exact state-update SHA/tree in the PR comment, and run/retrieve Linux,
-Windows, macOS arm64, macOS x86_64, and Security. Do not predict the documentation
-commit SHA or infer a native pass from local Linux evidence.
+**Next task:** Re-fetch the resulting integration branch and PR #28 head after
+this retained-state update, record its exact state-update SHA/tree in the PR
+comment, and run/retrieve Linux, Windows, macOS arm64, macOS x86_64, and Security.
+Do not predict the documentation commit SHA or infer native proof from Linux.
 
 This file records resumable execution truth. A local pass is not a remote CI
 pass, an inherited FreeCAD feature is not an OpenFusion product feature, and a
@@ -17,10 +17,10 @@ built artifact is not a tested package.
 | Item | Verified value |
 |---|---|
 | FreeCAD foundation | 1.1.3, commit `145529fe741292ff0b3977a01195bf0247425794` |
-| Published integration base | `8edc271bc0b39f942c26a28f6c797570edda3caa`, state tree `7d239dd15da5a1900e4d2be7a0a2180db5e75330` |
-| Connector-created lifecycle implementation | Diagnostics `d89b6cbd30e81ed9b5ab402ae1ec9bff6f334d16`, tree `9d812e59`; automated propagation `a56554cc451ad73440e2a4f70d4c8736e4f93d1c`, tree `c3838e96`; Windows internal-mode last-window handling `12081664bccfb342be1f50f3a3e6d0e91a23be22`, tree `8a477f3d` |
+| Published integration base | `021591fa24907546691ab9f1fd5650fa94055bd4`, tree `522e24bcf200596eab736536253b9e069f469095` |
+| Connector-created retained-state implementation | Exit-state diagnostics `23a82e5033c0f6111c5a7266aa4ba3f7de8d5cff`, tree `fcacaca7`; hostile-fixture isolation `01ed5b671f5aadabdcaec1b23b092e5c1e15520e`, tree `2bf833a6`; GUI-thread diagnostic gating `77dc9527f937f7d7f8e28f7eae65ee281cf12cad`, tree `8eaa06cc`; Windows cross-step Qt environment export `b022722d50e463dd4d4aefbeedd2c5e340670d5a`, tree `6a1e0206` |
 | Integration state update | The verified implementation chain is the base accompanying this documentation update on integration. This file does not predict its own commit SHA; the exact resulting head belongs in the verified PR comment after connector re-fetch |
-| Active integration PR | Draft PR #28, `integration/acceptance-ci`; all `8edc271` runs are terminal: Linux green, Windows failed one lifecycle CTest, both macOS architectures exited 1 after 1,763-test `OK` application logs, and Security failed only on disabled Dependency Graph. No native rerun exists yet for `1208166` |
+| Active integration PR | Draft PR #28, `integration/acceptance-ci`; at `021591f`, Linux is green, both macOS architectures exit 1 after 1,769-test `OK` application logs without the required retained-state diagnostic, Windows passes every CTest but its later TechDraw process cannot find qwindows, and Security fails only on disabled Dependency Graph. No native rerun exists yet for `b022722` |
 | Dependency lock | `pixi.lock`, SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc` |
 
 ### Published platform work at the remote head
@@ -132,6 +132,66 @@ tests. The faithful safe-mode GUI suite passed 1,769/1,769 with exit 0 in
 `4.2e+02s`. These are local results; native Windows and macOS reruns remain
 required.
 
+### Retained exit-state diagnostics and hostile-fixture isolation
+
+Connector-created commit `23a82e5033c0f6111c5a7266aa4ba3f7de8d5cff`
+retains enough internal-runner state to distinguish a requested code from the
+first authoritative code and the event loop's raw return from any stored and
+selected code. Internal-mode logs record `requested`, `authoritative`, `first`,
+dispatch mode, `raw`, `stored_present`, `stored_code`, and `selected`. Gated
+lifecycle stage markers prove run return, stream restoration, application
+destruction, and main return without changing the selected exit value.
+
+Commit `01ed5b671f5aadabdcaec1b23b092e5c1e15520e` isolates hostile diagnostic
+fixtures so injected test identity cannot contaminate later scenarios. Active
+test detail is emitted only for the internal runner and is enclosed in quotes,
+limited to 512 input code units, truncated with an ellipsis, and escaped for
+backslashes, quotes, control/format/surrogate characters, and line/paragraph
+separators. This bounds and neutralizes log injection; it does not make the
+content non-sensitive. Retained CI/application logs can still reveal sanitized
+internal test names and filesystem paths and must be handled accordingly. The
+diagnostics observe selection only: they do not override first-code authority,
+mask a failure, or bypass teardown.
+
+Commit `77dc9527f937f7d7f8e28f7eae65ee281cf12cad` removes off-thread access to
+mutable application Config and QObject detail. Worker callers touch only
+primitive mutex-protected exit state. Only SystemExit request detail is moved
+into a context-bound GUI-thread lambda. Event-loop raw/stored/selected state is
+emitted synchronously on the GUI thread after `QApplication::exec`, and lifecycle
+stages are emitted by `MainGui` on the main thread. All Config/QObject reads and
+all marker emissions therefore occur on the GUI/main thread. Every marker is
+gated to Internal/lifecycle mode and the reporting path is `noexcept`. Ordinary
+GUI execution emits none of this detail.
+
+Local Linux arm64 evidence at the `4da` implementation state: the warm affected
+rebuild/relink passed 76 edges. The helper passed 6/6; all five lifecycle outcomes
+(7, 0, 1, diagnostic 1, and `SystemExit(23)`) passed with cleanup in 20.54 seconds.
+An ordinary hidden GUI run exited 0 and a marker scan found none of the Internal
+request, event-loop state, active-test, or lifecycle diagnostics. CTest registered
+1,433 tests and passed all 1,427 enabled tests in 103.96 seconds, with three
+skipped, six disabled, and all four acceptance tests passing. The CLI code path
+is unchanged; its current retained result remains 1,667 tests with 10 skips and
+zero failures. The faithful safe-mode GUI suite passed 1,769/1,769 with exit 0 in
+`4.22e+02s`. Native Windows and macOS reruns remain required.
+
+### Windows cross-step Qt environment export
+
+Terminal Windows evidence proved that CTest's per-test Qt environment does not
+persist into later GitHub Actions steps. Connector-created commit
+`b022722d50e463dd4d4aefbeedd2c5e340670d5a` extends the runtime helper to resolve
+and validate the exact `qwindows`/`qwindowsd` and `qoffscreen`/`qoffscreend`
+plugin identities for the active configuration, reject aliases that do not
+resolve to the same file, preserve non-ASCII paths, and reject newline or GitHub
+command-file injection. It appends runtime directories to `GITHUB_PATH` and
+writes only the exact `QT_PLUGIN_PATH` and `QT_QPA_PLATFORM_PLUGIN_PATH`
+assignments to `GITHUB_ENV` before CTest, TechDraw, CLI, and GUI steps. It
+neither copies DLLs nor hardcodes a package layout.
+
+Local helper evidence at the `a6e` state passed 15/15 unit tests, Black, Python
+syntax, workflow YAML parsing, and diff checks. The affected native execution
+remains proven only by the preceding `4da` Linux build/lifecycle/CTest/GUI
+evidence until the new full native matrix completes.
+
 ### Exact combined-candidate commands
 
 ```bash
@@ -220,25 +280,32 @@ These Linux arm64 results supported publication of the preceding platform
 changes. They are not Windows or macOS evidence. An earlier hidden-mode
 diagnostic run was invalid and interrupted and remains excluded.
 
-## Terminal GitHub Actions evidence at published head `8edc271`
+## GitHub Actions evidence at published head `021591f`
 
-All artifacts below expire on 2026-09-29.
+Actions checked out and tested PR merge commit
+`64bc9a7d39f077156ed00fac4fca85cc46ea5604`. Connector comparison proves it is
+exactly one merge commit ahead of published head
+`021591fa24907546691ab9f1fd5650fa94055bd4` with zero file differences. Artifact
+metadata continues to identify `head_sha` as
+`021591fa24907546691ab9f1fd5650fa94055bd4`.
+
+All artifacts below expire on 2026-09-30.
 
 | Workflow run | Terminal result | Artifacts |
 |---|---|---|
-| Linux `33340018602` | **Passed.** Release build, 1,427/1,427 enabled CTests, TechDraw GUI export, 1,661 CLI tests, and 1,763 GUI tests all passed. | Baseline `9741262458`, 6,880,134 bytes, SHA-256 `e6c4ad5bf83716f0200e253571120e44ae74ca4a8ef208eab7ae13d70e7ea6ab`; TechDraw `9741185797`, 603,861 bytes, SHA-256 `6b5c08346cb1a4b1a68ab3cf45f2136262fb31aa101a7c860271437f80a21885` |
-| Windows `33340018502` | **Failed CTest.** The 6,758-edge build, native output/plugin checks, discovery, QuantitySpinBox, and DlgVersionMigrator passed. CTest passed 1,428/1,429 enabled tests; only `OpenFusion_GUI_SystemExit_Propagation` failed in 15.64 seconds. Qt automatic last-window exit preempted the queued internal callbacks, so the process returned 0 instead of required 1, wrote no callback observation, and did not finalize embedded Python. Later TechDraw/CLI/GUI gates were skipped. | Baseline `9742796772`, 748,854 bytes, SHA-256 `58ca56f820e68ef481a2ddb230d2d5751e00edc9a4acc31c47d872c91102abd7` |
-| macOS arm64, run `33340018607` | **Failed at GUI process exit.** Build, 1,427/1,427 enabled CTests, TechDraw, and 1,661 CLI tests passed. The application log reported 1,763 GUI tests and `OK`, but a hidden internal callback exception left process exit 1 and normal teardown was not observed. | Baseline `9741680756`, 6,863,990 bytes, SHA-256 `f70c65d6244c2d8e5b0ccdbbbfc1621cc45cd8f34257eaeb5b145c40ccfecc58`; TechDraw `9741584722`, 594,367 bytes, SHA-256 `c920e32cf19c1b5f865276b02529bc221bdc4168511271882f2f1d41563e9a41` |
-| macOS x86_64, run `33340018607` | **Failed at GUI process exit.** Build, 1,427/1,427 enabled CTests, TechDraw, and 1,661 CLI tests passed. The application log reported 1,763 GUI tests and `OK`, but a hidden internal callback exception left process exit 1 and normal teardown was not observed. | Baseline `9742174311`, 6,868,634 bytes, SHA-256 `28f744541db04b29e88150531d52aa1f348860a20e7f9737d27145e08c750508`; TechDraw `9741984725`, 594,364 bytes, SHA-256 `0c0ed6552022ec9edeb1955ffd7956e4f46fce808b397e6e329a99d45160f26b` |
-| Security `33340018525` | **Failed only at Dependency Review.** CodeQL actions, C/C++, and Python all passed. Dependency Review remained fail-closed because the repository Dependency Graph is disabled. | None |
+| Linux `33351364928` | **Passed.** Release build, 1,427/1,427 enabled CTests, TechDraw GUI export, 1,667 CLI tests, and 1,769 GUI tests all passed. | Baseline `9745744628`, 6,900,224 bytes, SHA-256 `69eb527f23cbd774f02e475cde67d22bb783da18ddf6e16e0aa6880db1e069a3`; TechDraw `9745630312`, 601,249 bytes, SHA-256 `a5a97892953b756dfd409468ae0e2790b6b7faca75719f657781d3621c3c4e76` |
+| macOS arm64, run `33351364926` | **Failed at GUI process exit.** Build, 1,427/1,427 enabled CTests, TechDraw, and 1,667 CLI tests passed. The application log reported 1,769 GUI tests and `OK`, but the process exited 1 without the retained exit-state diagnostic needed to locate the hidden post-suite exception. | Baseline `9745511552`, 6,890,234 bytes, SHA-256 `39f7f33fef2c5ceeb5872f8ecb6137c3e94246f161c4583ce0e06a9ff2cb598c`; TechDraw `9745373685`, 594,366 bytes, SHA-256 `017a0fa04cf696ecfa163ce67ff45ec7e851e47c15758f6c7fe06af8d386b475` |
+| macOS x86_64, run `33351364926` | **Failed only at GUI process teardown.** Build and pre-GUI gates passed. CTest registered 1,433 and passed all 1,427 enabled tests in 293.73 seconds; lifecycle passed in 41.37 seconds; TechDraw passed; CLI ran 1,667 tests with 10 skips and parser count 1,667 in 130.752 seconds. The application log reported 1,769 GUI tests in `3.72e+02s`, `OK`, and `Finish: Event loop left`, then the process exited 1 without normal teardown or the required retained-state diagnostic. | Baseline `9746276420`, 6,891,562 bytes, SHA-256 `2594b6fbaf51e8834f5ed5b16192f241b631780848f9ea2b266b7e6528c648e7`; TechDraw `9746115713`, 594,362 bytes, SHA-256 `89dde10370793508de834061704e10f9fd20abc2b03082ea0803023c23bb3de7` |
+| Windows `33351364927` | **Failed only at the post-CTest TechDraw step.** The 6,760-edge build passed. Runtime helper tests passed 5/5 and registered 23 runtime directories containing 46 artifacts. Discovery found 1,435 tests; all 1,429 enabled CTests passed in 118.89 seconds, including lifecycle in 25.29 seconds. The next workflow process could not find the qwindows platform plugin because CTest-scoped Qt variables did not cross the step boundary, then timed out at exactly 10 minutes. CLI and GUI were skipped. | Baseline `9746931991`, 780,724 bytes, SHA-256 `bc9783b668f0b3061d40302093a8114863856a2ed558db9fd8c6994935d4b69f`; TechDraw diagnostics `9746931185`, 4,065 bytes, SHA-256 `11edd50daec20541938ce3ccb473f75f3cf677eb3dacbd0350a1e73e44349e58` |
+| Security `33351364935` | **Failed only at Dependency Review.** CodeQL actions, C/C++, and Python all passed. Dependency Review remained fail-closed because the repository Dependency Graph is disabled. | None |
 
 ## Active blockers
 
 | Priority | Blocker | Current truth |
 |---|---|---|
-| P0 | Remote integration evidence | At `8edc271`, Linux is green; Windows fails only the internal lifecycle CTest; both macOS architectures exit 1 after 1,763-test `OK` GUI logs without observed teardown. Combined implementation through `1208166` is locally green but has no native rerun. |
-| P0 | Windows native tests | Native Qt plugin discovery and both Qt tests are proven. Automatic last-window quit preempts internal callbacks, producing return 0, no observation, and no Python finalization. Commit `1208166` disables that automatic quit only in internal mode and requires a native rerun. |
-| P0 | macOS matrix | Both architectures pass build, CTest, TechDraw, and CLI, then report 1,763 GUI tests and `OK` but exit 1 without observed normal teardown. Automated internal-result propagation requires both native reruns. |
+| P0 | Remote integration evidence | At `021591f`, Linux is green; both macOS architectures exit 1 after 1,769-test `OK` logs without a retained-state diagnostic; Windows passes all 1,429 enabled CTests but later TechDraw lacks qwindows and times out. Combined implementation through `b022722` is locally green but has no native rerun. |
+| P0 | Windows native tests | Build, runtime discovery, native Qt tests, lifecycle, and all 1,429 enabled CTests are proven. The later TechDraw step lacks CTest-scoped Qt variables and times out after qwindows lookup fails. Cross-step `GITHUB_ENV` export `b022722` requires a real Windows rerun through TechDraw, CLI, and GUI. |
+| P0 | macOS matrix | Both architectures pass build, CTest, TechDraw, and CLI, then report 1,769 GUI tests and `OK` but exit 1 without the diagnostic needed to identify the hidden exception or normal teardown. Both require the retained-state rerun. |
 | P0 | Dependency Review | Last CodeQL jobs were green, but Dependency Review is fail-closed while the repository Dependency Graph is disabled. CodeQL is not a replacement. |
 | P0 | Untrusted input | Audit evidence found PR #27's symlink graph escape; the stale DTD-only stack is insufficient. Release-blocker issue #24 remains unresolved. |
 | P0 | Legal / provenance | Restricted material-pattern assets, inherited identity/provenance gaps, and a prebuilt Windows thumbnail DLL remain unresolved. The legal audit is NO-GO. |
@@ -249,7 +316,7 @@ All artifacts below expire on 2026-09-29.
 
 1. Re-fetch the resulting integration branch and PR #28 head and record the exact state-update SHA/tree in the PR comment without predicting it here.
 2. Run and retrieve Linux, Windows, macOS arm64, macOS x86_64, and Security at that verified head before accepting M0.
-3. Triage exact failing steps and preserve every artifact; do not mask nonzero results or bypass teardown.
+3. Triage exact requested/authoritative/raw/stored/selected state and preserve every artifact; do not mask nonzero results or bypass teardown.
 4. Retrieve every job result, exact failed step, log, and artifact; do not summarize a queued or skipped gate as passed.
 5. Fix root causes and repeat until green, or document the exact external setting blocker.
 6. Only then select the next roadmap slice. Highest priority remains safety, correctness, and baseline integrity before UI work.

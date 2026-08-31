@@ -72,6 +72,24 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
 - Prevented Qt automatic last-window exit from preempting queued callbacks only
   in internal unittest mode. Explicit exit paths remain unchanged. The verified
   connector-created commit is `12081664bccfb342be1f50f3a3e6d0e91a23be22`.
+- Added retained internal exit-state diagnostics covering requested, first
+  authoritative, raw event-loop, stored, and selected codes, plus gated lifecycle
+  stage markers. Added isolated hostile test-name fixtures with bounded quoted
+  escaping. Connector-created commits are `23a82e5033c0f6111c5a7266aa4ba3f7de8d5cff`
+  and `01ed5b671f5aadabdcaec1b23b092e5c1e15520e`.
+- Restricted worker callers to primitive mutex state and moved only SystemExit
+  request detail into a context-bound GUI-thread lambda. Event-loop state is
+  emitted synchronously after `QApplication::exec`; lifecycle markers are
+  emitted by `MainGui`. Thus every Config/QObject read and marker emission occurs
+  on the GUI/main thread. Markers are Internal/lifecycle-gated and `noexcept`, and
+  ordinary GUI runs emit none. The connector-created commit is
+  `77dc9527f937f7d7f8e28f7eae65ee281cf12cad`.
+- Exported validated Windows Qt runtime variables through `GITHUB_ENV` so
+  TechDraw, CLI, and GUI inherit the same qwindows/qoffscreen environment already
+  used by CTest. Exact plugin identity, same-file resolution, non-ASCII paths,
+  and command-file injection are covered without copying DLLs or hardcoding
+  package directories. The connector-created commit is
+  `b022722d50e463dd4d4aefbeedd2c5e340670d5a`.
 
 ### Verification
 
@@ -133,6 +151,28 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   with 10 skips, zero failures, and parser count 1,667 in 149.782 seconds; and
   1,769/1,769 faithful GUI tests with exit 0 in `4.2e+02s`. The six-test CLI
   increase is the newly registered `GuiTestRunner` diagnostic coverage.
+- At `021591f`, Linux passed 1,427 CTests, 1,667 CLI tests, and 1,769 GUI tests.
+  macOS arm64 passed all pre-GUI gates and logged 1,769 tests `OK` before exit 1
+  without a retained-state diagnostic. macOS x86_64 likewise passed 1,427
+  enabled CTests, lifecycle, TechDraw, and 1,667 CLI tests, then logged 1,769 GUI
+  tests `OK` and event-loop return before exit 1 without teardown. Windows
+  remained building at the recorded connector snapshot.
+- Local retained-state evidence completed 96 effective instrumentation edges;
+  the repeat completed 76 version-triggered relink edges and was not a no-op.
+  Helper 6/6, all five lifecycle outcomes in 19.84 seconds, 1,427/1,427 CTests
+  in 102.28 seconds, unchanged-path CLI 1,667 in 149.782 seconds, and GUI
+  1,769/1,769 with exit 0 in `4.25e+02s` passed.
+- Final gating evidence passed a 76-edge warm rebuild/relink, helper 6/6, all
+  five lifecycle outcomes in 20.54 seconds, 1,427/1,427 enabled CTests in 103.96
+  seconds, and 1,769/1,769 GUI tests with exit 0 in `4.22e+02s`. A separate
+  ordinary hidden GUI process exited 0 and contained no Internal diagnostic
+  markers. The unchanged CLI result remains 1,667 tests with 10 skips.
+- At `021591f`, Windows passed its 6,760-edge build, runtime helper 5/5, 1,429
+  enabled CTests, and lifecycle. The following TechDraw step could not find
+  qwindows and timed out at 10 minutes because CTest-local variables did not
+  cross the workflow-step boundary; CLI and GUI were skipped.
+- The cross-step helper update passed 15/15 unit tests, Black, syntax, workflow
+  YAML, and diff checks locally.
 
 ### Security
 
@@ -141,6 +181,12 @@ from FreeCAD. See FreeCAD's repository and release notes for upstream history.
   application error log. Those diagnostics may contain paths, exception text,
   and test values and must be treated as potentially sensitive CI output; the
   wrapper rethrows rather than suppressing or converting the failure.
+- Internal retained-state logs quote, escape, and cap active test identity at
+  512 code units, preventing control-character injection. Sanitized test names
+  and paths can still be disclosed in retained CI/application logs.
+- Retained-state and active-test disclosure is now restricted to Internal or
+  lifecycle diagnostics on the GUI thread; an ordinary hidden GUI marker scan
+  is empty. Internal retained logs remain potentially sensitive.
 
 ### Known limitations
 
