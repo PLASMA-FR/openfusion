@@ -46,6 +46,7 @@ public:
     void clearUnitTests();
     QString getUnitTest() const;
     bool runCurrentTest();
+    bool runCurrentTestAutomated();
     void setStatusText(const QString& text);
     void setProgressFraction(float fraction, const QString& = QString());
     void clearErrorList();
@@ -71,6 +72,8 @@ private:
     void onHelpButtonClicked();
     void onAboutButtonClicked();
     void onStartButtonClicked();
+    void executeCurrentTest();
+    void runTestInterpreter();
     void setupConnections();
 
 private:

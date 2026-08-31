@@ -16,7 +16,7 @@ if(BUILD_GUI)
     set_tests_properties(OpenFusion_GUI_SystemExit_Propagation PROPERTIES
         LABELS "acceptance;gui;lifecycle;cleanup"
         RUN_SERIAL TRUE
-        TIMEOUT 420
+        TIMEOUT 510
     )
     if(WIN32)
         set_property(
