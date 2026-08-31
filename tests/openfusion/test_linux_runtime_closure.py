@@ -160,18 +160,28 @@ class RuntimeClosureTests(unittest.TestCase):
 
     def test_openvino_license_provenance_is_exact_and_self_contained(self) -> None:
         packages, evidence = closure._license_provenance()
-        self.assertEqual(11, len(packages))
-        self.assertEqual(4, len(evidence))
-        self.assertTrue(
-            all(
-                url.startswith(
-                    "https://conda.anaconda.org/conda-forge/linux-aarch64/libopenvino"
-                )
-                and license_name == "Apache-2.0"
-                and len(package_sha256) == 64
-                for url, (package_sha256, license_name) in packages.items()
-            )
+        locked_packages = closure._parse_pixi_lock(
+            (ROOT / "pixi.lock").read_bytes()
         )
+        locked_linux_openvino = {
+            url: record.sha256
+            for url, record in locked_packages.items()
+            if "/linux-64/libopenvino" in url
+            or "/linux-aarch64/libopenvino" in url
+        }
+        self.assertEqual(24, len(packages))
+        self.assertEqual(set(locked_linux_openvino), set(packages))
+        self.assertEqual(4, len(evidence))
+        self.assertEqual(
+            {"linux-64", "linux-aarch64"},
+            {
+                "linux-aarch64" if "/linux-aarch64/" in url else "linux-64"
+                for url in packages
+            },
+        )
+        for url, (package_sha256, license_name) in packages.items():
+            self.assertEqual(locked_linux_openvino[url], package_sha256)
+            self.assertEqual("Apache-2.0", license_name)
         self.assertEqual(
             {
                 "licenses/openvino-2025.0.0/LICENSE",
