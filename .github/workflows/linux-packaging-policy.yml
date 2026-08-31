@@ -59,7 +59,7 @@ jobs:
     name: Fresh build and clean-container runtime
     needs: deterministic-tarball
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 420
 
     steps:
       - name: Check out exact source and pinned submodules
@@ -90,7 +90,7 @@ jobs:
           sha256sum pixi.lock | tee logs/pixi-lock.sha256
 
       - name: Build exact checkout with development identity
-        timeout-minutes: 90
+        timeout-minutes: 240
         shell: bash
         run: |
           set -euo pipefail

@@ -795,6 +795,16 @@ class PurePolicyTests(SignedIdentityMixin, unittest.TestCase):
         self.assertIn("          command -v zstd\n", workflow)
         self.assertIn("          command -v openssl\n", workflow)
         self.assertIn("  clean-container-runtime:\n", workflow)
+        clean_job = workflow.split("  clean-container-runtime:\n", 1)[1]
+        self.assertIn("    timeout-minutes: 420\n", clean_job)
+        build_step = clean_job.split(
+            "      - name: Build exact checkout with development identity\n",
+            1,
+        )[1]
+        self.assertIn("        timeout-minutes: 240\n", build_step)
+        self.assertIn("        timeout-minutes: 45\n", clean_job)
+        self.assertIn("        timeout-minutes: 60\n", clean_job)
+        self.assertIn("        timeout-minutes: 20\n", clean_job)
         self.assertEqual(
             2,
             workflow.count(
