@@ -393,10 +393,15 @@ def _relocated_identities(
         raise SecurityError("Conda prefix placeholder is absent from authenticated payload")
     replacements = {str(prefix).encode("utf-8"), prefix.as_posix().encode("utf-8")}
     transformed = []
+    original_identity = (hashlib.sha256(original).hexdigest(), len(original))
     for replacement in replacements:
         if file_mode == "binary":
             if len(replacement) > len(encoded_placeholder):
-                raise SecurityError("active Conda prefix exceeds binary placeholder capacity")
+                # Rattler leaves an over-capacity binary unchanged. Accept only
+                # the exact authenticated archive bytes; never truncate or
+                # synthesize a replacement prefix.
+                transformed.append(original_identity)
+                continue
             replacement = replacement + b"\0" * (len(encoded_placeholder) - len(replacement))
         elif file_mode != "text":
             raise SecurityError(f"unsupported Conda prefix file mode: {file_mode!r}")

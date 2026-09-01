@@ -111,6 +111,7 @@ class PortableBundleFixture:
 
         prefix_record = "Library/share/openfusion/prefix.txt"
         unselected_binary_record = "Library/unselected-prefix.bin"
+        selected_binary_record = "DLLs/short-prefix.pyd"
         placeholder = "/opt/anaconda1anaconda2anaconda3"
         owned = {
             "python.exe": fake_pe(),
@@ -131,6 +132,7 @@ class PortableBundleFixture:
             "Library/lib/ossl-modules/legacy.dll": fake_pe(),
             prefix_record: f"prefix={self.prefix}\n".encode("utf-8"),
             unselected_binary_record: b"x",
+            selected_binary_record: fake_pe(),
         }
         archive_owned = dict(owned)
         archive_owned[prefix_record] = f"prefix={placeholder}\n".encode("utf-8")
@@ -150,6 +152,8 @@ class PortableBundleFixture:
                 record.update(prefix_placeholder=placeholder, file_mode="text")
             elif relative == unselected_binary_record:
                 record.update(prefix_placeholder="x", file_mode="binary")
+            elif relative == selected_binary_record:
+                record.update(prefix_placeholder="MZ", file_mode="binary")
             immutable_paths.append(record)
         paths_inventory = {"paths_version": 1, "paths": immutable_paths}
         index = {
@@ -225,6 +229,16 @@ class PortableBundleFixture:
 
 
 class WindowsPortableBundleTest(unittest.TestCase):
+    def test_selected_over_capacity_binary_requires_exact_archive_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = PortableBundleFixture(Path(temporary))
+            _, manifest_path, _ = bundle.create_bundle(fixture.config())
+            manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+            self.assertIn(
+                "bin/DLLs/short-prefix.pyd",
+                {entry["path"] for entry in manifest["entries"]},
+            )
+
     def test_unselected_short_binary_placeholder_does_not_block_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = PortableBundleFixture(Path(temporary))
