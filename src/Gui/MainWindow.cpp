@@ -178,6 +178,38 @@ void reportMainWindowDestructionCount(const char* stage, long long count) noexce
     std::fprintf(stderr, "OpenFusion lifecycle: stage=%s count=%lld\n", stage, count);
     std::fflush(stderr);
 }
+
+void reportStatusBarChildOrder(const QList<QPointer<QStatusBar>>& statusBars) noexcept
+{
+    if (!mainWindowTeardownDiagnosticsEnabled()) {
+        return;
+    }
+    try {
+        long long statusBarIndex = 0;
+        for (const QPointer<QStatusBar>& statusBar : statusBars) {
+            if (!statusBar) {
+                ++statusBarIndex;
+                continue;
+            }
+            long long childIndex = 0;
+            const QObjectList children = statusBar->children();
+            for (QObject* child : children) {
+                std::fprintf(
+                    stderr,
+                    "OpenFusion lifecycle: stage=main-window-owned-statusbar-child "
+                    "statusbar=%lld index=%lld class=%s\n",
+                    statusBarIndex,
+                    childIndex++,
+                    child->metaObject()->className()
+                );
+            }
+            ++statusBarIndex;
+        }
+        std::fflush(stderr);
+    }
+    catch (...) {
+    }
+}
 }  // namespace
 
 namespace Gui
@@ -560,11 +592,23 @@ MainWindow::~MainWindow()
         QObject::disconnect(object, nullptr, this, nullptr);
     }
     reportMainWindowDestructionStage("main-window-derived-callbacks-disconnect-end");
+    delete d->status;
+    d->status = nullptr;
+    const QList<QPointer<QStatusBar>> ownedStatusBars
+        = MainWindowInternal::ownedStatusBars(this);
+    reportMainWindowDestructionCount(
+        "main-window-owned-statusbar-destruct-begin",
+        static_cast<long long>(ownedStatusBars.size())
+    );
+    reportStatusBarChildOrder(ownedStatusBars);
+    MainWindowInternal::destroyOwnedStatusBars(this, ownedStatusBars);
+    reportMainWindowDestructionCount(
+        "main-window-owned-statusbar-destruct-end",
+        static_cast<long long>(ownedStatusBars.size())
+    );
     reportMainWindowDestructionStage("main-window-workbench-managers-destruct-begin");
     WorkbenchManager::destruct();
     reportMainWindowDestructionStage("main-window-workbench-managers-destruct-end");
-    delete d->status;
-    d->status = nullptr;
     // QWidget teardown may still emit subWindowActivated while child MDI
     // windows are being destroyed. Disconnect first so shutdown cannot re-enter
     // MainWindow slots after derived destruction has started.
@@ -616,17 +660,6 @@ MainWindow::~MainWindow()
         static_cast<long long>(ownedDockWidgets.size())
     );
 
-    const QList<QPointer<QStatusBar>> ownedStatusBars
-        = MainWindowInternal::ownedStatusBars(this);
-    reportMainWindowDestructionCount(
-        "main-window-owned-statusbar-destruct-begin",
-        static_cast<long long>(ownedStatusBars.size())
-    );
-    MainWindowInternal::destroyOwnedStatusBars(this, ownedStatusBars);
-    reportMainWindowDestructionCount(
-        "main-window-owned-statusbar-destruct-end",
-        static_cast<long long>(ownedStatusBars.size())
-    );
     delete d;
     instance = nullptr;
     reportMainWindowDestructionStage("main-window-destruct-body-end");

@@ -365,6 +365,8 @@ def _run_scenario(
         "main-window-destruct-body-begin",
         "main-window-derived-callbacks-disconnect-begin",
         "main-window-derived-callbacks-disconnect-end",
+        "main-window-owned-statusbar-destruct-begin",
+        "main-window-owned-statusbar-destruct-end",
         "main-window-workbench-managers-destruct-begin",
         "main-window-workbench-managers-destruct-end",
         "main-window-owned-ui-destruct-begin",
@@ -377,8 +379,6 @@ def _run_scenario(
         "main-window-owned-toolbars-destruct-end",
         "main-window-owned-docks-destruct-begin",
         "main-window-owned-docks-destruct-end",
-        "main-window-owned-statusbar-destruct-begin",
-        "main-window-owned-statusbar-destruct-end",
         "main-window-destruct-body-end",
     )
     for stage in expected_lifecycle_stages:
@@ -417,6 +417,8 @@ def _run_scenario(
         "main-window-destruct-body-begin",
         "main-window-derived-callbacks-disconnect-begin",
         "main-window-derived-callbacks-disconnect-end",
+        "main-window-owned-statusbar-destruct-begin",
+        "main-window-owned-statusbar-destruct-end",
         "main-window-workbench-managers-destruct-begin",
         "main-window-workbench-managers-destruct-end",
         "main-window-owned-ui-destruct-begin",
@@ -429,8 +431,6 @@ def _run_scenario(
         "main-window-owned-toolbars-destruct-end",
         "main-window-owned-docks-destruct-begin",
         "main-window-owned-docks-destruct-end",
-        "main-window-owned-statusbar-destruct-begin",
-        "main-window-owned-statusbar-destruct-end",
         "main-window-destruct-body-end",
     )
     teardown_offsets = [
