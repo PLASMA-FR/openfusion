@@ -301,7 +301,17 @@ jobs:
           docker run "${common[@]}" "$image" \
             /opt/openfusion/bin/OpenFusionCmd --version |
             tee logs/clean-container-version.log
-          grep -Fx "OpenFusion $OPENFUSION_VERSION" logs/clean-container-version.log
+          python3 packaging/linux/verify_runtime_version_output.py \
+            --expected-version "$OPENFUSION_VERSION" \
+            --input logs/clean-container-version.log
+          docker run "${common[@]}" "$image" \
+            /opt/openfusion/bin/OpenFusion --version |
+            tee logs/clean-container-gui-version.log
+          printf 'OpenFusion %s\n' "$OPENFUSION_VERSION" \
+            >"$RUNNER_TEMP/expected-gui-version.txt"
+          cmp --silent \
+            "$RUNNER_TEMP/expected-gui-version.txt" \
+            logs/clean-container-gui-version.log
           docker run "${common[@]}" \
             -v "$RUNNER_TEMP/runtime-smoke.py:/runtime-smoke.py:ro" \
             "$image" /opt/openfusion/bin/OpenFusionCmd /runtime-smoke.py |

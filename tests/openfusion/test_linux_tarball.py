@@ -817,6 +817,9 @@ class PurePolicyTests(SignedIdentityMixin, unittest.TestCase):
         self.assertIn("--network none --read-only", workflow)
         self.assertIn("OPENFUSION_CLEAN_CLI_SMOKE_OK", workflow)
         self.assertIn("OPENFUSION_CLEAN_GUI_SMOKE_OK", workflow)
+        self.assertIn("verify_runtime_version_output.py", workflow)
+        self.assertIn("clean-container-gui-version.log", workflow)
+        self.assertIn("cmp --silent", workflow)
         self.assertLess(
             workflow.index("Run network-isolated clean-container CLI and GUI lifecycle"),
             workflow.index("Upload verified development archive"),

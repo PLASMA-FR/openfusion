@@ -15,6 +15,9 @@ import unittest
 
 ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "packaging" / "linux" / "runtime_closure.py"
+VERSION_SCRIPT = (
+    ROOT / "packaging" / "linux" / "verify_runtime_version_output.py"
+)
 LAUNCHER = ROOT / "src" / "Main" / "OpenFusionRuntimeLauncher.c"
 MAIN_CMAKE = ROOT / "src" / "Main" / "CMakeLists.txt"
 SPEC = importlib.util.spec_from_file_location("openfusion_runtime_closure", SCRIPT)
@@ -22,6 +25,13 @@ assert SPEC is not None and SPEC.loader is not None
 closure = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = closure
 SPEC.loader.exec_module(closure)
+VERSION_SPEC = importlib.util.spec_from_file_location(
+    "openfusion_runtime_version", VERSION_SCRIPT
+)
+assert VERSION_SPEC is not None and VERSION_SPEC.loader is not None
+runtime_version = importlib.util.module_from_spec(VERSION_SPEC)
+sys.modules[VERSION_SPEC.name] = runtime_version
+VERSION_SPEC.loader.exec_module(runtime_version)
 
 
 def dynamic_elf(
@@ -157,6 +167,31 @@ class RuntimeClosureTests(unittest.TestCase):
         self.assertEqual(("libc.so.6", "libdependency.so"), info.needed)
         self.assertEqual("libsample.so.1", info.soname)
         self.assertEqual(("$ORIGIN/../lib", "$ORIGIN"), info.runpath)
+
+    def test_cli_version_output_requires_exact_version_revision_and_one_line(self) -> None:
+        version = "1.1.3-dev.g26e03865850f"
+        accepted = (
+            f"OpenFusion {version} Revision: 20260831 (Git shallow)\n".encode()
+        )
+        self.assertEqual(
+            "20260831",
+            runtime_version.validate_version_output(accepted, version),
+        )
+        rejected = (
+            f"OpenFusion 1.1.3-dev.gwrong Revision: 20260831 (Git shallow)\n",
+            f"OpenFusion {version} Revision:  (Git shallow)\n",
+            f"OpenFusion {version} Revision: bad revision (Git shallow)\n",
+            f"OpenFusion {version} Revision: /tmp/build (Git shallow)\n",
+            f"OpenFusion {version} Revision: 20260831 (Git dirty)\n",
+            f"OpenFusion {version} Revision: 20260831 (Git shallow)",
+            f"OpenFusion {version} Revision: 20260831 (Git shallow)\nextra\n",
+        )
+        for content in rejected:
+            with self.subTest(content=content):
+                with self.assertRaises(runtime_version.VersionOutputError):
+                    runtime_version.validate_version_output(
+                        content.encode("utf-8"), version
+                    )
 
     def test_openvino_license_provenance_is_exact_and_self_contained(self) -> None:
         packages, evidence = closure._license_provenance()
