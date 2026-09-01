@@ -2,14 +2,18 @@
 
 #include <QAction>
 #include <QCoreApplication>
+#include <QDockWidget>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
 #include <QPointer>
+#include <QStatusBar>
 #include <QTest>
+#include <QToolBar>
 
 #include <array>
 
+#include "Gui/MainWindowCleanup.h"
 #include "Gui/MenuManagerCleanup.h"
 
 class testMenuManager: public QObject
@@ -17,6 +21,39 @@ class testMenuManager: public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void ownedMainWindowShellCanBeDestroyedSynchronously()
+    {
+        QMainWindow mainWindow;
+        QObject externalActionOwner;
+        auto* externalAction = new QAction(&externalActionOwner);
+        QPointer<QAction> externalActionGuard(externalAction);
+        auto* toolBar = new QToolBar(&mainWindow);
+        auto* dockWidget = new QDockWidget(&mainWindow);
+        auto* statusBar = new QStatusBar(&mainWindow);
+        toolBar->addAction(externalAction);
+        dockWidget->addAction(externalAction);
+        mainWindow.addToolBar(toolBar);
+        mainWindow.addDockWidget(Qt::LeftDockWidgetArea, dockWidget);
+        mainWindow.setStatusBar(statusBar);
+        QPointer<QToolBar> toolBarGuard(toolBar);
+        QPointer<QDockWidget> dockWidgetGuard(dockWidget);
+        QPointer<QStatusBar> statusBarGuard(statusBar);
+
+        const auto ownedToolBars = Gui::MainWindowInternal::ownedToolBars(&mainWindow);
+        const auto ownedDockWidgets = Gui::MainWindowInternal::ownedDockWidgets(&mainWindow);
+        const auto ownedStatusBars = Gui::MainWindowInternal::ownedStatusBars(&mainWindow);
+        Gui::MainWindowInternal::destroyOwnedToolBars(&mainWindow, ownedToolBars);
+        Gui::MainWindowInternal::destroyOwnedDockWidgets(&mainWindow, ownedDockWidgets);
+        Gui::MainWindowInternal::destroyOwnedStatusBars(&mainWindow, ownedStatusBars);
+
+        QVERIFY(toolBarGuard.isNull());
+        QVERIFY(dockWidgetGuard.isNull());
+        QVERIFY(statusBarGuard.isNull());
+        QVERIFY(!externalActionGuard.isNull());
+        QCOMPARE(externalAction->parent(), &externalActionOwner);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    }
+
     void detachedMenuWidgetCanBeDestroyedSynchronously()
     {
         QMainWindow mainWindow;

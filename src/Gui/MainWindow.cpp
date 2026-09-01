@@ -87,6 +87,7 @@
 #include <TaskView/TaskView.h>
 
 #include "MainWindow.h"
+#include "MainWindowCleanup.h"
 #include "Action.h"
 #include "Assistant.h"
 #include "BitmapFactory.h"
@@ -166,6 +167,15 @@ void reportMainWindowDestructionStage(const char* stage) noexcept
         return;
     }
     std::fprintf(stderr, "OpenFusion lifecycle: stage=%s\n", stage);
+    std::fflush(stderr);
+}
+
+void reportMainWindowDestructionCount(const char* stage, long long count) noexcept
+{
+    if (!mainWindowTeardownDiagnosticsEnabled()) {
+        return;
+    }
+    std::fprintf(stderr, "OpenFusion lifecycle: stage=%s count=%lld\n", stage, count);
     std::fflush(stderr);
 }
 }  // namespace
@@ -533,6 +543,28 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags f)
 MainWindow::~MainWindow()
 {
     reportMainWindowDestructionStage("main-window-destruct-body-begin");
+    reportMainWindowDestructionStage("main-window-derived-callbacks-disconnect-begin");
+    d->saveStateTimer.stop();
+    d->restoreStateTimer.stop();
+    d->saveStateTimer.disconnect();
+    d->restoreStateTimer.disconnect();
+    d->actionTimer->stop();
+    d->statusTimer->stop();
+    d->activityTimer->stop();
+    d->connParam.disconnect();
+    qApp->removeEventFilter(this);
+    QObject::disconnect(QApplication::clipboard(), nullptr, this, nullptr);
+    const QList<QObject*> ownedObjects = findChildren<QObject*>();
+    for (QObject* object : ownedObjects) {
+        object->removeEventFilter(this);
+        QObject::disconnect(object, nullptr, this, nullptr);
+    }
+    reportMainWindowDestructionStage("main-window-derived-callbacks-disconnect-end");
+    reportMainWindowDestructionStage("main-window-workbench-managers-destruct-begin");
+    WorkbenchManager::destruct();
+    reportMainWindowDestructionStage("main-window-workbench-managers-destruct-end");
+    delete d->status;
+    d->status = nullptr;
     // QWidget teardown may still emit subWindowActivated while child MDI
     // windows are being destroyed. Disconnect first so shutdown cannot re-enter
     // MainWindow slots after derived destruction has started.
@@ -561,7 +593,40 @@ MainWindow::~MainWindow()
         delete ownedMenuWidget;
     }
     reportMainWindowDestructionStage("main-window-menu-widget-destruct-end");
-    delete d->status;
+    const QList<QPointer<QToolBar>> ownedToolBars = MainWindowInternal::ownedToolBars(this);
+    reportMainWindowDestructionCount(
+        "main-window-owned-toolbars-destruct-begin",
+        static_cast<long long>(ownedToolBars.size())
+    );
+    MainWindowInternal::destroyOwnedToolBars(this, ownedToolBars);
+    reportMainWindowDestructionCount(
+        "main-window-owned-toolbars-destruct-end",
+        static_cast<long long>(ownedToolBars.size())
+    );
+
+    const QList<QPointer<QDockWidget>> ownedDockWidgets
+        = MainWindowInternal::ownedDockWidgets(this);
+    reportMainWindowDestructionCount(
+        "main-window-owned-docks-destruct-begin",
+        static_cast<long long>(ownedDockWidgets.size())
+    );
+    MainWindowInternal::destroyOwnedDockWidgets(this, ownedDockWidgets);
+    reportMainWindowDestructionCount(
+        "main-window-owned-docks-destruct-end",
+        static_cast<long long>(ownedDockWidgets.size())
+    );
+
+    const QList<QPointer<QStatusBar>> ownedStatusBars
+        = MainWindowInternal::ownedStatusBars(this);
+    reportMainWindowDestructionCount(
+        "main-window-owned-statusbar-destruct-begin",
+        static_cast<long long>(ownedStatusBars.size())
+    );
+    MainWindowInternal::destroyOwnedStatusBars(this, ownedStatusBars);
+    reportMainWindowDestructionCount(
+        "main-window-owned-statusbar-destruct-end",
+        static_cast<long long>(ownedStatusBars.size())
+    );
     delete d;
     instance = nullptr;
     reportMainWindowDestructionStage("main-window-destruct-body-end");

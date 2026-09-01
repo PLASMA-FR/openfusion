@@ -1239,6 +1239,7 @@ SET(Widget_HPP_SRCS
     ComboLinks.h
     FileDialog.h
     MainWindow.h
+    MainWindowCleanup.h
     MainWindowPy.h
     NotificationBox.h
     NotificationArea.h

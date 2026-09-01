@@ -4,7 +4,7 @@
 import unittest
 
 import FreeCADGui
-from PySide import QtWidgets
+from PySide import QtCore, QtGui, QtWidgets
 
 from OpenFusionGuiSystemExitRegression import (
     INTERNAL_MDI_TEARDOWN_MODE,
@@ -80,6 +80,28 @@ class IntentionalMdiTeardown(unittest.TestCase):
                 FreeCADGui.activateWorkbench(original_workbench)
                 QtWidgets.QApplication.processEvents()
 
+    def _retain_owned_main_window_shell(self, main_window: QtWidgets.QMainWindow) -> None:
+        tool_bar = QtWidgets.QToolBar("OpenFusion retained toolbar", main_window)
+        tool_bar.setObjectName("OpenFusionRetainedToolBar")
+        main_window.addToolBar(tool_bar)
+
+        dock_widget = QtWidgets.QDockWidget("OpenFusion retained dock", main_window)
+        dock_widget.setObjectName("OpenFusionRetainedDockWidget")
+        dock_widget.setWidget(QtWidgets.QLabel("retained dock content", dock_widget))
+        main_window.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock_widget)
+
+        external_action_owner = QtCore.QObject()
+        external_action = QtGui.QAction("OpenFusion retained external action", external_action_owner)
+        tool_bar.addAction(external_action)
+        dock_widget.addAction(external_action)
+
+        status_widget = QtWidgets.QLabel("retained status content", main_window.statusBar())
+        status_widget.setObjectName("OpenFusionRetainedStatusWidget")
+        main_window.statusBar().addPermanentWidget(status_widget)
+        _MDI_TEARDOWN_OBJECTS.extend(
+            (tool_bar, dock_widget, status_widget, external_action_owner, external_action)
+        )
+
     def test_mdi_children_shutdown_cleanly(self) -> None:
         main_window = FreeCADGui.getMainWindow()
         mdi_area = main_window.findChild(QtWidgets.QMdiArea)
@@ -98,5 +120,6 @@ class IntentionalMdiTeardown(unittest.TestCase):
 
         FreeCADGui.updateGui()
         self._exercise_workbench_menu_cache(main_window)
+        self._retain_owned_main_window_shell(main_window)
         observe_gui_runtime(INTERNAL_MDI_TEARDOWN_MODE)
         self.assertTrue(all(window in mdi_area.subWindowList() for window in created_subwindows))

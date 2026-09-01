@@ -8,6 +8,7 @@ import atexit
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -362,12 +363,22 @@ def _run_scenario(
         "app-destruct-complete",
         "main-return",
         "main-window-destruct-body-begin",
+        "main-window-derived-callbacks-disconnect-begin",
+        "main-window-derived-callbacks-disconnect-end",
+        "main-window-workbench-managers-destruct-begin",
+        "main-window-workbench-managers-destruct-end",
         "main-window-owned-ui-destruct-begin",
         "main-window-owned-ui-destruct-end",
         "main-window-owned-menus-destruct-begin",
         "main-window-owned-menus-destruct-end",
         "main-window-menu-widget-destruct-begin",
         "main-window-menu-widget-destruct-end",
+        "main-window-owned-toolbars-destruct-begin",
+        "main-window-owned-toolbars-destruct-end",
+        "main-window-owned-docks-destruct-begin",
+        "main-window-owned-docks-destruct-end",
+        "main-window-owned-statusbar-destruct-begin",
+        "main-window-owned-statusbar-destruct-end",
         "main-window-destruct-body-end",
     )
     for stage in expected_lifecycle_stages:
@@ -379,14 +390,47 @@ def _run_scenario(
     if "OpenFusion lifecycle: stage=run-application-catch" in console_output:
         failures.append(f"{scenario}: unexpected raw runApplication catch marker")
 
+    shell_count_stages = ("owned-toolbars", "owned-docks", "owned-statusbar")
+    for shell_stage in shell_count_stages:
+        begin_pattern = re.compile(
+            rf"OpenFusion lifecycle: stage=main-window-{shell_stage}-destruct-begin count=(\d+)"
+        )
+        end_pattern = re.compile(
+            rf"OpenFusion lifecycle: stage=main-window-{shell_stage}-destruct-end count=(\d+)"
+        )
+        begin_match = begin_pattern.search(console_output)
+        end_match = end_pattern.search(console_output)
+        if not begin_match or not end_match:
+            failures.append(f"{scenario}: missing {shell_stage} teardown count")
+            continue
+        begin_count = int(begin_match.group(1))
+        end_count = int(end_match.group(1))
+        if begin_count != end_count:
+            failures.append(
+                f"{scenario}: {shell_stage} teardown count changed "
+                f"from {begin_count} to {end_count}"
+            )
+        if scenario == INTERNAL_MDI_TEARDOWN_MODE and begin_count < 1:
+            failures.append(f"{scenario}: retained {shell_stage} fixture was not owned")
+
     teardown_markers = (
         "main-window-destruct-body-begin",
+        "main-window-derived-callbacks-disconnect-begin",
+        "main-window-derived-callbacks-disconnect-end",
+        "main-window-workbench-managers-destruct-begin",
+        "main-window-workbench-managers-destruct-end",
         "main-window-owned-ui-destruct-begin",
         "main-window-owned-ui-destruct-end",
         "main-window-owned-menus-destruct-begin",
         "main-window-owned-menus-destruct-end",
         "main-window-menu-widget-destruct-begin",
         "main-window-menu-widget-destruct-end",
+        "main-window-owned-toolbars-destruct-begin",
+        "main-window-owned-toolbars-destruct-end",
+        "main-window-owned-docks-destruct-begin",
+        "main-window-owned-docks-destruct-end",
+        "main-window-owned-statusbar-destruct-begin",
+        "main-window-owned-statusbar-destruct-end",
         "main-window-destruct-body-end",
     )
     teardown_offsets = [
