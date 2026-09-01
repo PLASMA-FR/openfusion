@@ -367,6 +367,8 @@ def _run_scenario(
         "main-window-derived-callbacks-disconnect-end",
         "main-window-owned-statusbar-destruct-begin",
         "main-window-owned-statusbar-destruct-end",
+        "main-window-owned-docks-destruct-begin",
+        "main-window-owned-docks-destruct-end",
         "main-window-workbench-managers-destruct-begin",
         "main-window-workbench-managers-destruct-end",
         "main-window-owned-ui-destruct-begin",
@@ -377,8 +379,6 @@ def _run_scenario(
         "main-window-menu-widget-destruct-end",
         "main-window-owned-toolbars-destruct-begin",
         "main-window-owned-toolbars-destruct-end",
-        "main-window-owned-docks-destruct-begin",
-        "main-window-owned-docks-destruct-end",
         "main-window-destruct-body-end",
     )
     for stage in expected_lifecycle_stages:
@@ -410,8 +410,12 @@ def _run_scenario(
                 f"{scenario}: {shell_stage} teardown count changed "
                 f"from {begin_count} to {end_count}"
             )
-        if scenario == INTERNAL_MDI_TEARDOWN_MODE and begin_count < 1:
-            failures.append(f"{scenario}: retained {shell_stage} fixture was not owned")
+        required_count = 5 if shell_stage == "owned-docks" else 1
+        if scenario == INTERNAL_MDI_TEARDOWN_MODE and begin_count < required_count:
+            failures.append(
+                f"{scenario}: retained {shell_stage} fixture count was "
+                f"{begin_count}; expected at least {required_count}"
+            )
 
     teardown_markers = (
         "main-window-destruct-body-begin",
@@ -419,6 +423,8 @@ def _run_scenario(
         "main-window-derived-callbacks-disconnect-end",
         "main-window-owned-statusbar-destruct-begin",
         "main-window-owned-statusbar-destruct-end",
+        "main-window-owned-docks-destruct-begin",
+        "main-window-owned-docks-destruct-end",
         "main-window-workbench-managers-destruct-begin",
         "main-window-workbench-managers-destruct-end",
         "main-window-owned-ui-destruct-begin",
@@ -429,8 +435,6 @@ def _run_scenario(
         "main-window-menu-widget-destruct-end",
         "main-window-owned-toolbars-destruct-begin",
         "main-window-owned-toolbars-destruct-end",
-        "main-window-owned-docks-destruct-begin",
-        "main-window-owned-docks-destruct-end",
         "main-window-destruct-body-end",
     )
     teardown_offsets = [

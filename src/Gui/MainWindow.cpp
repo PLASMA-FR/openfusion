@@ -94,6 +94,7 @@
 #include "ComboView.h"
 #include "Command.h"
 #include "DockWindowManager.h"
+#include "DiagnosticUtils.h"
 #include "DownloadManager.h"
 #include "FileDialog.h"
 #include "GuiApplication.h"
@@ -176,6 +177,32 @@ void reportMainWindowDestructionCount(const char* stage, long long count) noexce
         return;
     }
     std::fprintf(stderr, "OpenFusion lifecycle: stage=%s count=%lld\n", stage, count);
+    std::fflush(stderr);
+}
+
+void reportMainWindowOwnedObject(
+    const char* stage,
+    long long index,
+    const QByteArray& className,
+    const std::string& objectName,
+    const QByteArray& contentClassName,
+    const std::string& contentObjectName
+) noexcept
+{
+    if (!mainWindowTeardownDiagnosticsEnabled()) {
+        return;
+    }
+    std::fprintf(
+        stderr,
+        "OpenFusion lifecycle: stage=%s index=%lld class=%s object=\"%s\" "
+        "content_class=%s content_object=\"%s\"\n",
+        stage,
+        index,
+        className.constData(),
+        objectName.c_str(),
+        contentClassName.constData(),
+        contentObjectName.c_str()
+    );
     std::fflush(stderr);
 }
 
@@ -606,6 +633,60 @@ MainWindow::~MainWindow()
         "main-window-owned-statusbar-destruct-end",
         static_cast<long long>(ownedStatusBars.size())
     );
+    const QList<QPointer<QDockWidget>> ownedDockWidgets
+        = MainWindowInternal::ownedDockWidgets(this);
+    reportMainWindowDestructionCount(
+        "main-window-owned-docks-destruct-begin",
+        static_cast<long long>(ownedDockWidgets.size())
+    );
+    long long dockIndex = 0;
+    const bool dockDiagnosticsEnabled = mainWindowTeardownDiagnosticsEnabled();
+    for (const QPointer<QDockWidget>& dockWidget : ownedDockWidgets) {
+        QByteArray className;
+        std::string objectName;
+        QByteArray contentClassName;
+        std::string contentObjectName;
+        if (dockDiagnosticsEnabled) {
+            className = dockWidget ? QByteArray(dockWidget->metaObject()->className())
+                                   : QByteArray("deleted");
+            objectName = Detail::collectDiagnosticQString(
+                true,
+                [&dockWidget] { return dockWidget ? dockWidget->objectName() : QString(); }
+            );
+            QWidget* contentWidget = dockWidget ? dockWidget->widget() : nullptr;
+            contentClassName = contentWidget
+                ? QByteArray(contentWidget->metaObject()->className())
+                : QByteArray("unavailable");
+            contentObjectName = Detail::collectDiagnosticQString(
+                true,
+                [contentWidget] { return contentWidget ? contentWidget->objectName() : QString(); }
+            );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-destruct-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        MainWindowInternal::destroyOwnedDockWidget(this, dockWidget);
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-destruct-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        ++dockIndex;
+    }
+    reportMainWindowDestructionCount(
+        "main-window-owned-docks-destruct-end",
+        static_cast<long long>(ownedDockWidgets.size())
+    );
     reportMainWindowDestructionStage("main-window-workbench-managers-destruct-begin");
     WorkbenchManager::destruct();
     reportMainWindowDestructionStage("main-window-workbench-managers-destruct-end");
@@ -646,18 +727,6 @@ MainWindow::~MainWindow()
     reportMainWindowDestructionCount(
         "main-window-owned-toolbars-destruct-end",
         static_cast<long long>(ownedToolBars.size())
-    );
-
-    const QList<QPointer<QDockWidget>> ownedDockWidgets
-        = MainWindowInternal::ownedDockWidgets(this);
-    reportMainWindowDestructionCount(
-        "main-window-owned-docks-destruct-begin",
-        static_cast<long long>(ownedDockWidgets.size())
-    );
-    MainWindowInternal::destroyOwnedDockWidgets(this, ownedDockWidgets);
-    reportMainWindowDestructionCount(
-        "main-window-owned-docks-destruct-end",
-        static_cast<long long>(ownedDockWidgets.size())
     );
 
     delete d;

@@ -85,21 +85,34 @@ class IntentionalMdiTeardown(unittest.TestCase):
         tool_bar.setObjectName("OpenFusionRetainedToolBar")
         main_window.addToolBar(tool_bar)
 
-        dock_widget = QtWidgets.QDockWidget("OpenFusion retained dock", main_window)
-        dock_widget.setObjectName("OpenFusionRetainedDockWidget")
-        dock_widget.setWidget(QtWidgets.QLabel("retained dock content", dock_widget))
-        main_window.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock_widget)
+        dock_widgets = []
+        for index in range(5):
+            dock_widget = QtWidgets.QDockWidget(
+                f"OpenFusion retained dock {index}",
+                main_window,
+            )
+            dock_widget.setObjectName(f"OpenFusionRetainedDockWidget{index}")
+            dock_widget.setWidget(
+                QtWidgets.QLabel(f"retained dock content {index}", dock_widget)
+            )
+            dock_area = (
+                QtCore.Qt.LeftDockWidgetArea
+                if index % 2 == 0
+                else QtCore.Qt.RightDockWidgetArea
+            )
+            main_window.addDockWidget(dock_area, dock_widget)
+            dock_widgets.append(dock_widget)
 
         external_action_owner = QtCore.QObject()
         external_action = QtGui.QAction("OpenFusion retained external action", external_action_owner)
         tool_bar.addAction(external_action)
-        dock_widget.addAction(external_action)
+        dock_widgets[0].addAction(external_action)
 
         status_widget = QtWidgets.QLabel("retained status content", main_window.statusBar())
         status_widget.setObjectName("OpenFusionRetainedStatusWidget")
         main_window.statusBar().addPermanentWidget(status_widget)
         _MDI_TEARDOWN_OBJECTS.extend(
-            (tool_bar, dock_widget, status_widget, external_action_owner, external_action)
+            (tool_bar, *dock_widgets, status_widget, external_action_owner, external_action)
         )
 
     def test_mdi_children_shutdown_cleanly(self) -> None:
