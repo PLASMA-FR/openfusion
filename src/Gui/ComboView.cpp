@@ -57,6 +57,13 @@ ComboView::ComboView(Gui::Document* pcDocument, QWidget* parent)
     splitter->addWidget(prop);
 }
 
-ComboView::~ComboView() = default;
+ComboView::~ComboView()
+{
+    onClose();
+    delete prop;
+    prop = nullptr;
+    delete tree;
+    tree = nullptr;
+}
 
 #include "moc_ComboView.cpp"

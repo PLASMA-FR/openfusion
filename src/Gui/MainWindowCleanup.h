@@ -55,18 +55,51 @@ inline QList<QPointer<QDockWidget>> ownedDockWidgets(QMainWindow* mainWindow)
     return owned;
 }
 
-inline void destroyOwnedDockWidget(
+inline void removeOwnedDockWidget(
     QMainWindow* mainWindow,
     const QPointer<QDockWidget>& dockWidget
 )
 {
     if (dockWidget) {
         mainWindow->removeDockWidget(dockWidget.data());
-        if (dockWidget) {
-            QCoreApplication::removePostedEvents(dockWidget.data(), QEvent::DeferredDelete);
-            delete dockWidget.data();
-        }
     }
+}
+
+inline QPointer<QWidget> detachOwnedDockWidgetContent(const QPointer<QDockWidget>& dockWidget)
+{
+    if (!dockWidget) {
+        return nullptr;
+    }
+    QPointer<QWidget> content = dockWidget->widget();
+    dockWidget->setWidget(nullptr);
+    return content;
+}
+
+inline void destroyDetachedDockWidgetContent(const QPointer<QWidget>& content)
+{
+    if (content) {
+        QCoreApplication::removePostedEvents(content.data(), QEvent::DeferredDelete);
+        delete content.data();
+    }
+}
+
+inline void destroyEmptyDockWidget(const QPointer<QDockWidget>& dockWidget)
+{
+    if (dockWidget) {
+        QCoreApplication::removePostedEvents(dockWidget.data(), QEvent::DeferredDelete);
+        delete dockWidget.data();
+    }
+}
+
+inline void destroyOwnedDockWidget(
+    QMainWindow* mainWindow,
+    const QPointer<QDockWidget>& dockWidget
+)
+{
+    removeOwnedDockWidget(mainWindow, dockWidget);
+    const QPointer<QWidget> content = detachOwnedDockWidgetContent(dockWidget);
+    destroyDetachedDockWidgetContent(content);
+    destroyEmptyDockWidget(dockWidget);
 }
 
 inline void destroyOwnedDockWidgets(

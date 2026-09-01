@@ -641,6 +641,7 @@ MainWindow::~MainWindow()
     );
     long long dockIndex = 0;
     const bool dockDiagnosticsEnabled = mainWindowTeardownDiagnosticsEnabled();
+    DockWindowManager* dockWindowManager = DockWindowManager::instance();
     for (const QPointer<QDockWidget>& dockWidget : ownedDockWidgets) {
         QByteArray className;
         std::string objectName;
@@ -669,9 +670,106 @@ MainWindow::~MainWindow()
                 contentClassName,
                 contentObjectName
             );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-unregister-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
         }
-        MainWindowInternal::destroyOwnedDockWidget(this, dockWidget);
+        if (dockWidget) {
+            dockWindowManager->unregisterDockWindowForDestruction(dockWidget.data());
+        }
         if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-unregister-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-remove-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        MainWindowInternal::removeOwnedDockWidget(this, dockWidget);
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-remove-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-content-detach-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        const QPointer<QWidget> dockContent
+            = MainWindowInternal::detachOwnedDockWidgetContent(dockWidget);
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-content-detach-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-content-destruct-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        MainWindowInternal::destroyDetachedDockWidgetContent(dockContent);
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-content-destruct-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-container-destruct-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        MainWindowInternal::destroyEmptyDockWidget(dockWidget);
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-container-destruct-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
             reportMainWindowOwnedObject(
                 "main-window-owned-dock-destruct-end",
                 dockIndex,

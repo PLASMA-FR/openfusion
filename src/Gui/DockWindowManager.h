@@ -99,6 +99,8 @@ public:
     /// Removes and destroys the QDockWidget that contains \a dock. \a dock
     /// does not get destroyed.
     void removeDockWindow(QWidget* dock);
+    /// Clears manager and overlay registrations before owned dock destruction.
+    void unregisterDockWindowForDestruction(QDockWidget* dock);
     /// Returns the widget with name \a name added with @ref addDockWindow.
     /// @note The returned widget is not the QDockWidget instance
     /// returned from @ref addDockWindow. If you want to access the QDockWidget

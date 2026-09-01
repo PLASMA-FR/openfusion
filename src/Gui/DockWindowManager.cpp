@@ -418,6 +418,31 @@ void DockWindowManager::removeDockWindow(QWidget* widget)
     }
 }
 
+void DockWindowManager::unregisterDockWindowForDestruction(QDockWidget* dock)
+{
+    if (!dock) {
+        return;
+    }
+
+    QWidget* content = dock->widget();
+    d->_dockedWindows.removeAll(dock);
+    for (auto it = d->_dockWindows.begin(); it != d->_dockWindows.end();) {
+        if (it.value() == content) {
+            it = d->_dockWindows.erase(it);
+        }
+        else {
+            ++it;
+        }
+    }
+    if (d->overlayManager) {
+        d->overlayManager->unsetupDockWidget(dock);
+    }
+    disconnect(dock, &QObject::destroyed, this, &DockWindowManager::onDockWidgetDestroyed);
+    if (content) {
+        disconnect(content, &QObject::destroyed, this, &DockWindowManager::onWidgetDestroyed);
+    }
+}
+
 /**
  * If the corresponding dock widget isn't visible then activate it.
  */

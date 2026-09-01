@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 """Passing GUI unittest used only by the lifecycle process driver."""
 
+import os
 import unittest
 
+import FreeCAD
 import FreeCADGui
 from PySide import QtCore, QtGui, QtWidgets
 
@@ -81,6 +83,22 @@ class IntentionalMdiTeardown(unittest.TestCase):
                 QtWidgets.QApplication.processEvents()
 
     def _retain_owned_main_window_shell(self, main_window: QtWidgets.QMainWindow) -> None:
+        document = FreeCAD.newDocument("OpenFusionDockTeardown")
+        selected_object = None
+        for index in range(32):
+            selected_object = document.addObject("App::Feature", f"DockFeature{index}")
+            selected_object.Label = f"Dock feature {index}"
+        document.recompute()
+        document.saveAs(
+            os.path.join(
+                os.environ["OPENFUSION_GUI_SYSTEM_EXIT_STATE_DIR"],
+                "OpenFusionDockTeardown.FCStd",
+            )
+        )
+        if selected_object is not None:
+            FreeCADGui.Selection.addSelection(document.Name, selected_object.Name)
+        FreeCADGui.updateGui()
+
         tool_bar = QtWidgets.QToolBar("OpenFusion retained toolbar", main_window)
         tool_bar.setObjectName("OpenFusionRetainedToolBar")
         main_window.addToolBar(tool_bar)
@@ -112,7 +130,14 @@ class IntentionalMdiTeardown(unittest.TestCase):
         status_widget.setObjectName("OpenFusionRetainedStatusWidget")
         main_window.statusBar().addPermanentWidget(status_widget)
         _MDI_TEARDOWN_OBJECTS.extend(
-            (tool_bar, *dock_widgets, status_widget, external_action_owner, external_action)
+            (
+                document,
+                tool_bar,
+                *dock_widgets,
+                status_widget,
+                external_action_owner,
+                external_action,
+            )
         )
 
     def test_mdi_children_shutdown_cleanly(self) -> None:
