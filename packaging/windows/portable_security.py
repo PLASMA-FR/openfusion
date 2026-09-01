@@ -103,6 +103,12 @@ class OwnedFile:
     owner: Owner
     expected_identities: tuple[tuple[str, int], ...]
     path_type: str
+    archive_path: Path | None = None
+    source_sha256: str | None = None
+    source_size: int | None = None
+    prefix_placeholder: str | None = None
+    file_mode: str | None = None
+    conda_prefix: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -459,7 +465,6 @@ def load_conda_ownership(
         if paths_data.get("paths_version") != 1 or not isinstance(paths_data.get("paths"), list):
             raise SecurityError(f"invalid immutable Conda paths inventory: {identity}")
         specifications = []
-        placeholder_paths: set[str] = set()
         package_paths: set[PurePosixPath] = set()
         for path_record in paths_data["paths"]:
             if not isinstance(path_record, dict) or not isinstance(path_record.get("_path"), str):
@@ -486,25 +491,23 @@ def load_conda_ownership(
             if placeholder is not None:
                 if not isinstance(placeholder, str) or not placeholder or file_mode not in {"text", "binary"}:
                     raise SecurityError(f"invalid immutable prefix relocation: {identity}/{relative}")
-                placeholder_paths.add(relative.as_posix())
             specifications.append((relative, str(path_type), digest.lower(), size, placeholder, file_mode))
-        originals = (
-            _archive_members(archive_path, placeholder_paths, payload=True)
-            if placeholder_paths else {}
-        )
-        if set(originals) != placeholder_paths:
-            raise SecurityError(f"authenticated package payload lacks prefix files: {identity}")
         for relative, path_type, digest, size, placeholder, file_mode in specifications:
             if placeholder is None:
                 identities = ((digest, size),)
+                item = OwnedFile(owner, identities, path_type)
             else:
-                original = originals[relative.as_posix()]
-                if len(original) != size or hashlib.sha256(original).hexdigest() != digest:
-                    raise SecurityError(f"authenticated prefix file differs from paths.json: {identity}/{relative}")
-                identities = _relocated_identities(
-                    original, str(placeholder), str(file_mode), conda_prefix.resolve(strict=True)
+                item = OwnedFile(
+                    owner,
+                    (),
+                    path_type,
+                    archive_path=archive_path,
+                    source_sha256=digest,
+                    source_size=size,
+                    prefix_placeholder=str(placeholder),
+                    file_mode=str(file_mode),
+                    conda_prefix=conda_prefix.resolve(strict=True),
                 )
-            item = OwnedFile(owner, identities, path_type)
             previous = owned.get(relative, ())
             if item in previous:
                 raise SecurityError(
@@ -522,12 +525,50 @@ def resolve_owned_file(
     required_owner: str | None = None,
 ) -> OwnedFile:
     identity = (sha256_file(path), path.stat().st_size)
-    matches = tuple(
-        candidate
-        for candidate in candidates
-        if candidate.path_type == "hardlink"
-        and identity in candidate.expected_identities
-    )
+    matches = []
+    relocation_errors = []
+    for candidate in candidates:
+        if candidate.path_type != "hardlink":
+            continue
+        identities = candidate.expected_identities
+        if not identities:
+            try:
+                if (
+                    candidate.archive_path is None
+                    or candidate.source_sha256 is None
+                    or candidate.source_size is None
+                    or candidate.prefix_placeholder is None
+                    or candidate.file_mode is None
+                    or candidate.conda_prefix is None
+                ):
+                    raise SecurityError("incomplete immutable prefix-relocation record")
+                originals = _archive_members(
+                    candidate.archive_path, {relative.as_posix()}, payload=True
+                )
+                if set(originals) != {relative.as_posix()}:
+                    raise SecurityError("authenticated package payload lacks selected prefix file")
+                original = originals[relative.as_posix()]
+                if (
+                    len(original) != candidate.source_size
+                    or hashlib.sha256(original).hexdigest() != candidate.source_sha256
+                ):
+                    raise SecurityError("authenticated prefix file differs from paths.json")
+                identities = _relocated_identities(
+                    original,
+                    candidate.prefix_placeholder,
+                    candidate.file_mode,
+                    candidate.conda_prefix,
+                )
+            except SecurityError as error:
+                relocation_errors.append(f"{candidate.owner.identity}: {error}")
+                continue
+        if identity in identities:
+            matches.append(candidate)
+    if relocation_errors:
+        raise SecurityError(
+            f"selected runtime prefix relocation could not be authenticated: {relative}: "
+            + "; ".join(relocation_errors)
+        )
     if not matches:
         raise SecurityError(f"installed Conda file identity changed: {relative}")
     if len(matches) != 1:

@@ -110,6 +110,7 @@ class PortableBundleFixture:
             shutil.copyfile(REPOSITORY_ROOT / source_name, legal / destination_name)
 
         prefix_record = "Library/share/openfusion/prefix.txt"
+        unselected_binary_record = "Library/unselected-prefix.bin"
         placeholder = "/opt/anaconda1anaconda2anaconda3"
         owned = {
             "python.exe": fake_pe(),
@@ -129,6 +130,7 @@ class PortableBundleFixture:
             "Library/ssl/cacert.pem": b"# test CA inventory\n",
             "Library/lib/ossl-modules/legacy.dll": fake_pe(),
             prefix_record: f"prefix={self.prefix}\n".encode("utf-8"),
+            unselected_binary_record: b"x",
         }
         archive_owned = dict(owned)
         archive_owned[prefix_record] = f"prefix={placeholder}\n".encode("utf-8")
@@ -146,6 +148,8 @@ class PortableBundleFixture:
             }
             if relative == prefix_record:
                 record.update(prefix_placeholder=placeholder, file_mode="text")
+            elif relative == unselected_binary_record:
+                record.update(prefix_placeholder="x", file_mode="binary")
             immutable_paths.append(record)
         paths_inventory = {"paths_version": 1, "paths": immutable_paths}
         index = {
@@ -221,6 +225,12 @@ class PortableBundleFixture:
 
 
 class WindowsPortableBundleTest(unittest.TestCase):
+    def test_unselected_short_binary_placeholder_does_not_block_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = PortableBundleFixture(Path(temporary))
+            archive, _, _ = bundle.create_bundle(fixture.config())
+            self.assertTrue(archive.is_file())
+
     def test_selected_overlap_resolves_unique_authenticated_owner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "runtime.dll"
@@ -234,6 +244,15 @@ class WindowsPortableBundleTest(unittest.TestCase):
                 path, (mismatch, match), PurePosixPath("Library/bin/runtime.dll")
             )
             self.assertEqual(resolved.owner, second)
+            broken_overlap = bundle.security.OwnedFile(first, (), "hardlink")
+            with self.assertRaisesRegex(
+                bundle.security.SecurityError, "prefix relocation could not be authenticated"
+            ):
+                bundle.security.resolve_owned_file(
+                    path,
+                    (match, broken_overlap),
+                    PurePosixPath("Library/bin/runtime.dll"),
+                )
             with self.assertRaisesRegex(bundle.security.SecurityError, "ambiguous"):
                 bundle.security.resolve_owned_file(
                     path,
