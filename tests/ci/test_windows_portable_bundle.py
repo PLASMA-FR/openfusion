@@ -91,7 +91,9 @@ class PortableBundleFixture:
         self.package_cache = root / "package-cache"
         self.lock = root / "pixi.lock"
         self.license = root / "COPYING"
+        self.legal_license = root / "LICENSE"
         self.notice = root / "NOTICE.md"
+        self.third_party_notice = root / "THIRD_PARTY_NOTICES.md"
         self.qt_manifest = root / "qt-plugins.txt"
         (self.install / "bin").mkdir(parents=True)
         (self.install / "data").mkdir()
@@ -99,7 +101,11 @@ class PortableBundleFixture:
         (self.install / "bin" / "OpenFusionCmd.exe").write_bytes(fake_pe())
         (self.install / "data" / "product.txt").write_text("OpenFusion\n", encoding="utf-8")
         shutil.copyfile(REPOSITORY_ROOT / "COPYING", self.license)
+        shutil.copyfile(REPOSITORY_ROOT / "LICENSE", self.legal_license)
         shutil.copyfile(REPOSITORY_ROOT / "NOTICE.md", self.notice)
+        shutil.copyfile(
+            REPOSITORY_ROOT / "THIRD_PARTY_NOTICES.md", self.third_party_notice
+        )
         legal = self.install / "share" / "doc" / "openfusion"
         legal.mkdir(parents=True)
         for source_name, destination_name in (
@@ -121,15 +127,12 @@ class PortableBundleFixture:
             "Library/bin/Qt6Core.dll": fake_pe(),
             "Library/bin/opengl32sw.dll": fake_pe(),
             "Library/bin/ccx.exe": fake_pe(),
-            "Library/bin/gmsh.exe": fake_pe(),
             "Library/bin/dot.exe": fake_pe(),
             "Library/bin/unflatten.exe": fake_pe(),
             "Library/plugins/platforms/qwindows.dll": fake_pe(),
             "Library/plugins/platforms/qoffscreen.dll": fake_pe(),
             "Library/share/qt6/translations/qt_en.qm": b"translation",
-            "Library/ssl/openssl.cnf": b"openssl_conf = openssl_init\n",
             "Library/ssl/cacert.pem": b"# test CA inventory\n",
-            "Library/lib/ossl-modules/legacy.dll": fake_pe(),
             prefix_record: f"prefix={self.prefix}\n".encode("utf-8"),
             unselected_binary_record: b"x",
             selected_binary_record: fake_pe(),
@@ -220,7 +223,9 @@ class PortableBundleFixture:
             lock_file=self.lock,
             package_cache=self.package_cache,
             license_file=self.license,
+            legal_license_file=self.legal_license,
             notice_file=self.notice,
+            third_party_notice_file=self.third_party_notice,
             output_dir=output or self.output,
             version=self.version,
             source_revision=self.revision,
@@ -510,7 +515,10 @@ class WindowsPortableBundleTest(unittest.TestCase):
             fixture = PortableBundleFixture(Path(temporary))
             notice = fixture.install / "share" / "doc" / "openfusion" / "NOTICE.md"
             notice.write_text("changed notice\n", encoding="utf-8")
-            with self.assertRaisesRegex(bundle.BundleError, "required shipped legal file"):
+            with self.assertRaisesRegex(
+                bundle.BundleError,
+                "conflicting payload sources|required shipped legal file",
+            ):
                 bundle.create_bundle(fixture.config())
 
     def test_refuses_existing_output_collision(self) -> None:

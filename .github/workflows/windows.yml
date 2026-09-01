@@ -810,7 +810,9 @@ jobs:
             --lock-file pixi.lock `
             --package-cache $packageCache `
             --license-file COPYING `
+            --legal-license-file LICENSE `
             --notice-file NOTICE.md `
+            --third-party-notice-file THIRD_PARTY_NOTICES.md `
             --output-dir artifacts/windows `
             --version $version `
             --source-revision $revision `

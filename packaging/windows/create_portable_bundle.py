@@ -39,7 +39,16 @@ FORBIDDEN_PROVIDER_SHA256 = (
     "cf9985aca43c116fe3565436a9da267de8b7f17ceed8c0cae000cfb40e69a1b0"
 )
 IGNORED_SUFFIXES = {".pyc", ".pyo", ".a", ".lib", ".exp", ".pdb"}
-REQUIRED_RUNTIME_EXECUTABLES = {"ccx.exe", "gmsh.exe", "dot.exe", "unflatten.exe"}
+REQUIRED_RUNTIME_EXECUTABLES = {"ccx.exe", "dot.exe", "unflatten.exe"}
+OPENSSL_CONFIG = (
+    b"openssl_conf = openssl_init\r\n"
+    b"\r\n[openssl_init]\r\n"
+    b"providers = provider_sect\r\n"
+    b"\r\n[provider_sect]\r\n"
+    b"default = default_sect\r\n"
+    b"\r\n[default_sect]\r\n"
+    b"activate = 1\r\n"
+)
 VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-.][0-9A-Za-z.-]+)?\Z")
 REVISION_RE = re.compile(r"[0-9a-f]{40}\Z")
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
@@ -77,7 +86,9 @@ class CreateConfig:
     lock_file: Path
     package_cache: Path
     license_file: Path
+    legal_license_file: Path
     notice_file: Path
+    third_party_notice_file: Path
     output_dir: Path
     version: str
     source_revision: str
@@ -341,7 +352,6 @@ def _require_payload(builder: PayloadBuilder) -> None:
         "bin/python311.dll",
         "bin/DLLs/_ssl.pyd",
         "bin/ccx.exe",
-        "bin/gmsh.exe",
         "bin/dot.exe",
         "bin/unflatten.exe",
         "bin/opengl32.dll",
@@ -351,7 +361,7 @@ def _require_payload(builder: PayloadBuilder) -> None:
         "plugins/platforms/qoffscreen.dll",
         "ssl/openssl.cnf",
         "ssl/cacert.pem",
-        "lib/ossl-modules/legacy.dll",
+        "lib/ossl-modules/.openfusion-default-provider",
         "COPYING",
         "NOTICE.md",
         "share/doc/openfusion/LICENSE",
@@ -407,6 +417,21 @@ def create_bundle(config: CreateConfig) -> tuple[Path, Path, Path]:
     used_packages = _add_runtime(builder, config.conda_prefix, qt_plugin_root, owned)
     builder.add_file(PurePosixPath("COPYING"), config.license_file, "openfusion-source")
     builder.add_file(PurePosixPath("NOTICE.md"), config.notice_file, "openfusion-source")
+    builder.add_file(
+        PurePosixPath("share/doc/openfusion/LICENSE"),
+        config.legal_license_file,
+        "openfusion-source",
+    )
+    builder.add_file(
+        PurePosixPath("share/doc/openfusion/NOTICE.md"),
+        config.notice_file,
+        "openfusion-source",
+    )
+    builder.add_file(
+        PurePosixPath("share/doc/openfusion/THIRD_PARTY_NOTICES.md"),
+        config.third_party_notice_file,
+        "openfusion-source",
+    )
     builder.add_bytes(
         PurePosixPath("bin/qt6.conf"),
         b"[Paths]\r\nPrefix = ..\r\nPlugins = plugins\r\nTranslations = share/qt6/translations\r\n",
@@ -415,6 +440,16 @@ def create_bundle(config: CreateConfig) -> tuple[Path, Path, Path]:
     builder.add_bytes(
         PurePosixPath("bin/python311._pth"),
         b"Lib\r\nLib\\site-packages\r\nDLLs\r\nimport site\r\n",
+        "openfusion-packager",
+    )
+    builder.add_bytes(
+        PurePosixPath("ssl/openssl.cnf"),
+        OPENSSL_CONFIG,
+        "openfusion-packager",
+    )
+    builder.add_bytes(
+        PurePosixPath("lib/ossl-modules/.openfusion-default-provider"),
+        b"",
         "openfusion-packager",
     )
     builder.add_bytes(
@@ -728,7 +763,9 @@ def _parser() -> argparse.ArgumentParser:
         "lock-file",
         "package-cache",
         "license-file",
+        "legal-license-file",
         "notice-file",
+        "third-party-notice-file",
         "output-dir",
         "version",
         "source-revision",
@@ -760,7 +797,9 @@ def main(argv: Iterable[str] | None = None) -> int:
                     lock_file=Path(arguments.lock_file),
                     package_cache=Path(arguments.package_cache),
                     license_file=Path(arguments.license_file),
+                    legal_license_file=Path(arguments.legal_license_file),
                     notice_file=Path(arguments.notice_file),
+                    third_party_notice_file=Path(arguments.third_party_notice_file),
                     output_dir=Path(arguments.output_dir),
                     version=arguments.version,
                     source_revision=arguments.source_revision,

@@ -33,7 +33,9 @@ provider directory, PySide/Qt offscreen, a real `qwindows` desktop OpenGL contex
 with exact app-local module/hash evidence, and a Part document save-close-reopen
 round trip. PE import closure covers load-time and delay-load tables; dynamic
 coverage claims are limited to those explicitly exercised plugins and the
-fixed helper set (`ccx`, `gmsh`, `dot`, and `unflatten`). Download the GitHub Actions artifact
+locked helper set actually shipped on Windows (`ccx`, `dot`, and `unflatten`).
+OpenSSL uses its built-in default provider with an original app-local config;
+no external legacy provider is claimed. Download the GitHub Actions artifact
 whose name starts with `OpenFusion-Windows-x86_64-portable-unsigned`, extract
 it, and launch `OpenFusion.cmd` or `bin\OpenFusion.exe`.
 
