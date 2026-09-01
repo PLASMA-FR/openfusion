@@ -67,9 +67,6 @@ Section -ProgramFiles SecProgramFiles
   ${DetailPrintToBoth} "Extracting files to '$INSTDIR\Mod\'"
   SetOutPath "$INSTDIR\Mod"
   File /r "${FILES_FREECAD}\Mod\*.*"
-  ${DetailPrintToBoth} "Extracting thumbnailer"
-  SetOutPath "$INSTDIR"
-  File /r "${FILES_THUMBS}"
 
   SetDetailsPrint both
   DetailPrint "Writing uninstaller to '$INSTDIR'"

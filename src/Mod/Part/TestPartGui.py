@@ -29,7 +29,7 @@ import FreeCAD
 import FreeCADGui
 import Part
 import PartGui
-from PySide import QtWidgets
+from PySide import QtCore, QtWidgets
 
 
 def findDockWidget(name):
@@ -128,25 +128,67 @@ class PartMirrorGuiTestCases(unittest.TestCase):
 
 
 class SectionCutTestCases(unittest.TestCase):
+    dock_name = "Section cutting"
+
+    @staticmethod
+    def _flushDockDeletion(dock):
+        QtCore.QCoreApplication.sendPostedEvents(dock, QtCore.QEvent.DeferredDelete)
+        QtWidgets.QApplication.processEvents()
+
+    @classmethod
+    def _closeSectionCutDock(cls):
+        dock = findDockWidget(cls.dock_name)
+        if not dock:
+            return
+
+        button_box = dock.findChild(QtWidgets.QDialogButtonBox)
+        close_button = (
+            button_box.button(QtWidgets.QDialogButtonBox.Close) if button_box else None
+        )
+        if close_button:
+            close_button.click()
+        else:
+            dock.deleteLater()
+        cls._flushDockDeletion(dock)
+
     def setUp(self):
-        self.Doc = FreeCAD.newDocument("SectionCut")
+        self.DocName = "SectionCut"
+        self.Doc = None
+        self._closeSectionCutDock()
+        self.assertIsNone(
+            findDockWidget(self.dock_name), "A stale Section Cut dock is open."
+        )
+        FreeCADGui.Selection.clearSelection()
+        if self.DocName in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(self.DocName)
+        self.Doc = FreeCAD.newDocument(self.DocName)
 
     def testOpenDialog(self):
-        box = self.Doc.addObject("Part::Box", "SectionCutBoxX")
-        comp = self.Doc.addObject("Part::Compound", "SectionCutCompound")
-        comp.Links = box
-        grp = self.Doc.addObject("App::DocumentObjectGroup", "SectionCutX")
-        grp.addObject(comp)
+        source_box = self.Doc.addObject("Part::Box", "SectionCutSource")
         self.Doc.recompute()
+        source_box.ViewObject.Visibility = True
+        QtWidgets.QApplication.processEvents()
 
         FreeCADGui.runCommand("Part_SectionCut")
-        dw = findDockWidget("Section Cutting")
-        if dw:
-            box = dw.findChild(QtWidgets.QDialogButtonBox)
-            button = box.button(QtWidgets.QDialogButtonBox.Close)
-            button.click()
-        else:
-            print("No section cutting panel found")
+        dock = findDockWidget(self.dock_name)
+        self.assertIsNotNone(dock, "Part Section Cut dock did not open.")
+
+        button_box = dock.findChild(QtWidgets.QDialogButtonBox)
+        self.assertIsNotNone(button_box, "Part Section Cut dock has no button box.")
+        close_button = button_box.button(QtWidgets.QDialogButtonBox.Close)
+        self.assertIsNotNone(close_button, "Part Section Cut dock has no Close button.")
+        close_button.click()
+        self._flushDockDeletion(dock)
+        self.assertIsNone(
+            findDockWidget(self.dock_name), "Part Section Cut dock did not close."
+        )
 
     def tearDown(self):
-        FreeCAD.closeDocument("SectionCut")
+        try:
+            self._closeSectionCutDock()
+        finally:
+            try:
+                FreeCADGui.Selection.clearSelection()
+            finally:
+                if self.DocName in FreeCAD.listDocuments():
+                    FreeCAD.closeDocument(self.DocName)

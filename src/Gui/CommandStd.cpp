@@ -39,6 +39,7 @@
 #include "Action.h"
 #include "BitmapFactory.h"
 #include "Command.h"
+#include "CommandPalette.h"
 #include "Dialogs/DlgAbout.h"
 #include "Dialogs/DlgCustomizeImp.h"
 #include "Dialogs/DlgParameterImp.h"
@@ -51,6 +52,7 @@
 #include "WhatsThis.h"
 #include "Workbench.h"
 #include "WorkbenchManager.h"
+#include "WorkbenchSelector.h"
 
 
 using Base::Console;
@@ -474,6 +476,70 @@ void StdCmdDlgCustomize::activated(int iMsg)
     }
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
+}
+
+//===========================================================================
+// Std_CommandPalette
+//===========================================================================
+DEF_STD_CMD(StdCmdCommandPalette)
+
+StdCmdCommandPalette::StdCmdCommandPalette()
+    : Command("Std_CommandPalette")
+{
+    sGroup = "Tools";
+    sMenuText = QT_TR_NOOP("Command &Palette...");
+    sToolTipText = QT_TR_NOOP("Searches and runs application commands");
+    sWhatsThis = "Std_CommandPalette";
+    sStatusTip = sToolTipText;
+    sPixmap = CommandPaletteIconName;
+    sAccel = "Ctrl+K";
+    eType = 0;
+}
+
+void StdCmdCommandPalette::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    static QPointer<CommandPalette> palette;
+    if (!palette) {
+        palette = new CommandPalette(getMainWindow());
+    }
+    palette->showPalette();
+}
+
+//===========================================================================
+// Std_WorkspaceDesign
+//===========================================================================
+DEF_STD_CMD_A(StdCmdWorkspaceDesign)
+
+StdCmdWorkspaceDesign::StdCmdWorkspaceDesign()
+    : Command("Std_WorkspaceDesign")
+{
+    sGroup = "View";
+    sMenuText = QT_TR_NOOP("&Design Workspace");
+    sToolTipText = QT_TR_NOOP("Activates the Design workspace");
+    sWhatsThis = "Std_WorkspaceDesign";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesignWorkbench";
+    sAccel = "Ctrl+Alt+D";
+    eType = 0;
+}
+
+void StdCmdWorkspaceDesign::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    WorkspaceSelectionController controller;
+    if (!controller.activateWorkspace(WorkspaceSelectionController::designWorkspaceId())) {
+        getMainWindow()->showStatus(
+            MainWindow::Wrn,
+            QObject::tr("The Design workspace is unavailable in this installation")
+        );
+    }
+}
+
+bool StdCmdWorkspaceDesign::isActive()
+{
+    WorkspaceSelectionController controller;
+    return controller.workspaceAvailable(WorkspaceSelectionController::designWorkspaceId());
 }
 
 //===========================================================================
@@ -978,6 +1044,8 @@ void CreateStdCommands()
     rcCmdMgr.addCommand(new StdCmdDlgParameter());
     rcCmdMgr.addCommand(new StdCmdDlgPreferences());
     rcCmdMgr.addCommand(new StdCmdDlgCustomize());
+    rcCmdMgr.addCommand(new StdCmdCommandPalette());
+    rcCmdMgr.addCommand(new StdCmdWorkspaceDesign());
     rcCmdMgr.addCommand(new StdCmdCommandLine());
     rcCmdMgr.addCommand(new StdCmdWorkbench());
     rcCmdMgr.addCommand(new StdCmdRecentFiles());

@@ -29,13 +29,10 @@ vcamp140.dll
 vccorlib140.dll
 vcomp140.dll
 ```
-3. If required open the file *Settings.nsh* with a text editor (both jEdit and Visual Studio Code are good editors for NSIS files). Edit the following paths to correspond to your system: `FILES_FREECAD` corresponds to your installation directory (e.g. `CMAKE_INSTALL_PREFIX` if you self-compiled), `FILES_THUMBS` is the directory where the thumbnailer dll is located and `FILES_DEPS` is the folder you created with the MSVC redistributable files in it. `FILES_DEPS` is not needed if the installer is created from a conda bundle so it is not set by default. These can be set via /D argument for `makensis.exe` or by editing *Settings.nsh*.
+3. If required open the file *Settings.nsh* with a text editor (both jEdit and Visual Studio Code are good editors for NSIS files). Edit the following paths to correspond to your system: `FILES_FREECAD` corresponds to your installation directory (e.g. `CMAKE_INSTALL_PREFIX` if you self-compiled), and `FILES_DEPS` is the folder you created with the MSVC redistributable files in it. `FILES_DEPS` is not needed if the installer is created from a conda bundle so it is not set by default. These can be set via /D argument for `makensis.exe` or by editing *Settings.nsh*.
 ```nsis
 !ifndef FILES_FREECAD
     !define FILES_FREECAD "${__FILEDIR__}\FreeCAD"
-!endif
-!ifndef FILES_THUMBS
-    !define FILES_THUMBS "${__FILEDIR__}\thumbnail"
 !endif
 
 #!define FILES_DEPS "${__FILEDIR__}\MSVC_Redist"

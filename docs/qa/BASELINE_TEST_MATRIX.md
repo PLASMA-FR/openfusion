@@ -2,11 +2,17 @@
 
 This document records the test infrastructure present in the pinned FreeCAD
 source tree and defines the first OpenFusion regression and acceptance gates.
-It is an inspection report and execution plan, not a test-results report.
+It began as an inspection report and execution plan. Executed evidence is now
+recorded below as it becomes available. A status of **Not run**, **Blocked**,
+or **Failed** must not be interpreted as a pass.
 
-No configure, compile, test, GUI-launch, installation, or package-validation
-step was executed during this inspection. A status of **Not run** or
-**Blocked** must not be interpreted as a pass.
+## Executed Linux baseline
+
+Locked-Pixi GitHub Actions run `33260276705` configured and compiled the
+Release tree successfully. CTest discovered 1,424 entries, then two isolated
+TechDraw `LineFormat` tests segfaulted. The fail-closed job skipped subsequent
+CLI tests. See [the upstream baseline record](../UPSTREAM_BASELINE.md) for the
+exact failures, artifact digest, diagnosis, and rerun requirement.
 
 ## Immutable source baseline
 

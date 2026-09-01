@@ -6,8 +6,6 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
-    options:
-      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -342,6 +340,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/pycparser-2.22-pyh29332c3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyopenssl-25.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyparsing-3.2.5-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/pypdfium2-5.13.0-py311h194be0f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyside6-6.8.3-py311h9053184_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/python-3.11.14-hfe2f287_1_cpython.conda
@@ -768,6 +767,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/pycparser-2.22-pyh29332c3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyopenssl-25.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyparsing-3.2.5-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/pypdfium2-5.13.0-py311h0de9f98_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/pyside6-6.8.3-py311habb2604_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/python-3.11.14-hcfbf8c2_1_cpython.conda
@@ -1130,6 +1130,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/pycparser-2.22-pyh29332c3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyopenssl-25.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyparsing-3.2.5-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/pypdfium2-5.13.0-py311h72e27ae_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/pyside6-6.8.3-py311h4ef2287_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/python-3.11.14-h3999593_1_cpython.conda
@@ -1465,6 +1466,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/pycparser-2.22-pyh29332c3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyopenssl-25.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyparsing-3.2.5-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pypdfium2-5.13.0-py311hd322c8c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyside6-6.8.3-py311h8511715_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/python-3.11.14-hec0b533_1_cpython.conda
@@ -1772,6 +1774,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/pycparser-2.22-pyh29332c3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyopenssl-25.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pyparsing-3.2.5-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/pypdfium2-5.13.0-py311hf893f09_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/pyside6-6.8.3-py311h4238720_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyh09c184e_7.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/python-3.11.14-h0159041_2_cpython.conda
@@ -18617,6 +18620,74 @@ packages:
   - pkg:pypi/pyparsing?source=hash-mapping
   size: 104044
   timestamp: 1758436411254
+- conda: https://conda.anaconda.org/conda-forge/linux-64/pypdfium2-5.13.0-py311h194be0f_0.conda
+  sha256: 6a6925bf41e1fc118bf2e4bb851a257afa896c37c214a43fa30b578adc7b6a11
+  md5: 368243735ed43cb732b32f3fceb1df44
+  depends:
+  - python
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=15
+  - python_abi 3.11.* *_cp311
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/pypdfium2?source=hash-mapping
+  size: 3899594
+  timestamp: 1786691906387
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/pypdfium2-5.13.0-py311h0de9f98_0.conda
+  sha256: c22e62b75187408ddb46288759b2cd44021639bf9f453e0c41f62935452622b3
+  md5: 6f3c93ebe9c1d404cd70c617b7d48cc0
+  depends:
+  - python
+  - libgcc >=15
+  - python_abi 3.11.* *_cp311
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/pypdfium2?source=hash-mapping
+  size: 3864264
+  timestamp: 1786691898515
+- conda: https://conda.anaconda.org/conda-forge/osx-64/pypdfium2-5.13.0-py311h72e27ae_0.conda
+  sha256: 191a477830611d56e609cac0a913332bbaa717242d920cb3e4f1243391678d5c
+  md5: ca7524ca557a23a668b2ed00e27bf7b5
+  depends:
+  - python
+  - __osx >=11.0
+  - python_abi 3.11.* *_cp311
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/pypdfium2?source=hash-mapping
+  size: 3805140
+  timestamp: 1786691978454
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/pypdfium2-5.13.0-py311hd322c8c_0.conda
+  sha256: 2d7dd08ddd3077fd0a2f459843680a1ac92525df09fd81c60834a0a04318f5ee
+  md5: 0f1a0029302a5a08f6f1e7d9437cbda8
+  depends:
+  - python
+  - __osx >=11.0
+  - python_abi 3.11.* *_cp311
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/pypdfium2?source=hash-mapping
+  size: 3680661
+  timestamp: 1786691927930
+- conda: https://conda.anaconda.org/conda-forge/win-64/pypdfium2-5.13.0-py311hf893f09_0.conda
+  sha256: 43db63d938b3681959a101121733472f1d2560033a3188b00f9d38979ab0ce76
+  md5: b2b2b8073c2900024bf2bd3da6080578
+  depends:
+  - python
+  - vc >=14.3,<15
+  - vc14_runtime >=14.44.35208
+  - ucrt >=10.0.20348.0
+  - python_abi 3.11.* *_cp311
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/pypdfium2?source=hash-mapping
+  size: 4003156
+  timestamp: 1786691951234
 - conda: https://conda.anaconda.org/conda-forge/linux-64/pyside6-6.8.3-py311h9053184_0.conda
   sha256: cdda9e0679b94f20de6456660ee219659795674428dee1b175ab56306601b5ca
   md5: 70169c11454f14e949466d552f5bc051

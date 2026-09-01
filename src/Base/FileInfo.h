@@ -120,7 +120,8 @@ public:
     bool isReadable() const;
     /// Checks if the file exist and is writable
     bool isWritable() const;
-    /// Tries to set the file permission
+    /// Tries to set the file permission.
+    /// @note Windows cannot represent write-only files; WriteOnly maps to ReadWrite.
     bool setPermissions(Permissions);
     /// Checks if it is a file (not a directory)
     bool isFile() const;

@@ -36,27 +36,193 @@
 #include "BitmapFactory.h"
 #include "Command.h"
 #include "Dialogs/DlgPreferencesImp.h"
+#include "PreferencePages/DlgSettingsWorkbenchesImp.h"
 #include "MainWindow.h"
+#include "Application.h"
+#include "WorkbenchManager.h"
 #include "WorkbenchSelector.h"
 #include "ToolBarAreaWidget.h"
 
 
 using namespace Gui;
 
+namespace
+{
+constexpr auto workspacePreferencePath = "User parameter:BaseApp/Preferences/OpenFusion/Workspace";
+constexpr auto activeWorkspaceKey = "ActiveWorkspace";
+constexpr auto workbenchWorkspacePrefix = "Workbench/";
+}  // namespace
+
+WorkspaceSelectionController::WorkspaceSelectionController(
+    Availability availability,
+    Activation activation,
+    Persistence persistence,
+    QObject* parent
+)
+    : QObject(parent)
+    , availability(std::move(availability))
+    , activation(std::move(activation))
+    , persistence(std::move(persistence))
+{
+    if (!this->availability) {
+        this->availability = [](const QString& workbenchName) {
+            return Application::Instance
+                && workbenchSelectable(
+                    workbenchName,
+                    Application::Instance->workbenches(),
+                    Dialog::DlgSettingsWorkbenchesImp::getEnabledWorkbenches()
+                );
+        };
+    }
+    if (!this->activation) {
+        this->activation = [](const QString& workbenchName) {
+            if (!Application::Instance) {
+                return false;
+            }
+            if (QString::fromStdString(WorkbenchManager::instance()->activeName()) == workbenchName) {
+                return true;
+            }
+            return Application::Instance->activateWorkbench(workbenchName.toUtf8().constData());
+        };
+    }
+    if (!this->persistence) {
+        this->persistence = [](const QString& workspaceId) {
+            App::GetApplication()
+                .GetParameterGroupByPath(workspacePreferencePath)
+                ->SetASCII(activeWorkspaceKey, workspaceId.toStdString());
+        };
+    }
+}
+
+bool WorkspaceSelectionController::activateWorkspace(const QString& workspaceId)
+{
+    const QString workbenchName = workbenchNameForWorkspaceId(workspaceId);
+    if (workbenchName.isEmpty() || !availability(workbenchName)) {
+        return false;
+    }
+    if (!activation(workbenchName)) {
+        return false;
+    }
+    persistence(workspaceId);
+    Q_EMIT workspaceChanged(workspaceId);
+    return true;
+}
+
+bool WorkspaceSelectionController::workspaceAvailable(const QString& workspaceId) const
+{
+    const QString workbenchName = workbenchNameForWorkspaceId(workspaceId);
+    return !workbenchName.isEmpty() && availability(workbenchName);
+}
+
+void WorkspaceSelectionController::synchronizeWorkbench(const QString& workbenchName)
+{
+    const QString workspaceId = workspaceIdForWorkbench(workbenchName);
+    if (workspaceId.isEmpty()) {
+        return;
+    }
+    persistence(workspaceId);
+    Q_EMIT workspaceChanged(workspaceId);
+}
+
+void WorkspaceSelectionController::configureSelector(QWidget* selector) const
+{
+    selector->setObjectName(QStringLiteral("OpenFusionWorkspaceSelector"));
+    selector->setAccessibleName(tr("Workspace selector"));
+    selector->setAccessibleDescription(tr("Selects the active OpenFusion workspace"));
+    selector->setFocusPolicy(Qt::StrongFocus);
+}
+
+QString WorkspaceSelectionController::designWorkspaceId()
+{
+    return QStringLiteral("Design");
+}
+
+QString WorkspaceSelectionController::designWorkbenchName()
+{
+    return QStringLiteral("PartDesignWorkbench");
+}
+
+QString WorkspaceSelectionController::workspaceIdForWorkbench(const QString& workbenchName)
+{
+    if (workbenchName.isEmpty()) {
+        return {};
+    }
+    if (workbenchName == designWorkbenchName()) {
+        return designWorkspaceId();
+    }
+    return QString::fromLatin1(workbenchWorkspacePrefix) + workbenchName;
+}
+
+QString WorkspaceSelectionController::workbenchNameForWorkspaceId(const QString& workspaceId)
+{
+    if (workspaceId == designWorkspaceId()) {
+        return designWorkbenchName();
+    }
+    if (workspaceId.startsWith(QLatin1String(workbenchWorkspacePrefix))) {
+        return workspaceId.mid(static_cast<int>(qstrlen(workbenchWorkspacePrefix)));
+    }
+    return {};
+}
+
+bool WorkspaceSelectionController::workbenchSelectable(
+    const QString& workbenchName,
+    const QStringList& availableWorkbenches,
+    const QStringList& enabledWorkbenches
+)
+{
+    return !workbenchName.isEmpty() && availableWorkbenches.contains(workbenchName)
+        && enabledWorkbenches.contains(workbenchName);
+}
+
+QString WorkspaceSelectionController::displayNameForWorkbench(
+    const QString& workbenchName,
+    const QString& fallback
+)
+{
+    return workbenchName == designWorkbenchName() ? tr("Design") : fallback;
+}
+
+QString WorkspaceSelectionController::persistedWorkspaceId()
+{
+    return QString::fromStdString(
+        App::GetApplication()
+            .GetParameterGroupByPath(workspacePreferencePath)
+            ->GetASCII(activeWorkspaceKey, "")
+    );
+}
+
+void WorkspaceSelectionController::persistWorkbenchSelection(const QString& workbenchName)
+{
+    const QString workspaceId = workspaceIdForWorkbench(workbenchName);
+    if (!workspaceId.isEmpty()) {
+        App::GetApplication()
+            .GetParameterGroupByPath(workspacePreferencePath)
+            ->SetASCII(activeWorkspaceKey, workspaceId.toStdString());
+    }
+}
+
 WorkbenchComboBox::WorkbenchComboBox(WorkbenchGroup* aGroup, QWidget* parent)
     : QComboBox(parent)
+    , workspaceController(new WorkspaceSelectionController({}, {}, {}, this))
 {
+    workspaceController->configureSelector(this);
     setIconSize(QSize(16, 16));
     setToolTip(aGroup->toolTip());
     setStatusTip(aGroup->action()->statusTip());
     setWhatsThis(aGroup->action()->whatsThis());
     refreshList(aGroup->getEnabledWbActions());
     connect(aGroup, &WorkbenchGroup::workbenchListRefreshed, this, &WorkbenchComboBox::refreshList);
-    connect(aGroup->groupAction(), &QActionGroup::triggered, this, [this, aGroup](QAction* action) {
-        setCurrentIndex(aGroup->actions().indexOf(action));
+    connect(aGroup->groupAction(), &QActionGroup::triggered, this, [this](QAction* action) {
+        const int index = displayedActions.indexOf(action);
+        if (index >= 0) {
+            setCurrentIndex(index);
+        }
+        workspaceController->synchronizeWorkbench(action->objectName());
     });
-    connect(this, qOverload<int>(&WorkbenchComboBox::activated), aGroup, [aGroup](int index) {
-        aGroup->actions()[index]->trigger();
+    connect(this, qOverload<int>(&WorkbenchComboBox::activated), aGroup, [this](int index) {
+        if (index >= 0 && index < displayedActions.size() && displayedActions[index]) {
+            displayedActions[index]->trigger();
+        }
     });
 }
 
@@ -75,6 +241,7 @@ void WorkbenchComboBox::showPopup()
 void WorkbenchComboBox::refreshList(QList<QAction*> actionList)
 {
     clear();
+    displayedActions.clear();
 
     ParameterGrp::handle hGrp = App::GetApplication().GetParameterGroupByPath(
         "User parameter:BaseApp/Preferences/Workbenches"
@@ -83,17 +250,23 @@ void WorkbenchComboBox::refreshList(QList<QAction*> actionList)
     auto itemStyle = static_cast<WorkbenchItemStyle>(hGrp->GetInt("WorkbenchSelectorItem", 0));
 
     for (QAction* action : actionList) {
+        displayedActions.push_back(action);
         QIcon icon = action->icon();
+        const QString displayName = WorkspaceSelectionController::displayNameForWorkbench(
+            action->objectName(),
+            action->text()
+        );
 
         if (icon.isNull() || itemStyle == WorkbenchItemStyle::TextOnly) {
-            addItem(action->text());
+            addItem(displayName);
         }
         else if (itemStyle == WorkbenchItemStyle::IconOnly) {
             addItem(icon, {});  // empty string to ensure that only icon is displayed
         }
         else {
-            addItem(icon, action->text());
+            addItem(icon, displayName);
         }
+        setItemData(count() - 1, WorkspaceSelectionController::workspaceIdForWorkbench(action->objectName()));
 
         if (action->isChecked()) {
             this->setCurrentIndex(this->count() - 1);
@@ -104,6 +277,7 @@ void WorkbenchComboBox::refreshList(QList<QAction*> actionList)
 WorkbenchTabWidget::WorkbenchTabWidget(WorkbenchGroup* aGroup, QWidget* parent)
     : QWidget(parent)
     , wbActionGroup(aGroup)
+    , workspaceController(new WorkspaceSelectionController({}, {}, {}, this))
 {
     setToolTip(aGroup->toolTip());
     setStatusTip(aGroup->action()->statusTip());
@@ -111,6 +285,7 @@ WorkbenchTabWidget::WorkbenchTabWidget(WorkbenchGroup* aGroup, QWidget* parent)
     setObjectName(QStringLiteral("WbTabBar"));
 
     tabBar = new WbTabBar(this);
+    workspaceController->configureSelector(tabBar);
     moreButton = new QToolButton(this);
     layout = new QBoxLayout(QBoxLayout::LeftToRight, this);
 
@@ -247,6 +422,7 @@ void WorkbenchTabWidget::updateLayout()
 
 void WorkbenchTabWidget::handleWorkbenchSelection(QAction* selectedWorkbenchAction)
 {
+    workspaceController->synchronizeWorkbench(selectedWorkbenchAction->objectName());
     if (wbActionGroup->getDisabledWbActions().contains(selectedWorkbenchAction)) {
         if (temporaryWorkbenchAction == selectedWorkbenchAction) {
             return;
@@ -348,13 +524,20 @@ int WorkbenchTabWidget::addWorkbenchTab(QAction* action, int tabIndex)
 
     QIcon icon = action->icon();
     if (icon.isNull() || itemStyle == WorkbenchItemStyle::TextOnly) {
-        tabBar->insertTab(tabIndex, action->text());
+        tabBar->insertTab(
+            tabIndex,
+            WorkspaceSelectionController::displayNameForWorkbench(action->objectName(), action->text())
+        );
     }
     else if (itemStyle == WorkbenchItemStyle::IconOnly) {
         tabBar->insertTab(tabIndex, icon, {});  // empty string to ensure only icon is displayed
     }
     else {
-        tabBar->insertTab(tabIndex, icon, action->text());
+        tabBar->insertTab(
+            tabIndex,
+            icon,
+            WorkspaceSelectionController::displayNameForWorkbench(action->objectName(), action->text())
+        );
     }
 
     tabBar->setTabToolTip(tabIndex, action->toolTip());

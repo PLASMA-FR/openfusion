@@ -36,6 +36,8 @@
 #include <Build/Version.h>  // For FCCopyrightYear
 
 #include <cstdio>
+#include <cstring>
+#include <cstdlib>
 #include <map>
 #include <stdexcept>
 
@@ -55,10 +57,76 @@
 void PrintInitHelp();
 
 const auto sBanner = fmt::format(
-    "(C) 2001-{} FreeCAD contributors\n"
-    "FreeCAD is free and open-source software licensed under the terms of LGPL2+ license.\n\n",
+    "(C) 2001-{} FreeCAD and OpenFusion contributors\n"
+    "OpenFusion is free and open-source software based on FreeCAD and licensed under LGPL2+.\n\n",
     FCCopyrightYear
 );
+
+namespace
+{
+int emitHeadlessVersionIfRequested(int argc, char** argv)
+{
+    bool versionRequested = false;
+    bool verboseRequested = false;
+    for (int index = 1; index < argc; ++index) {
+        if (std::strcmp(argv[index], "--") == 0) {
+            return -1;
+        }
+        if (std::strcmp(argv[index], "--version") == 0
+            || std::strcmp(argv[index], "-v") == 0) {
+            versionRequested = true;
+        }
+        else if (std::strcmp(argv[index], "--verbose") == 0) {
+            verboseRequested = true;
+        }
+        else if (std::strcmp(argv[index], "--verbose-version") == 0) {
+            versionRequested = true;
+            verboseRequested = true;
+        }
+        else {
+            return -1;
+        }
+    }
+    if (!versionRequested) {
+        return -1;
+    }
+
+    std::cout << "OpenFusion " << FCVersionMajor << "." << FCVersionMinor << "."
+              << FCVersionPoint << OPENFUSION_VERSION_SUFFIX << '\n';
+    if (verboseRequested) {
+        std::cout << "Source revision: " << FCRevision << '\n'
+                  << "Source revision date: " << FCRevisionDate << '\n'
+                  << "Source repository: " << FCRepositoryURL << '\n';
+    }
+    return 0;
+}
+
+bool mainLifecycleDiagnosticsEnabled() noexcept
+{
+    static const bool enabled = []() noexcept {
+        try {
+            const auto& config = App::Application::Config();
+            const auto runMode = config.find("RunMode");
+            if (runMode != config.end() && runMode->second == "Internal") {
+                return true;
+            }
+        }
+        catch (...) {
+        }
+        return std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") != nullptr;
+    }();
+    return enabled;
+}
+
+void reportMainLifecycleStage(const char* stage, int exitCode) noexcept
+{
+    if (!mainLifecycleDiagnosticsEnabled()) {
+        return;
+    }
+    std::fprintf(stderr, "OpenFusion lifecycle: stage=%s exit_code=%d\n", stage, exitCode);
+    std::fflush(stderr);
+}
+}  // namespace
 
 #if defined(_MSC_VER)
 void InitMiniDumpWriter(const std::string&);
@@ -188,10 +256,28 @@ int main(int argc, char** argv)
 #endif
 
     // Name and Version of the Application
-    App::Application::Config()["ExeName"] = "FreeCAD";
-    App::Application::Config()["ExeVendor"] = "FreeCAD";
+    App::Application::Config()["ExeName"] = "OpenFusion";
+    App::Application::Config()["ExeVendor"] = "OpenFusion";
     App::Application::Config()["AppDataSkipVendor"] = "true";
-    App::Application::Config()["MaintainerUrl"] = "https://freecad.org";
+    App::Application::Config()["MaintainerUrl"] = "https://github.com/PLASMA-FR/openfusion";
+    App::Application::Config()["BuildVersionMajor"] = FCVersionMajor;
+    App::Application::Config()["BuildVersionMinor"] = FCVersionMinor;
+    App::Application::Config()["BuildVersionPoint"] = FCVersionPoint;
+    App::Application::Config()["BuildVersionSuffix"] = OPENFUSION_VERSION_SUFFIX;
+    App::Application::Config()["BuildRevision"] = FCRevision;
+    App::Application::Config()["BuildRevisionDate"] = FCRevisionDate;
+    App::Application::Config()["BuildRepositoryURL"] = FCRepositoryURL;
+    App::Application::Config()["ExeVersion"] = fmt::format(
+        "{}.{}.{}{}",
+        FCVersionMajor,
+        FCVersionMinor,
+        FCVersionPoint,
+        OPENFUSION_VERSION_SUFFIX
+    );
+    if (const int versionResult = emitHeadlessVersionIfRequested(argc, argv);
+        versionResult >= 0) {
+        return versionResult;
+    }
 
     // set the banner (for logging and console)
     App::Application::Config()["CopyrightInfo"] = sBanner;
@@ -330,43 +416,56 @@ int main(int argc, char** argv)
     std::streambuf* oldclog = std::clog.rdbuf(&stdclog);
     std::streambuf* oldcerr = std::cerr.rdbuf(&stdcerr);
 
+    int applicationExitCode = 0;
     try {
         if (inGuiMode()) {
-            Gui::Application::runApplication();
+            applicationExitCode = Gui::Application::runApplicationWithExitCode();
         }
         else {
             App::Application::runApplication();
         }
     }
     catch (const Base::SystemExitException& e) {
+        reportMainLifecycleStage("run-caught-system-exit", static_cast<int>(e.getExitCode()));
         exit(e.getExitCode());
     }
     catch (const Base::Exception& e) {
         e.reportException();
+        reportMainLifecycleStage("run-caught-base-exception", 1);
         exit(1);
     }
     catch (const std::exception& e) {
         Base::Console().error("Application unexpectedly terminated: %s\n", e.what());
+        reportMainLifecycleStage("run-caught-std-exception", 1);
         exit(1);
     }
     catch (...) {
         Base::Console().error("Application unexpectedly terminated\n");
+        reportMainLifecycleStage("run-caught-unknown-exception", 1);
         exit(1);
     }
 
+    reportMainLifecycleStage("run-returned", applicationExitCode);
     std::cout.rdbuf(oldcout);
     std::clog.rdbuf(oldclog);
     std::cerr.rdbuf(oldcerr);
+    reportMainLifecycleStage("streams-restored", applicationExitCode);
 
     // Destruction phase ===========================================================
-    Base::Console().log("%s terminating...\n", App::Application::Config()["ExeName"].c_str());
+    const std::string executableName = App::Application::Config()["ExeName"];
+    Base::Console().log("%s terminating...\n", executableName.c_str());
 
     // cleans up
+    reportMainLifecycleStage("app-destruct-begin", applicationExitCode);
     App::Application::destruct();
+    reportMainLifecycleStage("app-destruct-complete", applicationExitCode);
 
-    Base::Console().log("%s completely terminated\n", App::Application::Config()["ExeName"].c_str());
+    // Application::destruct() detaches the console observers, including the file logger.
+    // Use the restored standard stream for the final post-destruction marker.
+    std::clog << executableName << " completely terminated" << std::endl;
 
-    return 0;
+    reportMainLifecycleStage("main-return", applicationExitCode);
+    return applicationExitCode;
 }
 
 #if defined(_MSC_VER)

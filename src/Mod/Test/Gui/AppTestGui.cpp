@@ -21,6 +21,7 @@
  ***************************************************************************/
 
 
+#include <App/Application.h>
 #include <Base/Console.h>
 #include <Base/ConsoleObserver.h>
 #include <Base/Interpreter.h>
@@ -215,9 +216,29 @@ private:
             throw Py::Exception();
         }
 
-        TestGui::UnitTestDialog* dlg = TestGui::UnitTestDialog::instance();
-        bool success = dlg->runCurrentTest();
-        return Py::Boolean(success);
+        try {
+            TestGui::UnitTestDialog* dlg = TestGui::UnitTestDialog::instance();
+            const bool exitTests = App::Application::Config()["ExitTests"] == "yes";
+            bool success = exitTests ? dlg->runCurrentTestAutomated() : dlg->runCurrentTest();
+            return Py::Boolean(success);
+        }
+        catch (const Base::SystemExitException& error) {
+            Py::Long exitCode(error.getExitCode());
+            PyErr_SetObject(PyExc_SystemExit, exitCode.ptr());
+            throw Py::Exception();
+        }
+        catch (const Base::Exception& error) {
+            error.setPyException();
+            throw Py::Exception();
+        }
+        catch (const std::exception& error) {
+            PyErr_SetString(PyExc_RuntimeError, error.what());
+            throw Py::Exception();
+        }
+        catch (...) {
+            PyErr_SetString(PyExc_RuntimeError, "Unknown exception in GUI unittest runner");
+            throw Py::Exception();
+        }
     }
     Py::Object testILoggerBlocker(const Py::Tuple& args)
     {

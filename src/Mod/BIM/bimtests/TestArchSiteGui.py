@@ -80,9 +80,20 @@ class TestArchSiteGui(TestArchBaseGui.TestArchBaseGui):
         try:
             FreeCAD.ActiveDocument.saveAs(path)
 
-            # Open the saved document (this returns a new Document instance)
+            # A path that is already open resolves to the existing document. Close the
+            # original first so this test exercises an actual document restoration.
+            original_document = self.document
+            original_name = original_document.Name
+            FreeCAD.closeDocument(original_name)
+            self.document = None
+            with self.assertRaises(NameError):
+                FreeCAD.getDocument(original_name)
+
             reopened = FreeCAD.openDocument(path)
+            self.document = reopened
             try:
+                self.assertIsNot(reopened, original_document)
+
                 # Find the Site object in the reopened document by checking proxy type
                 found = None
                 for o in reopened.Objects:
@@ -96,7 +107,7 @@ class TestArchSiteGui(TestArchBaseGui.TestArchBaseGui):
 
                 vobj = found.ViewObject
 
-                # 1. Verify that constraints have been reapplied by testing clamping behavior.
+                # Verify that constraints have been reapplied by testing clamping behavior.
                 # Setting an out-of-bounds value should not raise an exception but
                 # should coerce the value to the nearest limit.
                 vobj.SunDateMonth = 13
@@ -108,10 +119,9 @@ class TestArchSiteGui(TestArchBaseGui.TestArchBaseGui):
                 self.assertEqual(
                     vobj.SunDateMonth, 1, "Property should be clamped to its min value"
                 )
-
             finally:
-                # Close reopened document to keep test isolation
                 FreeCAD.closeDocument(reopened.Name)
+                self.document = None
         finally:
             try:
                 os.unlink(path)
@@ -137,7 +147,9 @@ class TestArchSiteGui(TestArchBaseGui.TestArchBaseGui):
         fixtures_dir = os.path.join(os.path.dirname(__file__), "fixtures")
         fname = os.path.join(fixtures_dir, "FC_site_simple-102.FCStd")
         if not os.path.exists(fname):
-            raise unittest.SkipTest("Legacy migration fixture not found; skipping test.")
+            raise unittest.SkipTest(
+                "Legacy migration fixture not found; skipping test."
+            )
 
         # If fixture exists, open and validate migration
         d = FreeCAD.openDocument(fname)

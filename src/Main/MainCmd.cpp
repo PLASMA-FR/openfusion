@@ -47,8 +47,8 @@ using App::Application;
 using Base::Console;
 
 const auto sBanner = fmt::format(
-    "(C) 2001-{} FreeCAD contributors\n"
-    "FreeCAD is free and open-source software licensed under the terms of LGPL2+ license.\n\n",
+    "(C) 2001-{} FreeCAD and OpenFusion contributors\n"
+    "OpenFusion is free and open-source software based on FreeCAD and licensed under LGPL2+.\n\n",
     FCCopyrightYear
 );
 
@@ -67,9 +67,23 @@ int main(int argc, char** argv)
 #endif
 
     // Name and Version of the Application
-    App::Application::Config()["ExeName"] = "FreeCAD";
-    App::Application::Config()["ExeVendor"] = "FreeCAD";
+    App::Application::Config()["ExeName"] = "OpenFusion";
+    App::Application::Config()["ExeVendor"] = "OpenFusion";
     App::Application::Config()["AppDataSkipVendor"] = "true";
+    App::Application::Config()["BuildVersionMajor"] = FCVersionMajor;
+    App::Application::Config()["BuildVersionMinor"] = FCVersionMinor;
+    App::Application::Config()["BuildVersionPoint"] = FCVersionPoint;
+    App::Application::Config()["BuildVersionSuffix"] = OPENFUSION_VERSION_SUFFIX;
+    App::Application::Config()["BuildRevision"] = FCRevision;
+    App::Application::Config()["BuildRevisionDate"] = FCRevisionDate;
+    App::Application::Config()["BuildRepositoryURL"] = FCRepositoryURL;
+    App::Application::Config()["ExeVersion"] = fmt::format(
+        "{}.{}.{}{}",
+        FCVersionMajor,
+        FCVersionMinor,
+        FCVersionPoint,
+        OPENFUSION_VERSION_SUFFIX
+    );
 
     // set the banner (for logging and console)
     App::Application::Config()["CopyrightInfo"] = sBanner;

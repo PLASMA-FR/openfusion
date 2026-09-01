@@ -44,6 +44,8 @@
 #include <QStyleFactory>
 
 #include <QLoggingCategory>
+#include <cstdio>
+#include <cstdlib>
 #include <fmt/format.h>
 #include <list>
 #include <ranges>
@@ -74,6 +76,7 @@
 #include "PreferencePages/DlgSettingsCacheDirectory.h"
 #include "DocumentPy.h"
 #include "DocumentRecovery.h"
+#include "DiagnosticUtils.h"
 #include "EditorView.h"
 #include "ExpressionBindingPy.h"
 #include "FileDialog.h"
@@ -2440,7 +2443,117 @@ void setAppNameAndIcon()
 #endif
 }
 
-void tryRunEventLoop(GUISingleApplication& mainApp)
+class EventLoopLockFileCleanup
+{
+public:
+    EventLoopLockFileCleanup(Base::ofstream& lock, Base::FileInfo& file)
+        : lock(lock)
+        , file(file)
+    {}
+
+    ~EventLoopLockFileCleanup() noexcept
+    {
+        try {
+            lock.close();
+        }
+        catch (...) {
+        }
+
+        if (removeFile && !file.deleteFile()) {
+            Base::Console().warning(
+                "Failed to remove GUI process lock file: %s\n",
+                file.filePath().c_str()
+            );
+        }
+    }
+
+    void removeOnDestruction() noexcept
+    {
+        removeFile = true;
+    }
+
+private:
+    Base::ofstream& lock;
+    Base::FileInfo& file;
+    bool removeFile = false;
+};
+
+bool applicationExitDiagnosticsEnabled() noexcept
+{
+    try {
+        const auto& config = App::Application::Config();
+        const auto runMode = config.find("RunMode");
+        if (runMode != config.end() && runMode->second == "Internal") {
+            return true;
+        }
+    }
+    catch (...) {
+    }
+    return std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") != nullptr;
+}
+
+void reportRunApplicationException(const char* category, const char* message) noexcept
+{
+    if (!applicationExitDiagnosticsEnabled()) {
+        return;
+    }
+
+    try {
+        const std::string sanitized = Gui::Detail::sanitizeDiagnosticText(message);
+        try {
+            Base::Console().error(
+                "runApplicationWithExitCode catch: category=%s message=\"%s\"\n",
+                category,
+                sanitized.c_str()
+            );
+        }
+        catch (...) {
+        }
+        std::fprintf(
+            stderr,
+            "OpenFusion lifecycle: stage=run-application-catch category=%s message=\"%s\"\n",
+            category,
+            sanitized.c_str()
+        );
+        std::fflush(stderr);
+        return;
+    }
+    catch (...) {
+    }
+    std::fprintf(
+        stderr,
+        "OpenFusion lifecycle: stage=run-application-catch category=%s message=\"unavailable\"\n",
+        category
+    );
+    std::fflush(stderr);
+}
+
+void reportEventLoopReturn(
+    int rawExitCode,
+    bool hasStoredExitCode,
+    long storedExitCode,
+    int selectedExitCode
+) noexcept
+{
+    // Detailed exit arbitration is retained only for internal/lifecycle diagnostics.
+    if (!applicationExitDiagnosticsEnabled()) {
+        return;
+    }
+
+    try {
+        Base::Console().log(
+            "GUI event loop return: raw=%d stored_present=%s stored_code=%ld selected=%d\n",
+            rawExitCode,
+            hasStoredExitCode ? "yes" : "no",
+            storedExitCode,
+            selectedExitCode
+        );
+    }
+    catch (...) {
+    }
+}
+
+int tryRunEventLoop(GUISingleApplication& mainApp)
 {
     std::stringstream out;
     out << App::Application::getUserCachePath() << App::Application::getExecutableName() << "_"
@@ -2449,6 +2562,7 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
     // open a lock file with the PID
     Base::FileInfo fi(out.str());
     Base::ofstream lock(fi);
+    EventLoopLockFileCleanup cleanup(lock, fi);
 
 #if !defined(FC_OS_WIN32) || (BOOST_VERSION < 107600)
     std::string filename = out.str();
@@ -2458,20 +2572,19 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
     try {
         boost::interprocess::file_lock flock(filename.c_str());
         if (flock.try_lock()) {
+            cleanup.removeOnDestruction();
             Base::Console().log("Init: Executing event loop…\n");
-            QApplication::exec();
+            const int exitCode = QApplication::exec();
 
-            // Qt can't handle exceptions thrown from event handlers, so we need
-            // to manually rethrow SystemExitExceptions.
-            if (mainApp.caughtException) {
-                throw Base::SystemExitException(*mainApp.caughtException.get());
-            }
-
-            // close the lock file, in case of a crash we can see the existing lock file
-            // on the next restart and try to repair the documents, if needed.
-            flock.unlock();
-            lock.close();
-            fi.deleteFile();
+            // GUIApplication::notify() cannot allow SystemExit to escape a Qt callback. Use the
+            // captured exception as the authoritative source so another Qt exit request cannot
+            // replace the Python exit code before the event loop stops.
+            long caughtSystemExitCode = 0;
+            const bool hasCaughtSystemExit = mainApp.getCaughtSystemExitCode(caughtSystemExitCode);
+            const int selectedExitCode = hasCaughtSystemExit ? static_cast<int>(caughtSystemExitCode)
+                                                             : exitCode;
+            reportEventLoopReturn(exitCode, hasCaughtSystemExit, caughtSystemExitCode, selectedExitCode);
+            return selectedExitCode;
         }
         else {
             Base::Console().error(
@@ -2480,6 +2593,7 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
                 "Attempted lock file: %s",
                 fi.filePath().c_str()
             );
+            return 1;
         }
     }
     catch (const boost::interprocess::interprocess_exception& e) {
@@ -2490,17 +2604,14 @@ void tryRunEventLoop(GUISingleApplication& mainApp)
             msg.toUtf8().constData(),
             fi.filePath().c_str()
         );
+        return 1;
     }
 }
 
-void runEventLoop(GUISingleApplication& mainApp)
+int runEventLoop(GUISingleApplication& mainApp)
 {
     try {
-        tryRunEventLoop(mainApp);
-    }
-    catch (const Base::SystemExitException&) {
-        Base::Console().message("System exit\n");
-        throw;
+        return tryRunEventLoop(mainApp);
     }
     catch (const std::exception& e) {
         // catching nasty stuff coming out of the event loop
@@ -2518,6 +2629,40 @@ void runEventLoop(GUISingleApplication& mainApp)
 }  // namespace
 
 void Application::runApplication()
+{
+    (void)runApplicationImpl(true);
+}
+
+int Application::runApplicationWithExitCode()
+{
+    try {
+        return runApplicationImpl(false);
+    }
+    catch (...) {
+        const std::exception_ptr exception = std::current_exception();
+        long exitCode = 0;
+        if (Base::getSystemExitCode(exception, exitCode)) {
+            Base::Console().message("System exit\n");
+            return static_cast<int>(exitCode);
+        }
+
+        try {
+            std::rethrow_exception(exception);
+        }
+        catch (const Base::Exception& error) {
+            reportRunApplicationException("base", error.what());
+        }
+        catch (const std::exception& error) {
+            reportRunApplicationException("std", error.what());
+        }
+        catch (...) {
+            reportRunApplicationException("unknown", "unavailable");
+        }
+        std::rethrow_exception(exception);
+    }
+}
+
+int Application::runApplicationImpl(bool rethrowSystemExit)
 {
     StartupProcess::setupApplication();
 
@@ -2552,6 +2697,15 @@ void Application::runApplication()
     int argc = App::Application::GetARGC();
     GUISingleApplication mainApp(argc, App::Application::GetARGV());
 
+    // Internal GUI tests start from a delayed callback and terminate explicitly with their
+    // result.  A platform plugin may close the last transient startup window before that callback
+    // runs (notably the Windows plugin after the OpenGL probe), which would otherwise make Qt
+    // leave the event loop with a false success.  Keep the loop alive until the runner requests
+    // its authoritative exit code.  MainWindow::closeEvent() still quits explicitly for --run-open.
+    if (App::Application::Config()["RunMode"] == "Internal") {
+        mainApp.setQuitOnLastWindowClosed(false);
+    }
+
 #if (COIN_MAJOR_VERSION * 100 + COIN_MINOR_VERSION * 10 + COIN_MICRO_VERSION < 406) \
     && (defined(FC_OS_LINUX) || defined(FC_OS_BSD))
     // If QT is running with native Wayland then inform Coin to use EGL
@@ -2568,7 +2722,7 @@ void Application::runApplication()
 
     // check if a single or multiple instances can run
     if (onlySingleInstance(mainApp)) {
-        return;
+        return 0;
     }
 
     setAppNameAndIcon();
@@ -2609,9 +2763,17 @@ void Application::runApplication()
     }
 #endif
 
-    runEventLoop(mainApp);
+    const int exitCode = runEventLoop(mainApp);
 
     Base::Console().log("Finish: Event loop left\n");
+
+    long caughtSystemExitCode = 0;
+    if (rethrowSystemExit && mainApp.getCaughtSystemExitCode(caughtSystemExitCode)) {
+        Base::Console().message("System exit\n");
+        throw Base::SystemExitException(caughtSystemExitCode);
+    }
+
+    return exitCode;
 }
 
 bool Application::hiddenMainWindow()
