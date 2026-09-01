@@ -28,6 +28,7 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QContextMenuEvent>
+#include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDockWidget>
 #include <QFontMetrics>
@@ -547,9 +548,19 @@ MainWindow::~MainWindow()
     d->mdiArea = nullptr;
     delete ownedCentralWidget;
     reportMainWindowDestructionStage("main-window-owned-ui-destruct-end");
+    QWidget* ownedMenuWidget = menuWidget();
     reportMainWindowDestructionStage("main-window-owned-menus-destruct-begin");
-    MenuManagerInternal::destroyOwnedWorkbenchMenus(menuBar());
+    if (auto* ownedMenuBar = qobject_cast<QMenuBar*>(ownedMenuWidget)) {
+        MenuManagerInternal::destroyOwnedWorkbenchMenus(ownedMenuBar);
+    }
     reportMainWindowDestructionStage("main-window-owned-menus-destruct-end");
+    reportMainWindowDestructionStage("main-window-menu-widget-destruct-begin");
+    if (ownedMenuWidget) {
+        setMenuWidget(nullptr);
+        QCoreApplication::removePostedEvents(ownedMenuWidget, QEvent::DeferredDelete);
+        delete ownedMenuWidget;
+    }
+    reportMainWindowDestructionStage("main-window-menu-widget-destruct-end");
     delete d->status;
     delete d;
     instance = nullptr;

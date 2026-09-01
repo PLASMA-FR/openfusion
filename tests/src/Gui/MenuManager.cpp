@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <QAction>
+#include <QCoreApplication>
+#include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
 #include <QPointer>
@@ -15,6 +17,38 @@ class testMenuManager: public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void detachedMenuWidgetCanBeDestroyedSynchronously()
+    {
+        QMainWindow mainWindow;
+        auto* menuBar = new QMenuBar(&mainWindow);
+        mainWindow.setMenuBar(menuBar);
+        auto* externalMenu = new QMenu(QStringLiteral("External"), menuBar);
+        menuBar->addMenu(externalMenu);
+        QPointer<QMenu> externalMenuGuard(externalMenu);
+        QPointer<QMenu> ownedMenuGuard(
+            Gui::MenuManagerInternal::acquireOwnedWorkbenchMenu(
+                menuBar,
+                QStringLiteral("Managed"),
+                QStringLiteral("Managed")
+            )
+        );
+        QPointer<QWidget> menuWidgetGuard(mainWindow.menuWidget());
+
+        Gui::MenuManagerInternal::destroyOwnedWorkbenchMenus(menuBar);
+        QVERIFY(ownedMenuGuard.isNull());
+        QVERIFY(!externalMenuGuard.isNull());
+
+        QWidget* ownedMenuWidget = mainWindow.menuWidget();
+        mainWindow.setMenuWidget(nullptr);
+        QCoreApplication::removePostedEvents(ownedMenuWidget, QEvent::DeferredDelete);
+        delete ownedMenuWidget;
+        QVERIFY(menuWidgetGuard.isNull());
+        QVERIFY(externalMenuGuard.isNull());
+        QCOMPARE(mainWindow.menuWidget(), nullptr);
+
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    }
+
     void repeatedRebuildReusesOwnedMenusAndBoundsTheCache()
     {
         QMenuBar menuBar;

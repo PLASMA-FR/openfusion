@@ -366,6 +366,8 @@ def _run_scenario(
         "main-window-owned-ui-destruct-end",
         "main-window-owned-menus-destruct-begin",
         "main-window-owned-menus-destruct-end",
+        "main-window-menu-widget-destruct-begin",
+        "main-window-menu-widget-destruct-end",
         "main-window-destruct-body-end",
     )
     for stage in expected_lifecycle_stages:
@@ -383,6 +385,8 @@ def _run_scenario(
         "main-window-owned-ui-destruct-end",
         "main-window-owned-menus-destruct-begin",
         "main-window-owned-menus-destruct-end",
+        "main-window-menu-widget-destruct-begin",
+        "main-window-menu-widget-destruct-end",
         "main-window-destruct-body-end",
     )
     teardown_offsets = [
