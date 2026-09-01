@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import struct
 import sys
@@ -221,6 +221,78 @@ class PortableBundleFixture:
 
 
 class WindowsPortableBundleTest(unittest.TestCase):
+    def test_selected_overlap_resolves_unique_authenticated_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "runtime.dll"
+            path.write_bytes(fake_pe())
+            identity = (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_size)
+            first = bundle.security.Owner("first-1-0", "first", "1", "0", "win-64", "https://conda.anaconda.org/conda-forge/win-64/first-1-0.conda", "a" * 64, 1)
+            second = bundle.security.Owner("second-1-0", "second", "1", "0", "win-64", "https://conda.anaconda.org/conda-forge/win-64/second-1-0.conda", "b" * 64, 1)
+            mismatch = bundle.security.OwnedFile(first, (("c" * 64, identity[1]),), "hardlink")
+            match = bundle.security.OwnedFile(second, (identity,), "hardlink")
+            resolved = bundle.security.resolve_owned_file(
+                path, (mismatch, match), PurePosixPath("Library/bin/runtime.dll")
+            )
+            self.assertEqual(resolved.owner, second)
+            with self.assertRaisesRegex(bundle.security.SecurityError, "ambiguous"):
+                bundle.security.resolve_owned_file(
+                    path,
+                    (match, bundle.security.OwnedFile(first, (identity,), "hardlink")),
+                    PurePosixPath("Library/bin/runtime.dll"),
+                )
+            qt_owner = bundle.security.Owner("qt6-main-1-0", "qt6-main", "1", "0", "win-64", "https://conda.anaconda.org/conda-forge/win-64/qt6-main-1-0.conda", "d" * 64, 1)
+            with self.assertRaisesRegex(bundle.security.SecurityError, "ambiguous"):
+                bundle.security.resolve_owned_file(
+                    path,
+                    (
+                        bundle.security.OwnedFile(qt_owner, (identity,), "hardlink"),
+                        bundle.security.OwnedFile(second, (identity,), "hardlink"),
+                    ),
+                    PurePosixPath("Library/bin/opengl32sw.dll"),
+                    required_owner="qt6-main",
+                )
+
+    def test_rejects_duplicate_path_inside_authenticated_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = PortableBundleFixture(Path(temporary))
+            old_archive = next(fixture.package_cache.iterdir())
+            members = {}
+            with tarfile.open(old_archive, "r:bz2") as archive:
+                for member in archive:
+                    if member.isfile():
+                        stream = archive.extractfile(member)
+                        assert stream is not None
+                        members[member.name] = stream.read()
+            paths = json.loads(members["info/paths.json"].decode("utf-8"))
+            paths["paths"].append(dict(paths["paths"][0]))
+            members["info/paths.json"] = json.dumps(paths, sort_keys=True).encode("utf-8")
+            replacement = fixture.root / "duplicate.tar.bz2"
+            with tarfile.open(replacement, "w:bz2") as archive:
+                import io
+
+                for name, contents in sorted(members.items()):
+                    member = tarfile.TarInfo(name)
+                    member.size = len(contents)
+                    member.mtime = 0
+                    archive.addfile(member, io.BytesIO(contents))
+            old_archive.unlink()
+            fixture.package_sha256 = hashlib.sha256(replacement.read_bytes()).hexdigest()
+            fixture.package_size = replacement.stat().st_size
+            replacement.replace(
+                bundle.security.archive_cache_path(
+                    fixture.package_cache, fixture.package_url, fixture.package_sha256
+                )
+            )
+            fixture.lock.write_text(
+                "version: 6\nenvironments:\n  default:\n    packages:\n      win-64:\n"
+                f"      - conda: {fixture.package_url}\npackages:\n"
+                f"- conda: {fixture.package_url}\n  sha256: {fixture.package_sha256}\n"
+                f"  size: {fixture.package_size}\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(bundle.BundleError, "duplicates a path"):
+                bundle.create_bundle(fixture.config())
+
     def test_creates_reproducible_verified_archive(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = PortableBundleFixture(Path(temporary))

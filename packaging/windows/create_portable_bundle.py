@@ -260,8 +260,7 @@ def _add_runtime(
     used: set = set()
     selected_sources: set[PurePosixPath] = set()
 
-    for relative, owned_file in sorted(owned.items(), key=lambda item: item[0].as_posix().encode("utf-8")):
-        owner = owned_file.owner
+    for relative, candidates in sorted(owned.items(), key=lambda item: item[0].as_posix().encode("utf-8")):
         if relative == plugin_relative or plugin_relative in relative.parents:
             continue
         destination = _runtime_destination(relative)
@@ -272,16 +271,16 @@ def _add_runtime(
             continue
         source = _within(source, prefix, "Conda runtime file")
         try:
-            security.validate_owned_file(source, owned_file, relative)
+            owned_file = security.resolve_owned_file(source, candidates, relative)
         except security.SecurityError as error:
             raise BundleError(str(error)) from error
+        owner = owned_file.owner
         builder.add_file(destination, source, f"conda:{owner.identity}")
         selected_sources.add(relative)
         used.add(owner)
 
     plugin_count = 0
-    for relative, owned_file in sorted(owned.items(), key=lambda item: item[0].as_posix().encode("utf-8")):
-        owner = owned_file.owner
+    for relative, candidates in sorted(owned.items(), key=lambda item: item[0].as_posix().encode("utf-8")):
         if plugin_relative not in relative.parents:
             continue
         suffix = relative.relative_to(plugin_relative)
@@ -292,9 +291,10 @@ def _add_runtime(
             continue
         source = _within(source, prefix, "Qt plugin")
         try:
-            security.validate_owned_file(source, owned_file, relative)
+            owned_file = security.resolve_owned_file(source, candidates, relative)
         except security.SecurityError as error:
             raise BundleError(str(error)) from error
+        owner = owned_file.owner
         builder.add_file(PurePosixPath("plugins") / suffix, source, f"conda:{owner.identity}")
         selected_sources.add(relative)
         used.add(owner)
@@ -303,15 +303,17 @@ def _add_runtime(
         raise BundleError("locked Qt plugin tree is empty")
 
     renderer_relative = PurePosixPath("Library/bin/opengl32sw.dll")
-    renderer_file = owned.get(renderer_relative)
-    if renderer_file is None or renderer_file.owner.name != "qt6-main":
+    renderer_candidates = owned.get(renderer_relative)
+    if renderer_candidates is None:
         raise BundleError("software OpenGL renderer is not owned by locked qt6-main")
-    renderer_owner = renderer_file.owner
     renderer = _within(prefix.joinpath(*renderer_relative.parts), prefix, "software OpenGL renderer")
     try:
-        security.validate_owned_file(renderer, renderer_file, renderer_relative)
+        renderer_file = security.resolve_owned_file(
+            renderer, renderer_candidates, renderer_relative, required_owner="qt6-main"
+        )
     except security.SecurityError as error:
         raise BundleError(str(error)) from error
+    renderer_owner = renderer_file.owner
     builder.add_file(PurePosixPath("bin/opengl32.dll"), renderer, f"conda:{renderer_owner.identity}")
     selected_sources.add(renderer_relative)
     used.add(renderer_owner)

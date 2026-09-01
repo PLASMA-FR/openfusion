@@ -413,7 +413,7 @@ def _metadata_url(record: dict[str, object]) -> str:
 
 def load_conda_ownership(
     conda_prefix: Path, locked: LockInventory, package_cache: Path
-) -> tuple[dict[PurePosixPath, OwnedFile], dict[str, Owner]]:
+) -> tuple[dict[PurePosixPath, tuple[OwnedFile, ...]], dict[str, Owner]]:
     metadata_root = anchored(conda_prefix / "conda-meta", conda_prefix, "Conda metadata")
     metadata_records = sorted(metadata_root.glob("*.json"), key=lambda path: path.name.casefold())
     if not metadata_records:
@@ -438,7 +438,7 @@ def load_conda_ownership(
             f"active Conda package set differs from locked win-64 closure; missing={missing}, extra={extra}"
         )
     reject_reparse_chain(package_cache)
-    owned: dict[PurePosixPath, OwnedFile] = {}
+    owned: dict[PurePosixPath, tuple[OwnedFile, ...]] = {}
     packages: dict[str, Owner] = {}
     for url in sorted(locked.active_windows_urls):
         package_sha256, package_size = locked.packages[url]
@@ -460,10 +460,16 @@ def load_conda_ownership(
             raise SecurityError(f"invalid immutable Conda paths inventory: {identity}")
         specifications = []
         placeholder_paths: set[str] = set()
+        package_paths: set[PurePosixPath] = set()
         for path_record in paths_data["paths"]:
             if not isinstance(path_record, dict) or not isinstance(path_record.get("_path"), str):
                 raise SecurityError(f"invalid immutable Conda path record: {identity}")
             relative = safe_relative(path_record["_path"], "immutable Conda path", metadata=True)
+            if relative in package_paths:
+                raise SecurityError(
+                    f"immutable Conda inventory duplicates a path: {identity}/{relative}"
+                )
+            package_paths.add(relative)
             path_type = path_record.get("path_type")
             digest = path_record.get("sha256")
             size = path_record.get("size_in_bytes")
@@ -499,20 +505,40 @@ def load_conda_ownership(
                     original, str(placeholder), str(file_mode), conda_prefix.resolve(strict=True)
                 )
             item = OwnedFile(owner, identities, path_type)
-            previous = owned.setdefault(relative, item)
-            if previous != item:
+            previous = owned.get(relative, ())
+            if item in previous:
                 raise SecurityError(
-                    f"multiple Conda packages own {relative}: {previous.owner.identity}, {identity}"
+                    f"immutable Conda inventory duplicates a path: {identity}/{relative}"
                 )
+            owned[relative] = (*previous, item)
     return owned, packages
 
 
-def validate_owned_file(path: Path, owned: OwnedFile, relative: PurePosixPath) -> None:
-    if owned.path_type != "hardlink":
-        raise SecurityError(f"selected runtime is not a regular Conda hardlink: {relative}")
+def resolve_owned_file(
+    path: Path,
+    candidates: tuple[OwnedFile, ...],
+    relative: PurePosixPath,
+    *,
+    required_owner: str | None = None,
+) -> OwnedFile:
     identity = (sha256_file(path), path.stat().st_size)
-    if identity not in owned.expected_identities:
+    matches = tuple(
+        candidate
+        for candidate in candidates
+        if candidate.path_type == "hardlink"
+        and identity in candidate.expected_identities
+    )
+    if not matches:
         raise SecurityError(f"installed Conda file identity changed: {relative}")
+    if len(matches) != 1:
+        owners = ", ".join(sorted(candidate.owner.identity for candidate in matches))
+        raise SecurityError(f"selected runtime has ambiguous authenticated owners: {relative}: {owners}")
+    selected = matches[0]
+    if required_owner is not None and selected.owner.name != required_owner:
+        raise SecurityError(
+            f"selected runtime owner is not {required_owner}: {relative}: {selected.owner.identity}"
+        )
+    return selected
 
 
 def _u16(contents: bytes, offset: int, label: str) -> int:
