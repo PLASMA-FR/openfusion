@@ -382,7 +382,7 @@ bool Mirroring::accept()
                            .arg(basey)
                            .arg(basez)
                            .arg(selectionString);
-        Gui::Command::runCommand(Gui::Command::App, code.toLatin1());
+        Gui::Command::runCommand(Gui::Command::App, code.toUtf8());
         QByteArray from = shape.toLatin1();
         Gui::Command::copyVisual("ActiveObject", "ShapeAppearance", from);
         Gui::Command::copyVisual("ActiveObject", "LineColor", from);

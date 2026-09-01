@@ -17,6 +17,13 @@ feasible on hosted runners. OpenFusion adds final-package testing, Linux
 tar.zst/DEB/RPM outputs, consolidated checksums, SBOMs, provenance, narrower
 permissions, and an atomic publication gate.
 
+The repository now contains initial locked-Pixi source-build baselines for
+Linux, Windows x86-64, macOS arm64, and macOS x86-64, plus dependency review
+and no-build CodeQL analysis for GitHub Actions, C/C++, and Python. These
+workflows compile and exercise build-tree tests; they do not yet build or
+validate release packages, prove native AppleClang support, scan the resolved
+Pixi/Conda environment, or make code-scanning findings merge-blocking.
+
 ## Release invariants
 
 A release pipeline must satisfy all of these invariants:
@@ -38,8 +45,10 @@ A release pipeline must satisfy all of these invariants:
 
 ## Target workflow topology
 
-The file names below describe the intended separation of responsibility. They
-are not evidence that those workflow files have been implemented.
+The file names below describe the intended separation of responsibility.
+Individual workflow existence is not evidence that its full packaging or
+release responsibility has been implemented; the current scope is stated
+above and must be confirmed by completed run logs.
 
 | Workflow | Triggers | Responsibility | Default token access |
 | --- | --- | --- | --- |
@@ -48,8 +57,22 @@ are not evidence that those workflow files have been implemented.
 | `windows.yml` | Reusable call, manual development run | Build, optionally sign, install-test, and uninstall-test Windows package | `contents: read` |
 | `macos.yml` | Reusable call, manual development run | Build, optionally sign/notarize, mount-test Intel and Apple Silicon DMGs | `contents: read` |
 | `release.yml` | Protected SemVer tag, manual recovery dispatch | Coordinate platform workflows, attest, create draft, upload, publish | Per-job grants |
-| `codeql.yml` | Protected branches and schedule | C/C++ and Python code scanning | Read plus `security-events: write` only where needed |
-| `dependency-review.yml` | Pull requests | Reject newly introduced vulnerable dependencies | `contents: read` |
+| `security.yml` | Pull requests, merge groups, protected branches, schedule | Recursive tracked-source quarantine, Pixi lock schema/source-policy audit, dependency review, plus Actions, C/C++, and Python CodeQL analysis | Read plus `security-events: write` only where needed |
+
+GitHub Dependency Review requires the repository Dependency Graph. The job is
+intentionally fail-closed while that external setting is disabled; neither
+CodeQL nor the Pixi lock audit substitutes for graph comparison. Dependency
+Review runs for pull requests and merge groups using explicit event base/head
+SHAs. Push and scheduled runs skip it because those events lack that pair.
+
+The independent lock audit validates canonical source URLs, package schema,
+environment references, unique asserted SHA-256 fields, and PyPI wheel/sdist
+filename identity, including Conda-subdirectory and wheel-tag platform
+association. It does not download dependency archives or hash their bytes; its
+digests remain lock-metadata assertions disclosed in the SPDX output. That
+deterministic SPDX inventory describes the multi-platform development lock and
+does not satisfy the final per-package release SBOM gate. CI syntax-checks its
+JSON; a hash-pinned semantic SPDX validator remains required for release use.
 
 The release dependency order is:
 
@@ -160,6 +183,12 @@ installer, signature, or notarization ticket has been produced.
 - artifact size is nonzero, plausible, and below 2 GiB;
 - malware and secret scans report no release-blocking findings;
 - expected license, notice, version, and build-manifest files are present;
+- the installed OpenFusion GUI and CLI bytes match a canonical Ed25519-signed
+  identity bound to the exact SemVer, source revision, Pixi lock digest,
+  descriptor-hashed build/OpenSSL provenance, epoch, strict aliases, packaging
+  policy, and complete normalized payload tree; verification requires expected
+  coordinates and a reviewed repository-allow-listed public key, and never
+  executes an untrusted staged binary;
 - no private keys, tokens, temporary keychains, PDBs intended to remain
   private, build caches, or absolute build paths are present;
 - packaged command-line launch succeeds in safe mode;
@@ -169,6 +198,15 @@ installer, signature, or notarization ticket has been produced.
 - saved documents reopen and representative STEP/STL exports are nonempty and
   parseable;
 - package logs contain no unhandled exception, crash, or missing-runtime error.
+- the final payload and source archive contain none of the 32 quarantined
+  material patterns and none of the denylisted upstream product-identity asset
+  hashes;
+- every shipped functional icon and raster asset maps to an audited license,
+  attribution, and source entry; missing embedded metadata is not treated as a
+  license;
+- the Windows shell thumbnail provider is absent until a source-built,
+  independently identified, signed, coexistence-safe implementation passes
+  parser and uninstall review.
 
 ### Linux-specific gates
 

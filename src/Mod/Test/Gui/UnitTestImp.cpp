@@ -23,7 +23,10 @@
 #include <QFontMetrics>
 #include <QMessageBox>
 
+#include <exception>
 
+
+#include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Gui/MainWindow.h>
 
@@ -32,6 +35,21 @@
 
 
 using namespace TestGui;
+
+namespace
+{
+void reportPreservedCleanupFailure(const char* message) noexcept
+{
+    try {
+        Base::Console().error(
+            "GUI unittest cleanup failed while preserving the test failure: %s\n",
+            message
+        );
+    }
+    catch (...) {
+    }
+}
+}  // namespace
 
 /* TRANSLATOR TestGui::UnitTestDialog */
 
@@ -189,19 +207,75 @@ void UnitTestDialog::onAboutButtonClicked()
 /**
  * Runs the unit tests.
  */
-void UnitTestDialog::onStartButtonClicked()
+void UnitTestDialog::runTestInterpreter()
+{
+    std::exception_ptr testFailure;
+    try {
+        Base::Interpreter().runString(
+            "import FreeCAD\n"
+            "import GuiTestRunner\n"
+            "import qtunittest\n"
+            "__qt_test__=qtunittest.QtTestRunner(0,\"\")\n"
+            "GuiTestRunner.run_test_with_diagnostics(\n"
+            "    __qt_test__.runClicked,\n"
+            "    fallback=FreeCAD.Console.PrintError,\n"
+            ")\n"
+        );
+    }
+    catch (...) {
+        testFailure = std::current_exception();
+    }
+
+    try {
+        Base::Interpreter().runString(
+            "import gc\n"
+            "globals().pop(\"__qt_test__\", None)\n"
+            "gc.collect()\n"
+        );
+    }
+    catch (const Base::Exception& error) {
+        if (!testFailure) {
+            throw;
+        }
+        reportPreservedCleanupFailure(error.what());
+    }
+    catch (const std::exception& error) {
+        if (!testFailure) {
+            throw;
+        }
+        reportPreservedCleanupFailure(error.what());
+    }
+    catch (...) {
+        if (!testFailure) {
+            throw;
+        }
+        reportPreservedCleanupFailure("unknown cleanup exception");
+    }
+
+    if (testFailure) {
+        std::rethrow_exception(testFailure);
+    }
+}
+
+void UnitTestDialog::executeCurrentTest()
 {
     reset();
     setProgressColor(QColor(40, 210, 43));  // a darker green
     ui->startButton->setDisabled(true);
     try {
-        Base::Interpreter().runString(
-            "import qtunittest, gc\n"
-            "__qt_test__=qtunittest.QtTestRunner(0,\"\")\n"
-            "__qt_test__.runClicked()\n"
-            "del __qt_test__\n"
-            "gc.collect()\n"
-        );
+        runTestInterpreter();
+    }
+    catch (...) {
+        ui->startButton->setEnabled(true);
+        throw;
+    }
+    ui->startButton->setEnabled(true);
+}
+
+void UnitTestDialog::onStartButtonClicked()
+{
+    try {
+        executeCurrentTest();
     }
     catch (const Base::PyException& e) {
         std::string msg = e.what();
@@ -218,7 +292,6 @@ void UnitTestDialog::onStartButtonClicked()
     catch (...) {
         showErrorDialog("Unknown exception", "Unknown exception raised");
     }
-    ui->startButton->setEnabled(true);
 }
 
 /**
@@ -304,6 +377,22 @@ bool UnitTestDialog::runCurrentTest()
 {
     clearErrorList();
     onStartButtonClicked();
+    int count = ui->treeViewFailure->topLevelItemCount();
+    reject();
+    return (count == 0);
+}
+
+bool UnitTestDialog::runCurrentTestAutomated()
+{
+    clearErrorList();
+    try {
+        executeCurrentTest();
+    }
+    catch (...) {
+        reject();
+        throw;
+    }
+
     int count = ui->treeViewFailure->topLevelItemCount();
     reject();
     return (count == 0);

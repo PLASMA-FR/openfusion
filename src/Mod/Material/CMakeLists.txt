@@ -187,41 +187,6 @@ SET(AppearanceLib_Files
     Resources/Materials/Appearance/Wood.FCMat
 )
 
-SET(PatternLib_Files
-    Resources/Materials/Patterns/PAT/Diagonal4.FCMat
-    Resources/Materials/Patterns/PAT/Diagonal5.FCMat
-    Resources/Materials/Patterns/PAT/Diamond.FCMat
-    Resources/Materials/Patterns/PAT/Diamond2.FCMat
-    Resources/Materials/Patterns/PAT/Diamond4.FCMat
-    Resources/Materials/Patterns/PAT/Horizontal5.FCMat
-    Resources/Materials/Patterns/PAT/Square.FCMat
-    Resources/Materials/Patterns/PAT/Vertical5.FCMat
-    "Resources/Materials/Patterns/Pattern Files/aluminum.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/brick01.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/concrete.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/cross.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/cuprous.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/diagonal1.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/diagonal2.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/earth.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/general_steel.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/glass.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/hatch45L.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/hatch45R.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/hbone.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/line.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/plastic.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/plus.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/simple.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/solid.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/square.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/steel.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/titanium.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/wood.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/woodgrain.FCMat"
-    "Resources/Materials/Patterns/Pattern Files/zinc.FCMat"
-)
-
 SET(MachiningLib_Files
     Resources/Materials/Machining/AluminumCastAlloy.FCMat
     Resources/Materials/Machining/AluminumWroughtAlloy.FCMat
@@ -362,9 +327,6 @@ ADD_CUSTOM_TARGET(FluidMaterialLib ALL
 ADD_CUSTOM_TARGET(AppearanceLib ALL
     SOURCES ${AppearanceLib_Files}
 )
-ADD_CUSTOM_TARGET(PatternLib ALL
-    SOURCES ${PatternLib_Files}
-)
 ADD_CUSTOM_TARGET(MaterialTestLib ALL
     SOURCES ${MaterialTestLib_Files}
 )
@@ -389,10 +351,6 @@ fc_target_copy_resource(AppearanceLib
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_DATADIR}/Mod/Material/
     ${AppearanceLib_Files})
-fc_target_copy_resource(PatternLib
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_DATADIR}/Mod/Material/
-    ${PatternLib_Files})
 fc_target_copy_resource(MachiningLib
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_DATADIR}/Mod/Material/
@@ -416,7 +374,7 @@ INSTALL(
     DESTINATION Mod/Material/materialtests/Materials
 )
 
-foreach(file ${MaterialLib_Files} ${FluidMaterial_Files} ${AppearanceLib_Files} ${PatternLib_Files} ${MachiningLib_Files} ${MaterialTestLib_Files} ${MaterialModel_Files})
+foreach(file ${MaterialLib_Files} ${FluidMaterial_Files} ${AppearanceLib_Files} ${MachiningLib_Files} ${MaterialTestLib_Files} ${MaterialModel_Files})
     get_filename_component(filepath ${file} DIRECTORY)
     INSTALL(
         FILES ${file}

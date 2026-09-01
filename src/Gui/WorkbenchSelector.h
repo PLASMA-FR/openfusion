@@ -29,14 +29,63 @@
 #include <QToolButton>
 #include <QLayout>
 #include <QWheelEvent>
+#include <QPointer>
+#include <QStringList>
 
 #include <FCGlobal.h>
 #include <Gui/ToolBarManager.h>
 #include <map>
+#include <functional>
 
 namespace Gui
 {
 class WorkbenchGroup;
+
+class GuiExport WorkspaceSelectionController: public QObject
+{
+    Q_OBJECT
+
+public:
+    using Availability = std::function<bool(const QString&)>;
+    using Activation = std::function<bool(const QString&)>;
+    using Persistence = std::function<void(const QString&)>;
+
+    explicit WorkspaceSelectionController(
+        Availability availability = {},
+        Activation activation = {},
+        Persistence persistence = {},
+        QObject* parent = nullptr
+    );
+
+    bool activateWorkspace(const QString& workspaceId);
+    bool workspaceAvailable(const QString& workspaceId) const;
+    void synchronizeWorkbench(const QString& workbenchName);
+    void configureSelector(QWidget* selector) const;
+
+    static QString designWorkspaceId();
+    static QString designWorkbenchName();
+    static QString workspaceIdForWorkbench(const QString& workbenchName);
+    static QString workbenchNameForWorkspaceId(const QString& workspaceId);
+    static bool workbenchSelectable(
+        const QString& workbenchName,
+        const QStringList& availableWorkbenches,
+        const QStringList& enabledWorkbenches
+    );
+    static QString displayNameForWorkbench(
+        const QString& workbenchName,
+        const QString& fallback
+    );
+    static QString persistedWorkspaceId();
+    static void persistWorkbenchSelection(const QString& workbenchName);
+
+Q_SIGNALS:
+    void workspaceChanged(const QString& workspaceId);
+
+private:
+    Availability availability;
+    Activation activation;
+    Persistence persistence;
+};
 
 enum class WorkbenchItemStyle
 {
@@ -61,6 +110,8 @@ public Q_SLOTS:
     void refreshList(QList<QAction*>);
 
 private:
+    WorkspaceSelectionController* workspaceController = nullptr;
+    QVector<QPointer<QAction>> displayedActions;
     Q_DISABLE_COPY(WorkbenchComboBox)
 };
 
@@ -192,6 +243,7 @@ private:
     bool isInitializing = false;
 
     WorkbenchGroup* wbActionGroup;
+    WorkspaceSelectionController* workspaceController;
     QToolButton* moreButton;
     WbTabBar* tabBar;
     QBoxLayout* layout;
