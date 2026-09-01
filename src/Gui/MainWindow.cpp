@@ -97,6 +97,7 @@
 #include "GuiApplication.h"
 #include "InputHintWidget.h"
 #include "MenuManager.h"
+#include "MenuManagerCleanup.h"
 #include "ModuleIO.h"
 #include "NotificationArea.h"
 #include "OverlayManager.h"
@@ -546,6 +547,9 @@ MainWindow::~MainWindow()
     d->mdiArea = nullptr;
     delete ownedCentralWidget;
     reportMainWindowDestructionStage("main-window-owned-ui-destruct-end");
+    reportMainWindowDestructionStage("main-window-owned-menus-destruct-begin");
+    MenuManagerInternal::destroyOwnedWorkbenchMenus(menuBar());
+    reportMainWindowDestructionStage("main-window-owned-menus-destruct-end");
     delete d->status;
     delete d;
     instance = nullptr;

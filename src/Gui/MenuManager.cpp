@@ -219,54 +219,41 @@ void MenuManager::setup(MenuItem* menuItems) const
     // Qt bug, as the behavior does not seem to conform to Qt's documentation
     // of Qt::ShortcutContext.
     //
-    // Clearing the menu bar, and recreate it every time when switching
-    // workbench with only the active actions can solve this problem.
-    MenuManagerInternal::clearOwnedWorkbenchMenus(menuBar);
-
-    QList<QAction*> actions = menuBar->actions();
+    // Keep a bounded cache of menus by untranslated workbench identity. Only
+    // the active workbench's roots are attached, so inactive shortcuts remain
+    // out of the menu hierarchy without repeatedly creating native QMenus.
+    MenuManagerInternal::detachOwnedWorkbenchActions(menuBar);
+    QAction* firstExternalAction
+        = menuBar->actions().isEmpty() ? nullptr : menuBar->actions().constFirst();
+    int separatorIndex = 0;
     for (auto& item : menuItems->getItems()) {
-        // search for the menu action
-        QAction* action = findAction(actions, QString::fromLatin1(item->command().c_str()));
-        if (!action) {
-            // There must be not more than one separator in the menu bar, so
-            // we can safely remove it if available and append it at the end
-            if (item->command() == "Separator") {
-                action = MenuManagerInternal::addOwnedWorkbenchSeparator(menuBar);
-                action->setObjectName(QLatin1String("Separator"));
-            }
-            else {
-                // create a new menu
-                std::string menuName = item->command();
-                QMenu* menu = MenuManagerInternal::addOwnedWorkbenchMenu(
-                    menuBar,
-                    QApplication::translate("Workbench", menuName.c_str())
-                );
-                action = menu->menuAction();
-                menu->setObjectName(QString::fromLatin1(menuName.c_str()));
-                action->setObjectName(QString::fromLatin1(menuName.c_str()));
-            }
-
-            // set the menu user data
-            action->setData(QString::fromLatin1(item->command().c_str()));
+        const QString identity = QString::fromLatin1(item->command().c_str());
+        QAction* action = nullptr;
+        if (item->command() == "Separator") {
+            action = MenuManagerInternal::acquireOwnedWorkbenchSeparator(
+                menuBar,
+                QStringLiteral("Separator:%1").arg(separatorIndex++),
+                firstExternalAction
+            );
+            action->setObjectName(QLatin1String("Separator"));
         }
         else {
-            // put the menu at the end
-            menuBar->removeAction(action);
-            menuBar->addAction(action);
-            action->setVisible(true);
-            int index = actions.indexOf(action);
-            actions.removeAt(index);
+            QMenu* menu = MenuManagerInternal::acquireOwnedWorkbenchMenu(
+                menuBar,
+                identity,
+                QApplication::translate("Workbench", item->command().c_str()),
+                firstExternalAction
+            );
+            action = menu->menuAction();
+            menu->setObjectName(identity);
+            action->setObjectName(identity);
         }
+        action->setData(identity);
 
         // flll up the menu
         if (!action->isSeparator()) {
             setup(item, action->menu());
         }
-    }
-
-    // hide all menus which we don't need for the moment
-    for (auto& action : actions) {
-        action->setVisible(false);
     }
 
     // enable update again
@@ -276,60 +263,64 @@ void MenuManager::setup(MenuItem* menuItems) const
 void MenuManager::setup(MenuItem* item, QMenu* menu) const
 {
     CommandManager& mgr = Application::Instance->commandManager();
+    MenuManagerInternal::detachOwnedWorkbenchActions(menu);
     QList<QAction*> actions = menu->actions();
+    int separatorIndex = 0;
     for (auto& item : item->getItems()) {
-        // search for the menu item
-        QList<QAction*> used_actions
-            = findActions(actions, QString::fromLatin1(item->command().c_str()));
-        if (used_actions.isEmpty()) {
-            if (item->command() == "Separator") {
-                QAction* action = menu->addSeparator();
-                action->setObjectName(QLatin1String("Separator"));
-                action->setData(QLatin1String("Separator"));
-                used_actions.append(action);
-            }
-            else {
-                if (item->hasItems()) {
-                    // Creste a submenu
-                    std::string menuName = item->command();
-                    QMenu* submenu = menu->addMenu(
-                        QApplication::translate("Workbench", menuName.c_str())
-                    );
-                    QAction* action = submenu->menuAction();
-                    submenu->setObjectName(QString::fromLatin1(item->command().c_str()));
-                    action->setObjectName(QString::fromLatin1(item->command().c_str()));
-                    // set the menu user data
-                    action->setData(QString::fromLatin1(item->command().c_str()));
-                    used_actions.append(action);
-                }
-                else {
-                    // A command can have more than one QAction
-                    int count = menu->actions().count();
-                    // Check if action was added successfully
-                    if (mgr.addTo(item->command().c_str(), menu)) {
-                        QList<QAction*> acts = menu->actions();
-                        for (int i = count; i < acts.count(); i++) {
-                            QAction* act = acts[i];
-                            // set the menu user data
-                            act->setData(QString::fromLatin1(item->command().c_str()));
-                            used_actions.append(act);
-                        }
+        const QString identity = QString::fromLatin1(item->command().c_str());
+        QList<QAction*> used_actions;
+        if (item->command() == "Separator") {
+            QAction* action = MenuManagerInternal::acquireOwnedWorkbenchSeparator(
+                menu,
+                QStringLiteral("Separator:%1").arg(separatorIndex++)
+            );
+            action->setObjectName(QLatin1String("Separator"));
+            action->setData(QLatin1String("Separator"));
+            used_actions.append(action);
+        }
+        else if (item->hasItems()) {
+            QMenu* submenu = MenuManagerInternal::acquireOwnedWorkbenchMenu(
+                menu,
+                identity,
+                QApplication::translate("Workbench", item->command().c_str())
+            );
+            QAction* action = submenu->menuAction();
+            submenu->setObjectName(identity);
+            action->setObjectName(identity);
+            action->setData(identity);
+            used_actions.append(action);
+        }
+        else {
+            used_actions = findActions(actions, identity);
+            if (used_actions.isEmpty()) {
+                // A command can have more than one QAction
+                int count = menu->actions().count();
+                // Check if action was added successfully
+                if (mgr.addTo(item->command().c_str(), menu)) {
+                    QList<QAction*> acts = menu->actions();
+                    for (int i = count; i < acts.count(); i++) {
+                        QAction* act = acts[i];
+                        act->setData(identity);
+                        used_actions.append(act);
                     }
                 }
             }
         }
-        else {
+
+        if (!item->hasItems() && item->command() != "Separator" && !used_actions.isEmpty()) {
             for (auto& action : used_actions) {
                 // put the menu item at the end
                 menu->removeAction(action);
                 menu->addAction(action);
                 int index = actions.indexOf(action);
-                actions.removeAt(index);
+                if (index >= 0) {
+                    actions.removeAt(index);
+                }
             }
         }
 
         // fill up the submenu
-        if (item->hasItems()) {
+        if (item->hasItems() && !used_actions.isEmpty()) {
             setup(item, used_actions.front()->menu());
         }
     }

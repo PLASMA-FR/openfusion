@@ -364,6 +364,8 @@ def _run_scenario(
         "main-window-destruct-body-begin",
         "main-window-owned-ui-destruct-begin",
         "main-window-owned-ui-destruct-end",
+        "main-window-owned-menus-destruct-begin",
+        "main-window-owned-menus-destruct-end",
         "main-window-destruct-body-end",
     )
     for stage in expected_lifecycle_stages:
@@ -379,6 +381,8 @@ def _run_scenario(
         "main-window-destruct-body-begin",
         "main-window-owned-ui-destruct-begin",
         "main-window-owned-ui-destruct-end",
+        "main-window-owned-menus-destruct-begin",
+        "main-window-owned-menus-destruct-end",
         "main-window-destruct-body-end",
     )
     teardown_offsets = [
@@ -449,7 +453,8 @@ def _run_driver() -> int:
 
     print(
         "FreeCAD GUI preserved positional SystemExit(7), internal test success exit 0, "
-        "live-MDI teardown exit 0, internal test failure exit 1, internal SystemExit(23), "
+        "live-MDI/menu-churn teardown exit 0, internal test failure exit 1, "
+        "internal SystemExit(23), "
         "controlled non-SystemExit diagnostics, and completed lock/interpreter cleanup"
     )
     return 0
