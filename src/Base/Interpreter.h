@@ -46,6 +46,7 @@
 #endif
 
 #include <CXX/Extensions.hxx>
+#include <exception>
 #include <list>
 #include <string>
 #include "Exception.h"
@@ -160,9 +161,10 @@ class BaseExport SystemExitException: public Exception
 {
 public:
     SystemExitException();
+    explicit SystemExitException(long exitCode);
     SystemExitException(const SystemExitException&) = default;
     SystemExitException(SystemExitException&&) = default;
-    ~SystemExitException() noexcept override = default;
+    ~SystemExitException() noexcept override;
     SystemExitException& operator=(const SystemExitException&) = default;
     SystemExitException& operator=(SystemExitException&&) = default;
     long getExitCode() const
@@ -173,6 +175,9 @@ public:
 private:
     long _exitCode;
 };
+
+/** Extract a Python SystemExit code without matching its C++ type outside FreeCADBase. */
+BaseExport bool getSystemExitCode(std::exception_ptr exception, long& exitCode) noexcept;
 
 /** If the application starts we release immediately the global interpreter lock
  * (GIL) once the Python interpreter is initialized, i.e. no thread -- including

@@ -441,6 +441,9 @@ ProgressBar::ProgressBar(SequencerBar* s, QWidget* parent)
 
 ProgressBar::~ProgressBar()
 {
+    if (sequencer && sequencer->d->bar == this) {
+        sequencer->d->bar = nullptr;
+    }
     disconnect(d->delayShowTimer, &QTimer::timeout, this, &ProgressBar::delayedShow);
     delete d->delayShowTimer;
     delete d;

@@ -20,12 +20,12 @@ BEGIN
     BEGIN
         BLOCK "040904b0" // 409 stands for US English
         BEGIN
-            VALUE "CompanyName", "${PROJECT_NAME} Team"
-            VALUE "FileDescription", "${PROJECT_NAME} command line executable"
-            VALUE "InternalName", "FreeCADCmd.exe"
+            VALUE "CompanyName", "OpenFusion Team"
+            VALUE "FileDescription", "OpenFusion command line executable"
+            VALUE "InternalName", "OpenFusionCmd.exe"
             VALUE "LegalCopyright", "Copyright (C) 2022"
-            VALUE "OriginalFilename", "FreeCADCmd.exe"
-            VALUE "ProductName", "${PROJECT_NAME}"
+            VALUE "OriginalFilename", "OpenFusionCmd.exe"
+            VALUE "ProductName", "OpenFusion"
             VALUE "ProductVersion", "${PACKAGE_VERSION}${PACKAGE_VERSION_SUFFIX}"
         END
     END

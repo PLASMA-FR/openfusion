@@ -533,6 +533,7 @@ SET(Command_CPP_SRCS
     CommandPyImp.cpp
     ShortcutManager.cpp
     CommandCompleter.cpp
+    CommandPalette.cpp
     CommandActionPy.cpp
 )
 SET(Command_SRCS
@@ -543,6 +544,7 @@ SET(Command_SRCS
     CommandT.h
     ShortcutManager.h
     CommandCompleter.h
+    CommandPalette.h
     CommandActionPy.h
 )
 SOURCE_GROUP("Command" FILES ${Command_SRCS})
@@ -1237,6 +1239,7 @@ SET(Widget_HPP_SRCS
     ComboLinks.h
     FileDialog.h
     MainWindow.h
+    MainWindowCleanup.h
     MainWindowPy.h
     NotificationBox.h
     NotificationArea.h
@@ -1330,6 +1333,7 @@ SET(Workbench_SRCS
     OverlayManager.h
     OverlayWidgets.h
     MenuManager.h
+    MenuManagerCleanup.h
     ToolBarAreaWidget.h
     ToolBarManager.h
     ToolBoxManager.h

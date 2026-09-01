@@ -121,6 +121,23 @@ OpenFusion launcher. It must be deterministic where practical: sorted entries,
 numeric ownership, a fixed modification time derived from
 `SOURCE_DATE_EPOCH`, and fixed zstd options.
 
+The repository now contains a fail-closed staging and verification tool at
+`packaging/linux/create_deterministic_tarball.py`. It packages only an existing
+quiescent `DESTDIR` installation, validates the architecture of every ELF,
+normalizes and manifests every payload entry, resolves the complete symlink
+graph, publishes the archive last as the commit marker, and verifies bounded
+decompression and the canonical payload. Its signed Ed25519 executable identity
+contract binds the exact OpenFusion SemVer, source revision, locked dependency
+hash, build provenance, epoch, canonical GUI/CLI paths, strict compatibility
+aliases, and a domain-separated digest of the complete normalized payload and
+packaging policy without running staged binaries. The verifier requires explicit
+expected coordinates plus the matching out-of-band trusted public key, and
+there is no test bypass. Production verification additionally requires a key in
+the repository SPKI allow-list. Ephemeral keys may identify explicitly labeled
+development artifacts; production publication remains blocked until protected
+key custody, artifact signing/attestation, and final-package acceptance exist. See
+`packaging/linux/README.md` for the exact staging contract and commands.
+
 The final archive must be extracted into at least a normal temporary path and
 a path containing spaces. Tests must run the extracted copy without relying on
 the build directory or a system-wide installation.

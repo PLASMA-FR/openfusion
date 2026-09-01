@@ -36,6 +36,19 @@ import sys
 import time
 import traceback
 import string
+from PySide import QtCore
+
+
+_ACTIVE_TEST_PROPERTY = "OpenFusionActiveGuiUnitTest"
+
+
+def _set_active_test_name(name):
+    try:
+        application = QtCore.QCoreApplication.instance()
+        if application is not None:
+            application.setProperty(_ACTIVE_TEST_PROPERTY, str(name))
+    except BaseException:
+        pass
 
 
 ##############################################################################
@@ -93,6 +106,7 @@ class BaseGUITestRunner:
         self.totalTests = test.countTestCases()
         self.running = 1
         self.notifyRunning()
+        _set_active_test_name(testName)
         startTime = time.time()
         result = test.run(self.currentResult)
         stopTime = time.time()
@@ -103,7 +117,8 @@ class BaseGUITestRunner:
         expectedFails = unexpectedSuccesses = skipped = 0
         try:
             results = map(
-                len, (result.expectedFailures, result.unexpectedSuccesses, result.skipped)
+                len,
+                (result.expectedFailures, result.unexpectedSuccesses, result.skipped),
             )
         except AttributeError:
             pass
@@ -111,7 +126,9 @@ class BaseGUITestRunner:
             expectedFails, unexpectedSuccesses, skipped = results
 
         self.stream.write(
-            "\n{}\nRan {} tests in {:.3}s\n\n".format("-" * 70, result.testsRun, timeTaken)
+            "\n{}\nRan {} tests in {:.3}s\n\n".format(
+                "-" * 70, result.testsRun, timeTaken
+            )
         )
         infos = []
         if not result.wasSuccessful():
@@ -236,6 +253,7 @@ class QtTestRunner(BaseGUITestRunner):
         return self.gui.errorDialog(title, message)
 
     def notifyRunning(self):
+        _set_active_test_name("")
         self.runCountVar = 0
         self.gui.setRunCount(0)
         self.failCountVar = 0
@@ -250,10 +268,13 @@ class QtTestRunner(BaseGUITestRunner):
         self.gui.updateGUI()
 
     def notifyStopped(self):
+        _set_active_test_name("")
         self.gui.setStatusText("Idle")
 
     def notifyTestStarted(self, test):
-        self.gui.setStatusText(str(test))
+        test_name = str(test)
+        _set_active_test_name(test_name)
+        self.gui.setStatusText(test_name)
         self.gui.updateGUI()
 
     def notifyTestFailed(self, test, err):
@@ -276,7 +297,9 @@ class QtTestRunner(BaseGUITestRunner):
         tracebackText = "".join(tracebackLines)
         self.gui.insertError("Error: %s" % test, tracebackText)
         self.errorInfo.append((test, err))
-        self.stream.write("{}\nERROR: {}\n{}\n{}\n".format("=" * 70, test, "-" * 70, tracebackText))
+        self.stream.write(
+            "{}\nERROR: {}\n{}\n{}\n".format("=" * 70, test, "-" * 70, tracebackText)
+        )
 
     def notifyTestFinished(self, test):
         self.remainingCountVar = self.remainingCountVar - 1

@@ -4,6 +4,13 @@ configure_file(freecad.rc.cmake ${CMAKE_CURRENT_BINARY_DIR}/freecad.rc)
 configure_file(freecadCmd.rc.cmake ${CMAKE_CURRENT_BINARY_DIR}/freecadCmd.rc)
 file(COPY icon.ico DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
+set(
+    OPENFUSION_VERSION_SUFFIX
+    "${PACKAGE_VERSION_SUFFIX}"
+    CACHE STRING
+    "Semantic-version suffix displayed by the OpenFusion GUI and CLI executables"
+)
+
 ######################## FreeCADMain ########################
 if(BUILD_GUI)
 
@@ -27,11 +34,28 @@ if(BUILD_GUI)
 
     add_executable(FreeCADMain WIN32 ${FreeCAD_SRCS})
     target_link_libraries(FreeCADMain ${FreeCAD_LIBS})
+    target_compile_definitions(
+        FreeCADMain PRIVATE OPENFUSION_VERSION_SUFFIX="${OPENFUSION_VERSION_SUFFIX}"
+    )
     if (FREECAD_WARN_ERROR)
         target_compile_warn_error(FreeCADMain)
     endif()
 
     SET_BIN_DIR(FreeCADMain FreeCAD)
+
+    if(UNIX AND NOT APPLE)
+        set_property(
+            TARGET FreeCADMain APPEND PROPERTY
+            INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
+        )
+    endif()
+
+    add_custom_command(TARGET FreeCADMain POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:FreeCADMain>"
+            "$<TARGET_FILE_DIR:FreeCADMain>/OpenFusion$<TARGET_FILE_SUFFIX:FreeCADMain>"
+        VERBATIM
+    )
 
     if(WIN32)
         INSTALL(TARGETS FreeCADMain
@@ -47,6 +71,30 @@ if(BUILD_GUI)
         INSTALL(TARGETS FreeCADMain
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         )
+    endif()
+    if(APPLE AND NOT BUILD_WITH_CONDA)
+        set(OPENFUSION_GUI_INSTALL_DIR "MacOS")
+    else()
+        set(OPENFUSION_GUI_INSTALL_DIR "${CMAKE_INSTALL_BINDIR}")
+    endif()
+    install(CODE "
+        file(COPY_FILE
+            \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${OPENFUSION_GUI_INSTALL_DIR}/FreeCAD${CMAKE_EXECUTABLE_SUFFIX}\"
+            \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${OPENFUSION_GUI_INSTALL_DIR}/OpenFusion${CMAKE_EXECUTABLE_SUFFIX}\"
+            ONLY_IF_DIFFERENT
+        )
+    ")
+    if(UNIX AND NOT APPLE)
+        install(CODE "
+            file(REMOVE
+                \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${OPENFUSION_GUI_INSTALL_DIR}/FreeCAD\"
+            )
+            file(CREATE_LINK
+                OpenFusion
+                \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${OPENFUSION_GUI_INSTALL_DIR}/FreeCAD\"
+                SYMBOLIC
+            )
+        ")
     endif()
 endif(BUILD_GUI)
 ######################## FreeCADMainCmd ########################
@@ -76,11 +124,28 @@ endif(NOT BUILD_DYNAMIC_LINK_PYTHON)
 target_link_libraries(FreeCADMainCmd
     ${FreeCADMainCmd_LIBS}
 )
+target_compile_definitions(
+    FreeCADMainCmd PRIVATE OPENFUSION_VERSION_SUFFIX="${OPENFUSION_VERSION_SUFFIX}"
+)
 if (FREECAD_WARN_ERROR)
     target_compile_warn_error(FreeCADMainCmd)
 endif()
 
 SET_BIN_DIR(FreeCADMainCmd FreeCADCmd)
+
+if(UNIX AND NOT APPLE)
+    set_property(
+        TARGET FreeCADMainCmd APPEND PROPERTY
+        INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
+    )
+endif()
+
+add_custom_command(TARGET FreeCADMainCmd POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:FreeCADMainCmd>"
+        "$<TARGET_FILE_DIR:FreeCADMainCmd>/OpenFusionCmd$<TARGET_FILE_SUFFIX:FreeCADMainCmd>"
+    VERBATIM
+)
 
 if(WIN32)
     INSTALL(TARGETS FreeCADMainCmd
@@ -97,6 +162,40 @@ else()
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
 endif()
+
+if(APPLE AND NOT BUILD_WITH_CONDA)
+    set(OPENFUSION_CLI_INSTALL_DIR "MacOS")
+else()
+    set(OPENFUSION_CLI_INSTALL_DIR "${CMAKE_INSTALL_BINDIR}")
+endif()
+install(CODE "
+    file(COPY_FILE
+        \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${OPENFUSION_CLI_INSTALL_DIR}/FreeCADCmd${CMAKE_EXECUTABLE_SUFFIX}\"
+        \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${OPENFUSION_CLI_INSTALL_DIR}/OpenFusionCmd${CMAKE_EXECUTABLE_SUFFIX}\"
+        ONLY_IF_DIFFERENT
+    )
+")
+if(UNIX AND NOT APPLE)
+    install(CODE "
+        file(REMOVE
+            \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${OPENFUSION_CLI_INSTALL_DIR}/FreeCADCmd\"
+        )
+        file(CREATE_LINK
+            OpenFusionCmd
+            \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${OPENFUSION_CLI_INSTALL_DIR}/FreeCADCmd\"
+            SYMBOLIC
+        )
+    ")
+endif()
+
+install(DIRECTORY DESTINATION "${CMAKE_INSTALL_DATADIR}/openfusion")
+install(
+    FILES
+        "${CMAKE_SOURCE_DIR}/LICENSE"
+        "${CMAKE_SOURCE_DIR}/NOTICE.md"
+        "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/openfusion"
+)
 
 ######################## FreeCADMainPy ########################
 

@@ -1,0 +1,187 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include <QAction>
+#include <QCoreApplication>
+#include <QDockWidget>
+#include <QMainWindow>
+#include <QMenu>
+#include <QMenuBar>
+#include <QPointer>
+#include <QStatusBar>
+#include <QTest>
+#include <QToolBar>
+
+#include <array>
+
+#include "Gui/MainWindowCleanup.h"
+#include "Gui/MenuManagerCleanup.h"
+
+class testMenuManager: public QObject
+{
+    Q_OBJECT
+
+private Q_SLOTS:
+    void ownedMainWindowShellCanBeDestroyedSynchronously()
+    {
+        QMainWindow mainWindow;
+        QObject externalActionOwner;
+        auto* externalAction = new QAction(&externalActionOwner);
+        QPointer<QAction> externalActionGuard(externalAction);
+        auto* toolBar = new QToolBar(&mainWindow);
+        auto* dockWidget = new QDockWidget(&mainWindow);
+        auto* statusBar = new QStatusBar(&mainWindow);
+        toolBar->addAction(externalAction);
+        dockWidget->addAction(externalAction);
+        mainWindow.addToolBar(toolBar);
+        mainWindow.addDockWidget(Qt::LeftDockWidgetArea, dockWidget);
+        mainWindow.setStatusBar(statusBar);
+        QPointer<QToolBar> toolBarGuard(toolBar);
+        QPointer<QDockWidget> dockWidgetGuard(dockWidget);
+        QPointer<QStatusBar> statusBarGuard(statusBar);
+
+        const auto ownedToolBars = Gui::MainWindowInternal::ownedToolBars(&mainWindow);
+        const auto ownedDockWidgets = Gui::MainWindowInternal::ownedDockWidgets(&mainWindow);
+        const auto ownedStatusBars = Gui::MainWindowInternal::ownedStatusBars(&mainWindow);
+        Gui::MainWindowInternal::destroyOwnedToolBars(&mainWindow, ownedToolBars);
+        Gui::MainWindowInternal::destroyOwnedDockWidgets(&mainWindow, ownedDockWidgets);
+        Gui::MainWindowInternal::destroyOwnedStatusBars(&mainWindow, ownedStatusBars);
+
+        QVERIFY(toolBarGuard.isNull());
+        QVERIFY(dockWidgetGuard.isNull());
+        QVERIFY(statusBarGuard.isNull());
+        QVERIFY(!externalActionGuard.isNull());
+        QCOMPARE(externalAction->parent(), &externalActionOwner);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    }
+
+    void detachedMenuWidgetCanBeDestroyedSynchronously()
+    {
+        QMainWindow mainWindow;
+        auto* menuBar = new QMenuBar(&mainWindow);
+        mainWindow.setMenuBar(menuBar);
+        auto* externalMenu = new QMenu(QStringLiteral("External"), menuBar);
+        menuBar->addMenu(externalMenu);
+        QPointer<QMenu> externalMenuGuard(externalMenu);
+        QPointer<QMenu> ownedMenuGuard(
+            Gui::MenuManagerInternal::acquireOwnedWorkbenchMenu(
+                menuBar,
+                QStringLiteral("Managed"),
+                QStringLiteral("Managed")
+            )
+        );
+        QPointer<QWidget> menuWidgetGuard(mainWindow.menuWidget());
+
+        Gui::MenuManagerInternal::destroyOwnedWorkbenchMenus(menuBar);
+        QVERIFY(ownedMenuGuard.isNull());
+        QVERIFY(!externalMenuGuard.isNull());
+
+        QWidget* ownedMenuWidget = mainWindow.menuWidget();
+        mainWindow.setMenuWidget(nullptr);
+        QCoreApplication::removePostedEvents(ownedMenuWidget, QEvent::DeferredDelete);
+        delete ownedMenuWidget;
+        QVERIFY(menuWidgetGuard.isNull());
+        QVERIFY(externalMenuGuard.isNull());
+        QCOMPARE(mainWindow.menuWidget(), nullptr);
+
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    }
+
+    void repeatedRebuildReusesOwnedMenusAndBoundsTheCache()
+    {
+        QMenuBar menuBar;
+        auto* externalRoot = new QMenu(QStringLiteral("External"), &menuBar);
+        auto* sharedNested = new QMenu(QStringLiteral("Shared nested"));
+        QPointer<QMenu> externalRootGuard(externalRoot);
+        QPointer<QMenu> sharedNestedGuard(sharedNested);
+        std::array<QPointer<QMenu>, 4> cachedRoots;
+        std::array<QPointer<QMenu>, 4> cachedNestedMenus;
+        std::array<QPointer<QAction>, 4> cachedSeparators;
+        menuBar.addMenu(externalRoot);
+
+        for (int iteration = 0; iteration < 64; ++iteration) {
+            Gui::MenuManagerInternal::detachOwnedWorkbenchActions(&menuBar);
+            QVERIFY(!externalRootGuard.isNull());
+            QVERIFY(!sharedNestedGuard.isNull());
+            QVERIFY(menuBar.actions().contains(externalRoot->menuAction()));
+
+            const int firstIdentity = iteration % 2;
+            for (int offset = 0; offset < 3; ++offset) {
+                const int identityIndex = firstIdentity + offset;
+                const QString identity = QStringLiteral("Managed%1").arg(identityIndex);
+                QMenu* root = Gui::MenuManagerInternal::acquireOwnedWorkbenchMenu(
+                    &menuBar,
+                    identity,
+                    identity,
+                    externalRoot->menuAction()
+                );
+                if (cachedRoots[identityIndex]) {
+                    QCOMPARE(root, cachedRoots[identityIndex].data());
+                }
+                else {
+                    cachedRoots[identityIndex] = root;
+                }
+
+                Gui::MenuManagerInternal::detachOwnedWorkbenchActions(root);
+                QMenu* nested = Gui::MenuManagerInternal::acquireOwnedWorkbenchMenu(
+                    root,
+                    QStringLiteral("Nested"),
+                    QStringLiteral("Nested")
+                );
+                if (cachedNestedMenus[identityIndex]) {
+                    QCOMPARE(nested, cachedNestedMenus[identityIndex].data());
+                }
+                else {
+                    cachedNestedMenus[identityIndex] = nested;
+                }
+
+                QAction* separator = Gui::MenuManagerInternal::acquireOwnedWorkbenchSeparator(
+                    root,
+                    QStringLiteral("Separator:0")
+                );
+                if (cachedSeparators[identityIndex]) {
+                    QCOMPARE(separator, cachedSeparators[identityIndex].data());
+                }
+                else {
+                    cachedSeparators[identityIndex] = separator;
+                }
+            }
+
+            if (cachedRoots[0] && !cachedRoots[0]->actions().contains(sharedNested->menuAction())) {
+                cachedRoots[0]->addMenu(sharedNested);
+            }
+
+            const QList<QMenu*> directMenus
+                = menuBar.findChildren<QMenu*>(QString(), Qt::FindDirectChildrenOnly);
+            QVERIFY(directMenus.size() <= 5);
+            QVERIFY(menuBar.actions().contains(externalRoot->menuAction()));
+            menuBar.removeAction(cachedRoots[firstIdentity + 2]->menuAction());
+            cachedRoots[firstIdentity + 2]->removeAction(
+                cachedSeparators[firstIdentity + 2].data()
+            );
+        }
+
+        Gui::MenuManagerInternal::destroyOwnedWorkbenchMenus(&menuBar);
+        for (const QPointer<QMenu>& menu : cachedRoots) {
+            QVERIFY(menu.isNull());
+        }
+        for (const QPointer<QMenu>& menu : cachedNestedMenus) {
+            QVERIFY(menu.isNull());
+        }
+        for (const QPointer<QAction>& action : cachedSeparators) {
+            QVERIFY(action.isNull());
+        }
+        QVERIFY(!externalRootGuard.isNull());
+        QVERIFY(!sharedNestedGuard.isNull());
+        QVERIFY(!menuBar.isNativeMenuBar());
+        QCOMPARE(
+            menuBar.findChildren<QMenu*>(QString(), Qt::FindDirectChildrenOnly).size(),
+            1
+        );
+
+        delete sharedNested;
+    }
+};
+
+QTEST_MAIN(testMenuManager)
+
+#include "MenuManager.moc"

@@ -263,9 +263,15 @@ public:
     static void initOpenInventor();
     static void runInitGuiScript();
     static void runApplication();
+    /// Run the GUI application without throwing SystemExit across the executable/library boundary.
+    static int runApplicationWithExitCode();
     void tryClose(QCloseEvent* e);
     //@}
 
+private:
+    static int runApplicationImpl(bool rethrowSystemExit);
+
+public:
     /// get verbose DPI and style info
     static void getVerboseDPIStyleInfo(QTextStream& str);
 

@@ -8,10 +8,39 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 - Foundation: FreeCAD 1.1.3 source is present and the `upstream` remote is configured read-only.
 - Active milestone: M0 — reproducible upstream baseline.
+- Core acceptance: implemented and green on committed local tested head `2f7fa2c8e940759d07698442054af0d12f222125`; the published cross-platform matrix remains red.
 - OpenFusion workspace shell: designed, not implemented.
 - OpenFusion release artifacts: not produced.
 - Production readiness: **not achieved**.
 - Supported-platform claims: none until clean-machine package tests pass.
+- Material-pattern quarantine: 32 restricted inherited assets are removed
+  from source and build manifests with a CI reintroduction guard; original
+  cleared presets and final artifact verification remain pending.
+- Windows thumbnail quarantine: the inherited prebuilt COM server and all
+  installer actions are removed under a CI guard; an independently reviewed
+  OpenFusion-identity provider is deferred.
+
+### Verified M0 execution snapshot (2026-08-30)
+
+| Item | Verified state |
+|---|---|
+| Remote integration / draft PR #28 | `51ae387b9ff3c0d1f3c894adb897717664967974`; all four recorded workflows are terminal and failed |
+| Local tested implementation head | `2f7fa2c8e940759d07698442054af0d12f222125`; committed locally and awaiting publication, so not remote evidence |
+| Local host | Ubuntu 24.04 arm64, Neoverse-N1, 2 CPUs, 12,506,804,224 bytes RAM |
+| Locked toolchain | Pixi 0.59.0; `pixi.lock` SHA-256 `114a173c4f57dfc0caa4ec0f559b0ec1a7a0f762a04475b5131dca12e2683edc`; Clang 21.1.0; CMake 4.2.1; Ninja 1.13.2; Python 3.11.14; Qt 6.8.3 |
+| Baseline build and CTest | 6,744/6,744 build steps; 1,428 discovered, 1,422 enabled, two FileInfo race failures, three skipped, six disabled; all three acceptance tests passed in 79.22 seconds |
+| Published implementation tested locally | 634/634 incremental build steps; 1,429 discovered, 1,423 enabled, zero failures, three skipped, six disabled in 80.86 seconds; CLI 1,661 with 10 skipped and zero failures; GUI 1,759 passed |
+| Committed local next head | 324-edge and four-edge builds passed; 1,433 CTest entries, 1,427 enabled, zero failed, three skipped, six disabled in 90.11 seconds; CLI 1,661 with 10 skipped, zero failures, and parsed count 1,661 in 153.353 seconds; faithful safe-mode GUI 1,759 passed, exit 0, parsed count 1,759 in `4.2e+02s` |
+| Focused local evidence | Parser 9/9; SystemExit classifier 4/4; targeted FileInfo 2/2; Qt callbacks 2/2; lifecycle 1/1 across exact codes 0, 1, and 7; TechDraw GUI export 1/1 in 2.55 seconds with exit 0, SVG 13,163 bytes, and PDF 298,780 bytes; review findings resolved by increasing the lifecycle timeout from 240 to 330 seconds and always executing WriteOnly while documenting/asserting the Windows readable-and-writable projection without a skip or DACL change |
+| Published matrix failures | Linux scientific-summary false-negative; Windows two FileInfo assertions and three timeouts despite Materials 35/35; macOS arm64 uncaught SystemExit/-6; macOS x86_64 exit 1 after GUI 1,759 `OK`; Security blocked only by disabled Dependency Graph while all three CodeQL jobs passed |
+| Remaining baseline gate | Publish local head `2f7fa2c8e940759d07698442054af0d12f222125`, re-fetch, then rerun and retrieve the complete PR #28 matrix, logs, and artifacts |
+
+These results do not establish a supported platform or package. Native Windows
+execution proved only the Materials runtime-path correction; Windows and both
+macOS jobs still require green reruns. Dependency Review remains fail-closed on
+an external repository setting, and interactive GUI, performance, clean-install,
+legal, security, and product gates remain open. An invalid interrupted
+hidden-mode diagnostic is not counted as evidence.
 
 ## Status and priority vocabulary
 
@@ -60,23 +89,30 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 ## M1 — Integrated Design workspace vertical slice
 
-**Status:** Not started
+**Status:** In progress; native command palette implemented, workspace/context shell pending
 **Purpose:** Prove a real workspace presentation layer without replacing modeling logic or creating a mock interface.
 
 ### Scope
 
 - A workspace selector backed by real FreeCAD workbench activation.
 - A selection-driven contextual action strip backed by real commands.
-- A fuzzy command palette for live commands and registered workspaces.
+- A fuzzy command palette for live commands is implemented; workspace entries follow the selector slice.
 - The existing `ComboView`/`TreeWidget` retained as the functional Project browser.
 - Design as the first fully registered workspace; other built-in mappings appear only when their backing workbench exists.
 - No timeline control in this milestone. It remains absent until M2 provides graph-backed behavior.
 
 ### Existing integration points
 
-- `Gui::Application::activateWorkbench()` and `signalActivateWorkbench`
-- `Gui::WorkbenchManager`
-- `Gui::CommandManager`, `CommandManager::signalChanged`, and `runCommandByName()`
+- `Gui::Application::activateWorkbench()` for normal handler activation and
+  `Gui::Application::workbenches()` for installed, policy-visible handlers
+- `Gui::WorkbenchManager` as the active-instance authority; add one completed
+  activation/removal signal because existing application and main-window
+  signals do not cover every activation path
+- `Gui::CommandManager`, `CommandManager::signalChanged`, `Command::testActive()`,
+  and the command-owned `Gui::Action`/`QAction`
+- `Gui::WorkbenchManipulator` immediately before real toolbar setup
+- `Gui::ShortcutManager` for the configurable application shortcut, including
+  a narrow opt-in exception to its line-edit `ShortcutOverride` rule
 - `Gui::SelectionObserver` and `Gui::SelectionFilter`
 - `Gui::ComboView`, `Gui::TreeWidget`, and global selection synchronization
 - Part Design `TaskWatcherCommands` selection rules
@@ -85,12 +121,12 @@ This roadmap is gate-driven. A milestone is complete only when its exit evidence
 
 | Planned path | Responsibility |
 |---|---|
-| `src/Gui/Workspace/WorkspaceRegistry.h/.cpp` | `WorkspaceDescriptor`, `ContextActionRule`, and `WorkspaceRegistry`; stable workspace IDs, backing workbenches, rules, availability, and ordering. |
-| `src/Gui/Workspace/WorkspaceController.h/.cpp` | `WorkspaceController`; coalesced observation of workbench, document, view, selection, and edit-mode state without document mutation. |
-| `src/Gui/Workspace/WorkspaceAction.h/.cpp` | `WorkspaceActionGroup` and `WorkspaceComboBox`; activation and bidirectional synchronization with legacy workbenches. |
-| `src/Gui/Workspace/ContextActionWidget.h/.cpp` | Dynamic, deduplicated presentation of existing command-owned `QAction` objects. |
-| `src/Gui/CommandPalette.h/.cpp` | `CommandCatalogModel`, `CommandSearchProxyModel`, and `CommandPaletteDialog`. |
-| `src/Mod/PartDesign/Gui/OpenFusionWorkspace.h/.cpp` | Idempotent registration of the Design workspace and its real contextual commands. |
+| `src/Gui/Workspace.h/.cpp` | Fixed-order descriptors, availability from `Application::workbenches()`, the `Std_Workspace` group, selector action/combo box, synchronization from the manager completion signal, and the narrow workbench-toolbar manipulator. |
+| `src/Gui/WorkbenchManager.h/.cpp` | Compatibility-neutral completed-activation/removal signal emitted after the manager's authoritative active pointer and toolbar/menu setup change. |
+| `src/Gui/CommandSearchModel.h/.cpp` | Copied command-ID/metadata snapshots and deterministic fuzzy ranking over actions exposed by the active menu and toolbars; group entries retain owner command and child index. |
+| `src/Gui/CommandPalette.h/.cpp` | Nonmodal keyboard-accessible launcher with focus restoration and execution through the validated real command-owned or owner-group `QAction`. |
+| `src/Gui/ShortcutManager.h/.cpp` | Narrow property-based opt-in that permits only the command-search application shortcut while line edits have focus. |
+| `src/Gui/WorkspaceContext.h/.cpp` | Later M1 sub-slice: coalesced document, view, selection, and edit-mode observation plus contextual action rules. |
 
 ### Initial workspace mappings
 
@@ -114,23 +150,44 @@ Sheet Metal and Rendering must not be advertised until compatible implementation
 - Single body: `PartDesign_NewSketch`, `Std_Properties`.
 - Empty selection: `PartDesign_Body`.
 
-Rules expose only registered commands. Disabled commands remain disabled. Group commands are not executable from the palette until child-action indices are modeled explicitly.
+Rules expose only registered commands and reuse their owned actions. Disabled
+commands remain disabled. Direct palette execution must restore the prior
+focus, initialize and re-resolve the command action, call `Command::testActive()`,
+validate its owner, recheck the real action, and trigger that `QAction`. A group
+child must re-resolve and validate its owning group plus stable child index and
+trigger the child through that proxy. It must not use
+`CommandManager::runCommandByName()`, which bypasses QAction-level gating and
+cannot preserve grouped/checkable semantics.
 
 ### Safe implementation sequence
 
-1. Add the registry and headless tests.
-2. Add the controller with scoped signal connections and queued-state invalidation tests.
-3. Add the workspace selector while retaining `Std_Workbench` as a compatibility fallback.
-4. Add contextual rule evaluation and the dynamic action widget.
-5. Register and integration-test the Design rules after Part Design commands load.
-6. Add the lazy, revision-aware command catalog and fuzzy palette.
-7. Change only the visible `ComboView` title to Project; preserve `Std_ComboView` and object name `Model`.
-8. Complete keyboard, focus, HiDPI, save/reopen, and undo/redo acceptance checks.
-9. Enable the shell by default only in the OpenFusion-branded build after all M1 gates pass.
+1. Add `WorkbenchManager::signalWorkbenchActivated` and prove it covers normal,
+   handler-self, raw Python object, removal, and failed activation paths.
+2. Add the curated workspace catalog and a fixed-child-order `Std_Workspace`
+   group. Availability changes action visibility/enabled state and the combo's
+   displayed subset; it never deletes or reindexes group children.
+3. Replace only `root -> Workbench -> Std_Workbench` with `Std_Workspace`
+   through `WorkbenchManipulator`; `ToolBarItem::findItem()` is one-level, so
+   each level must be resolved explicitly. Retain `Std_Workbench` and the
+   legacy menu for compatibility and for `NoneWorkbench`, whose toolbar tree is
+   intentionally empty.
+4. Prove UI, Python, addon, failure, and per-document-tab activation cannot
+   diverge from the actual active workbench.
+5. Add a copied-ID command search model over the current menu/toolbar surface;
+   never retain raw command or action pointers. Model group children as owner
+   command plus child index, not as independent dispatch targets.
+6. Add the `Std_CommandSearch` palette and its focus, active-state, grouped and
+   checkable action, dynamic command removal, queued localization rebuild,
+   `ShortcutManager`, and HiDPI tests.
+7. Add contextual rule evaluation and the dynamic action widget.
+8. Register and integration-test the Design rules after Part Design commands load.
+9. Change only the visible `ComboView` title to Project; preserve `Std_ComboView` and object name `Model`.
+10. Complete keyboard, focus, HiDPI, save/reopen, and undo/redo acceptance checks.
+11. Enable the shell by default only after all M1 gates pass.
 
 ### Planned tests
 
-- `tests/src/Gui/WorkspaceRegistry.cpp`
+- `tests/src/Gui/Workspace.cpp`
 - `tests/src/Gui/ContextActions.cpp`
 - `tests/src/Gui/CommandPalette.cpp`
 - `tests/src/Gui/WorkspaceWidgets.cpp`
@@ -138,11 +195,19 @@ Rules expose only registered commands. Disabled commands remain disabled. Group 
 
 ### Exit gate
 
-- Workspace and legacy workbench state cannot diverge during UI, Python, or per-tab activation.
+- Workspace and legacy workbench state cannot diverge during UI, Python,
+  handler-self, raw `WorkbenchPy`, removal, failed, or per-tab activation.
+- The selector uses stable workspace identities and group indices across
+  availability changes; `Std_Workbench` remains functional in the menu.
 - Selecting Design loads the real Part Design workbench and commands.
 - Face, edge, sketch, body, and empty selections produce the specified real command sets.
-- Context and palette activation use existing command paths and create no duplicate undo transaction.
+- Context and palette activation trigger the enabled command-owned action after
+  normal active-state checks and create no duplicate undo transaction.
 - Lazy command registration updates the palette without restart.
+- Removing a command or changing language/workbench cannot leave stale action
+  pointers, stale group indices, or untranslated search entries.
+- The configurable palette shortcut opens from the viewport and a line edit;
+  unrelated application shortcuts remain suppressed in line edits.
 - Escape closes the palette without changing a document and restores focus.
 - Tree and viewport selections produce the same context.
 - Body → sketch → pad → fillet → save → reopen → edit → undo/redo passes.

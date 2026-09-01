@@ -28,6 +28,7 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QContextMenuEvent>
+#include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDockWidget>
 #include <QFontMetrics>
@@ -64,6 +65,8 @@
 #endif
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <App/Application.h>
@@ -84,16 +87,20 @@
 #include <TaskView/TaskView.h>
 
 #include "MainWindow.h"
+#include "MainWindowCleanup.h"
 #include "Action.h"
 #include "Assistant.h"
 #include "BitmapFactory.h"
 #include "ComboView.h"
 #include "Command.h"
 #include "DockWindowManager.h"
+#include "DiagnosticUtils.h"
 #include "DownloadManager.h"
 #include "FileDialog.h"
+#include "GuiApplication.h"
 #include "InputHintWidget.h"
 #include "MenuManager.h"
+#include "MenuManagerCleanup.h"
 #include "ModuleIO.h"
 #include "NotificationArea.h"
 #include "OverlayManager.h"
@@ -109,6 +116,7 @@
 #include "Tree.h"
 #include "WaitCursor.h"
 #include "WorkbenchManager.h"
+#include "WorkbenchSelector.h"
 #include "Workbench.h"
 
 #include "MergeDocuments.h"
@@ -134,6 +142,102 @@ using namespace std;
 
 
 MainWindow* MainWindow::instance = nullptr;
+
+namespace
+{
+bool mainWindowTeardownDiagnosticsEnabled() noexcept
+{
+    static const bool enabled = []() noexcept {
+        try {
+            const auto& config = App::Application::Config();
+            const auto runMode = config.find("RunMode");
+            if (runMode != config.end() && runMode->second == "Internal") {
+                return true;
+            }
+        }
+        catch (...) {
+        }
+        return std::getenv("OPENFUSION_GUI_SYSTEM_EXIT_CHILD") != nullptr;
+    }();
+    return enabled;
+}
+
+void reportMainWindowDestructionStage(const char* stage) noexcept
+{
+    if (!mainWindowTeardownDiagnosticsEnabled()) {
+        return;
+    }
+    std::fprintf(stderr, "OpenFusion lifecycle: stage=%s\n", stage);
+    std::fflush(stderr);
+}
+
+void reportMainWindowDestructionCount(const char* stage, long long count) noexcept
+{
+    if (!mainWindowTeardownDiagnosticsEnabled()) {
+        return;
+    }
+    std::fprintf(stderr, "OpenFusion lifecycle: stage=%s count=%lld\n", stage, count);
+    std::fflush(stderr);
+}
+
+void reportMainWindowOwnedObject(
+    const char* stage,
+    long long index,
+    const QByteArray& className,
+    const std::string& objectName,
+    const QByteArray& contentClassName,
+    const std::string& contentObjectName
+) noexcept
+{
+    if (!mainWindowTeardownDiagnosticsEnabled()) {
+        return;
+    }
+    std::fprintf(
+        stderr,
+        "OpenFusion lifecycle: stage=%s index=%lld class=%s object=\"%s\" "
+        "content_class=%s content_object=\"%s\"\n",
+        stage,
+        index,
+        className.constData(),
+        objectName.c_str(),
+        contentClassName.constData(),
+        contentObjectName.c_str()
+    );
+    std::fflush(stderr);
+}
+
+void reportStatusBarChildOrder(const QList<QPointer<QStatusBar>>& statusBars) noexcept
+{
+    if (!mainWindowTeardownDiagnosticsEnabled()) {
+        return;
+    }
+    try {
+        long long statusBarIndex = 0;
+        for (const QPointer<QStatusBar>& statusBar : statusBars) {
+            if (!statusBar) {
+                ++statusBarIndex;
+                continue;
+            }
+            long long childIndex = 0;
+            const QObjectList children = statusBar->children();
+            for (QObject* child : children) {
+                std::fprintf(
+                    stderr,
+                    "OpenFusion lifecycle: stage=main-window-owned-statusbar-child "
+                    "statusbar=%lld index=%lld class=%s\n",
+                    statusBarIndex,
+                    childIndex++,
+                    child->metaObject()->className()
+                );
+            }
+            ++statusBarIndex;
+        }
+        std::fflush(stderr);
+    }
+    catch (...) {
+    }
+}
+}  // namespace
 
 namespace Gui
 {
@@ -497,9 +601,235 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags f)
 
 MainWindow::~MainWindow()
 {
+    reportMainWindowDestructionStage("main-window-destruct-body-begin");
+    reportMainWindowDestructionStage("main-window-derived-callbacks-disconnect-begin");
+    d->saveStateTimer.stop();
+    d->restoreStateTimer.stop();
+    d->saveStateTimer.disconnect();
+    d->restoreStateTimer.disconnect();
+    d->actionTimer->stop();
+    d->statusTimer->stop();
+    d->activityTimer->stop();
+    d->connParam.disconnect();
+    qApp->removeEventFilter(this);
+    QObject::disconnect(QApplication::clipboard(), nullptr, this, nullptr);
+    const QList<QObject*> ownedObjects = findChildren<QObject*>();
+    for (QObject* object : ownedObjects) {
+        object->removeEventFilter(this);
+        QObject::disconnect(object, nullptr, this, nullptr);
+    }
+    reportMainWindowDestructionStage("main-window-derived-callbacks-disconnect-end");
     delete d->status;
+    d->status = nullptr;
+    const QList<QPointer<QStatusBar>> ownedStatusBars
+        = MainWindowInternal::ownedStatusBars(this);
+    reportMainWindowDestructionCount(
+        "main-window-owned-statusbar-destruct-begin",
+        static_cast<long long>(ownedStatusBars.size())
+    );
+    reportStatusBarChildOrder(ownedStatusBars);
+    MainWindowInternal::destroyOwnedStatusBars(this, ownedStatusBars);
+    reportMainWindowDestructionCount(
+        "main-window-owned-statusbar-destruct-end",
+        static_cast<long long>(ownedStatusBars.size())
+    );
+    const QList<QPointer<QDockWidget>> ownedDockWidgets
+        = MainWindowInternal::ownedDockWidgets(this);
+    reportMainWindowDestructionCount(
+        "main-window-owned-docks-destruct-begin",
+        static_cast<long long>(ownedDockWidgets.size())
+    );
+    long long dockIndex = 0;
+    const bool dockDiagnosticsEnabled = mainWindowTeardownDiagnosticsEnabled();
+    DockWindowManager* dockWindowManager = DockWindowManager::instance();
+    for (const QPointer<QDockWidget>& dockWidget : ownedDockWidgets) {
+        QByteArray className;
+        std::string objectName;
+        QByteArray contentClassName;
+        std::string contentObjectName;
+        if (dockDiagnosticsEnabled) {
+            className = dockWidget ? QByteArray(dockWidget->metaObject()->className())
+                                   : QByteArray("deleted");
+            objectName = Detail::collectDiagnosticQString(
+                true,
+                [&dockWidget] { return dockWidget ? dockWidget->objectName() : QString(); }
+            );
+            QWidget* contentWidget = dockWidget ? dockWidget->widget() : nullptr;
+            contentClassName = contentWidget
+                ? QByteArray(contentWidget->metaObject()->className())
+                : QByteArray("unavailable");
+            contentObjectName = Detail::collectDiagnosticQString(
+                true,
+                [contentWidget] { return contentWidget ? contentWidget->objectName() : QString(); }
+            );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-destruct-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-unregister-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        if (dockWidget) {
+            dockWindowManager->unregisterDockWindowForDestruction(dockWidget.data());
+        }
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-unregister-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-remove-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        MainWindowInternal::removeOwnedDockWidget(this, dockWidget);
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-remove-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-content-detach-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        const QPointer<QWidget> dockContent
+            = MainWindowInternal::detachOwnedDockWidgetContent(dockWidget);
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-content-detach-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-content-destruct-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        MainWindowInternal::destroyDetachedDockWidgetContent(dockContent);
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-content-destruct-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-container-destruct-begin",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        MainWindowInternal::destroyEmptyDockWidget(dockWidget);
+        if (dockDiagnosticsEnabled) {
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-container-destruct-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+            reportMainWindowOwnedObject(
+                "main-window-owned-dock-destruct-end",
+                dockIndex,
+                className,
+                objectName,
+                contentClassName,
+                contentObjectName
+            );
+        }
+        ++dockIndex;
+    }
+    reportMainWindowDestructionCount(
+        "main-window-owned-docks-destruct-end",
+        static_cast<long long>(ownedDockWidgets.size())
+    );
+    reportMainWindowDestructionStage("main-window-workbench-managers-destruct-begin");
+    WorkbenchManager::destruct();
+    reportMainWindowDestructionStage("main-window-workbench-managers-destruct-end");
+    // QWidget teardown may still emit subWindowActivated while child MDI
+    // windows are being destroyed. Disconnect first so shutdown cannot re-enter
+    // MainWindow slots after derived destruction has started.
+    if (d->mdiArea) {
+        disconnect(d->mdiArea, &QMdiArea::subWindowActivated, this, &MainWindow::onWindowActivated);
+    }
+    // Destroy the owned MDI hierarchy while the most-derived MainWindow and its
+    // private state are still valid. QMdiSubWindow teardown must detach its
+    // maximized controls and event filter from our menu bar before QWidget marks
+    // this window as being in its base destructor.
+    reportMainWindowDestructionStage("main-window-owned-ui-destruct-begin");
+    QWidget* ownedCentralWidget = takeCentralWidget();
+    d->mdiArea = nullptr;
+    delete ownedCentralWidget;
+    reportMainWindowDestructionStage("main-window-owned-ui-destruct-end");
+    QWidget* ownedMenuWidget = menuWidget();
+    reportMainWindowDestructionStage("main-window-owned-menus-destruct-begin");
+    if (auto* ownedMenuBar = qobject_cast<QMenuBar*>(ownedMenuWidget)) {
+        MenuManagerInternal::destroyOwnedWorkbenchMenus(ownedMenuBar);
+    }
+    reportMainWindowDestructionStage("main-window-owned-menus-destruct-end");
+    reportMainWindowDestructionStage("main-window-menu-widget-destruct-begin");
+    if (ownedMenuWidget) {
+        setMenuWidget(nullptr);
+        QCoreApplication::removePostedEvents(ownedMenuWidget, QEvent::DeferredDelete);
+        delete ownedMenuWidget;
+    }
+    reportMainWindowDestructionStage("main-window-menu-widget-destruct-end");
+    const QList<QPointer<QToolBar>> ownedToolBars = MainWindowInternal::ownedToolBars(this);
+    reportMainWindowDestructionCount(
+        "main-window-owned-toolbars-destruct-begin",
+        static_cast<long long>(ownedToolBars.size())
+    );
+    MainWindowInternal::destroyOwnedToolBars(this, ownedToolBars);
+    reportMainWindowDestructionCount(
+        "main-window-owned-toolbars-destruct-end",
+        static_cast<long long>(ownedToolBars.size())
+    );
+
     delete d;
     instance = nullptr;
+    reportMainWindowDestructionStage("main-window-destruct-body-end");
 }
 
 MainWindow* MainWindow::getInstance()
@@ -1025,6 +1355,7 @@ void MainWindow::activatePreviousWindow()
 
 void MainWindow::activateWorkbench(const QString& name)
 {
+    WorkspaceSelectionController::persistWorkbenchSelection(name);
     // remember workbench by tab (if enabled)
 
     const ParameterGrp::handle hGrp = App::GetApplication().GetParameterGroupByPath(
@@ -1684,6 +2015,52 @@ void MainWindow::processMessages(const QList<QString>& msg)
     }
 }
 
+namespace
+{
+void handleDelayedStartupException(std::exception_ptr exception) noexcept
+{
+    auto* application = qobject_cast<Gui::GUIApplication*>(QCoreApplication::instance());
+    if (application && application->requestSystemExit(exception)) {
+        return;
+    }
+
+    try {
+        if (exception) {
+            std::rethrow_exception(exception);
+        }
+        Base::Console().error("Unknown exception in delayed startup callback\n");
+    }
+    catch (const Base::Exception& error) {
+        const bool wasAlreadyReported = error.getReported();
+        const bool isPythonException = dynamic_cast<const Base::PyException*>(&error) != nullptr;
+        try {
+            error.reportException();
+        }
+        catch (...) {
+            Base::Console().error("Base exception in delayed startup callback: %s\n", error.what());
+        }
+        if (wasAlreadyReported || isPythonException) {
+            // PyException::throwException() reports through the developer-only channel before
+            // propagating, while other interpreter entry points throw an unreported PyException.
+            // Release builds can filter the developer channel in either case, so retain an
+            // ordinary error record for unattended startup and test failures.
+            Base::Console().error(
+                "Exception diagnostic in delayed startup callback: %s\n",
+                error.what()
+            );
+        }
+    }
+    catch (const std::exception& error) {
+        Base::Console().error("Exception in delayed startup callback: %s\n", error.what());
+    }
+    catch (...) {
+        Base::Console().error("Unknown exception in delayed startup callback\n");
+    }
+
+    QCoreApplication::exit(1);
+}
+}  // namespace
+
 void MainWindow::delayedStartup()
 {
     // automatically run unit tests in Gui
@@ -1691,23 +2068,29 @@ void MainWindow::delayedStartup()
         QTimer::singleShot(1000, this, [] {
             try {
                 string command = "import sys\n"
+                                 "import GuiTestRunner\n"
                                  "import FreeCAD\n"
                                  "import QtUnitGui\n\n"
                                  "testCase = FreeCAD.ConfigGet(\"TestCase\")\n"
                                  "QtUnitGui.addTest(testCase)\n"
                                  "QtUnitGui.setTest(testCase)\n"
-                                 "result = QtUnitGui.runTest()\n"
-                                 "sys.stdout.flush()\n";
+                                 "result = GuiTestRunner.run_test_with_diagnostics(\n"
+                                 "    QtUnitGui.runTest,\n"
+                                 "    fallback=FreeCAD.Console.PrintError,\n"
+                                 ")\n"
+                                 "if (\n"
+                                 "    result\n"
+                                 "    and FreeCAD.ConfigGet(\"ExitTests\") == \"yes\"\n"
+                                 "    and GuiTestRunner.is_full_gui_test_selection(testCase)\n"
+                                 "):\n"
+                                 "    GuiTestRunner.report_top_level_widgets()\n";
                 if (App::Application::Config()["ExitTests"] == "yes") {
                     command += "sys.exit(0 if result else 1)";
                 }
                 Base::Interpreter().runString(command.c_str());
             }
-            catch (const Base::SystemExitException&) {
-                throw;
-            }
-            catch (const Base::Exception& e) {
-                e.reportException();
+            catch (...) {
+                handleDelayedStartupException(std::current_exception());
             }
         });
         return;
@@ -1722,8 +2105,9 @@ void MainWindow::delayedStartup()
             FileDialog::setWorkingDirectory(filename);
         }
     }
-    catch (const Base::SystemExitException&) {
-        throw;
+    catch (...) {
+        handleDelayedStartupException(std::current_exception());
+        return;
     }
 
     if (Application::hiddenMainWindow()) {
